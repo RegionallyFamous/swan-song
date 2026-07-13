@@ -6,6 +6,15 @@
 - Verilator 5.050 successfully elaborates, compiles, and runs that translation.
 - The open MiSTer sprite-priority and window test ROMs produce deterministic
   224×144 PNG frame hashes in repeated runs.
+- The structured-trace config parser and CSV/JSONL serializers have a standalone
+  C++ unit test. The regression also validates CPU and VRAM events from the
+  translated model, including `CS:IP` conversion and an inclusive PC filter,
+  and generates a build-only ROM that verifies writes to all four C0-C3 bank
+  registers.
+- A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
+  constructor-pass checkmark, and produces identical traces and final frames in
+  two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
+  hashes; the generated ROM is not checked in.
 - The reverse-bit and deterministic APF package scripts are host-independent.
 - Quartus compilation and timing closure are **not verified on this macOS host**.
 - No build has been confirmed on an Analogue Pocket in this fork.
@@ -38,6 +47,57 @@ Add `--trace build/sim/windowtest.vcd` for a VCD or `--bios /path/to/bw.rom`
 to test with a legally obtained firmware image. Without `--bios`, the harness
 programs a nine-byte open bootstrap suitable for the included test ROMs. The
 harness never searches for or downloads firmware.
+
+### Structured event traces
+
+The VCD option captures the whole translated design. For a smaller,
+machine-readable stream, select one or more of the `cpu`, `bank`, and `vram`
+event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
+generic for this simulator build; the production default leaves it disabled.
+
+```sh
+./sim/verilator/run.sh \
+  --rom testroms/windowtest/windowtest.ws \
+  --frames 6 \
+  --event-trace build/sim/windowtest.csv \
+  --trace-events bank,vram
+```
+
+CPU records can be limited to an inclusive 20-bit physical-PC range. The range
+applies only to CPU events, so bank and VRAM activity remains available in a
+mixed trace:
+
+```sh
+./sim/verilator/run.sh \
+  --rom /path/to/legally-obtained-title.wsc \
+  --frames 10 \
+  --event-trace build/sim/text-renderer.jsonl \
+  --trace-events cpu,bank,vram \
+  --trace-pc 0x80000-0x8ffff
+```
+
+Use `--trace-format csv|jsonl` to override suffix-based format selection. For a
+repeatable investigation, copy `sim/verilator/trace.example.conf`, then pass
+`--trace-config FILE`. Later command-line options override config-file values.
+The config accepts `output`, `format`, `events`, and `cpu_pc`. Full field
+semantics and filtering behavior are in `sim/verilator/TRACE.md`.
+
+Run the parser/serializer unit test independently of GHDL and Verilator:
+
+```sh
+mkdir -p build
+c++ -std=c++17 -Wall -Wextra -Werror \
+  sim/verilator/trace_logger_test.cpp \
+  -o build/trace_logger_test
+./build/trace_logger_test
+```
+
+This unit test proves config parsing, filtering primitives, and serialization.
+`make regression` separately runs `verify_trace.py` against an end-to-end ROM
+capture to check the CSV schema, event-specific fields, monotonic cycles,
+`CS:IP` to physical-PC conversion, and requested PC-range containment.
+The same regression generates (but does not check in) a minimal open bank-write
+probe and requires serialized events for C0, C1, C2, and C3.
 
 Generated VHDL-to-Verilog files, binaries, traces, raw RGB frames, and PNGs live
 under `build/` and are ignored by Git.

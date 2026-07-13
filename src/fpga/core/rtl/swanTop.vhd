@@ -99,7 +99,19 @@ entity SwanTop is
       SAVE_out_busy             : out std_logic; 
       
       rewind_on                  : in  std_logic;
-      rewind_active              : in  std_logic
+      rewind_active              : in  std_logic;
+
+      -- Simulation observability. With is_simu = '0' these are constants and
+      -- are pruned when the unconnected SwanTop outputs are synthesized.
+      debug_cpu_done             : out std_logic := '0';
+      debug_cpu_cs               : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_cpu_ip               : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_cpu_pc               : out std_logic_vector(19 downto 0) := (others => '0');
+      debug_reg_write            : out std_logic := '0';
+      debug_reg_addr             : out std_logic_vector(7 downto 0) := (others => '0');
+      debug_reg_data             : out std_logic_vector(7 downto 0) := (others => '0');
+      debug_gpu_vram_addr        : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_gpu_vram_valid       : out std_logic := '0'
    );
 end entity;
 
@@ -193,6 +205,7 @@ architecture arch of SwanTop is
    -- GPU
    signal GPU_addr               : std_logic_vector(15 downto 0);
    signal GPU_dataread           : std_logic_vector(15 downto 0); 
+   signal GPU_vram_fetch_valid   : std_logic;
 
    signal Color_addr             : std_logic_vector(7 downto 0);
    signal Color_dataread         : std_logic_vector(15 downto 0);    
@@ -238,11 +251,13 @@ architecture arch of SwanTop is
    signal SSMEM_ReadData_RAM     : std_logic_vector(15 downto 0);
    signal SSMEM_ReadData_SRAM    : std_logic_vector(15 downto 0);
 
+   -- CPU completion state also feeds the simulation observability ports.
+   signal cpu_done               : std_logic;
+   signal cpu_export             : cpu_export_type;
+
    -- export
 -- synthesis translate_off
-   signal cpu_done               : std_logic; 
    signal new_export             : std_logic; 
-   signal cpu_export             : cpu_export_type;
    signal dma_done               : std_logic;
    signal export_irq             : std_logic_vector(7 downto 0);
    signal export_8               : std_logic_vector(7 downto 0);
@@ -533,10 +548,8 @@ begin
 
       load_savestate    => sleep_savestate,       
             
--- synthesis translate_off
       cpu_done          => cpu_done,         
       cpu_export        => cpu_export,
--- synthesis translate_on
 
       RegBus_Din        => CPU_RegBus_Din, 
       RegBus_Adr        => CPU_RegBus_Adr, 
@@ -697,10 +710,12 @@ begin
                
       SOUND_addr     => SOUND_addr,    
       SOUND_dataread => SOUND_dataread,
-      SOUND_valid    => SOUND_valid,     
+      SOUND_valid    => SOUND_valid,
+
+      debug_vram_fetch_valid => GPU_vram_fetch_valid,
                
 -- synthesis translate_off
-      export_vtime   => export_8,
+      export_vtime           => export_8,
 -- synthesis translate_on
                
       -- savestates        
@@ -866,6 +881,36 @@ begin
       request_busy        => savestate_busy    
    );
    
+   -- Simulation observability. The inactive branch is constant and is
+   -- optimized away with its unused source logic in production builds.
+   gdebug : if is_simu = '1' generate
+   begin
+      debug_cpu_done       <= cpu_done;
+      debug_cpu_cs         <= std_logic_vector(cpu_export.reg_cs);
+      debug_cpu_ip         <= std_logic_vector(cpu_export.reg_ip);
+      -- The V30MZ has a 20-bit physical bus, so carry beyond bit 19 wraps.
+      debug_cpu_pc         <= std_logic_vector((resize(cpu_export.reg_cs, 20) sll 4) +
+                                                resize(cpu_export.reg_ip, 20));
+      debug_reg_write      <= RegBus_wren;
+      debug_reg_addr       <= RegBus_Adr;
+      debug_reg_data       <= RegBus_Din;
+      debug_gpu_vram_addr  <= GPU_addr;
+      debug_gpu_vram_valid <= GPU_vram_fetch_valid;
+   end generate;
+
+   gdebug_off : if is_simu /= '1' generate
+   begin
+      debug_cpu_done       <= '0';
+      debug_cpu_cs         <= (others => '0');
+      debug_cpu_ip         <= (others => '0');
+      debug_cpu_pc         <= (others => '0');
+      debug_reg_write      <= '0';
+      debug_reg_addr       <= (others => '0');
+      debug_reg_data       <= (others => '0');
+      debug_gpu_vram_addr  <= (others => '0');
+      debug_gpu_vram_valid <= '0';
+   end generate;
+
    -- export
 -- synthesis translate_off
    gexport : if is_simu = '1' generate

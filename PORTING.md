@@ -9,21 +9,33 @@ WonderSwan implementation. The comparison baseline is recorded in
 The files under `src/fpga/core/rtl/` originate in the MiSTer core and retain
 their upstream license notices. The Pocket and MiSTer repositories both carry
 a top-level GPL v2 license file; `ddram.sv` and `sdram.sv` additionally carry
-GPL-v3-or-later file headers. At the pinned heads, every shared RTL file is
-byte-identical except these five:
+GPL-v3-or-later file headers. At the pinned heads before Swan Song development,
+every shared RTL file was byte-identical except five. Phase 1 adds changes in
+two shared RTL files (one was already divergent), so the current shared-RTL
+differences are:
 
 - `rtc.vhd`: comment-only Pocket annotation.
+- `gpu.vhd`: adds a simulation-gated validity tap for graphics VRAM arbiter
+  issue slots; it does not change address selection.
 - `savestate_ui.sv`: MiSTer OSD/gamepad UI divergence; it is not instantiated by
   the Pocket top.
 - `savestates.vhd`: Pocket/APF save-state layout and operation-order changes.
 - `sdram.sv`: Pocket's single SDRAM chip-select adaptation and refresh-state
   changes.
-- `swanTop.vhd`: exports save-state busy status to the Pocket controller.
+- `swanTop.vhd`: exports save-state busy status to the Pocket controller and,
+  for `is_simu = '1'`, CPU completion/location, register writes, and GPU fetch
+  taps. The non-simulation branch drives those observability outputs to
+  constants.
 
 The Pocket tree omits MiSTer's PLL wrapper and uses APF-specific PLL IP instead.
 Changes to CPU, GPU, sound, mapper, EEPROM, RTC semantics, DMA, or console timing
 should be developed so they can be applied to MiSTer first or with a minimal
 shared patch.
+
+The structured-trace policy and serializers are simulation-specific and live
+under `sim/verilator/`. Only the minimal observation points live in shared VHDL.
+Keep future trace filtering and file-format work in the harness; do not put
+analysis policy or Pocket-specific behavior into the console modules.
 
 ## Pocket integration
 

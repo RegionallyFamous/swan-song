@@ -4,21 +4,60 @@ Pinned on 2026-07-12:
 
 | Component | Repository | Commit | License |
 | --- | --- | --- | --- |
-| Pocket baseline | https://github.com/agg23/openfpga-wonderswan | `073213a2e5992cff23b174d17763cb6354ee862b` | GPL v2 top-level; file notices vary |
-| WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | GPL v2 top-level; file notices vary |
+| Pocket baseline | https://github.com/agg23/openfpga-wonderswan | `073213a2e5992cff23b174d17763cb6354ee862b` | Top-level file contains GPL v2 text; file notices vary |
+| WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | `WonderSwan.sv` grants GPL v2-or-later; top-level file contains GPL v2 text; file notices vary |
 | APF utility reference | https://github.com/agg23/analogue-pocket-utils | `78482d1b363606336f4535aa0adc2e957bc20558` | MIT |
 
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
-the original WonderSwan FPGA core author. Imported files retain their own
-copyright and license notices: notably, `rtl/ddram.sv` and `rtl/sdram.sv` name
-Sorgelig and grant GPL v3-or-later, while each pinned repository's top-level
-`LICENSE` contains the GPL v2 text. The APF utility reference has an MIT license.
-The checked-in notices therefore do not support describing all RTL uniformly
-as GPL-2.0. Whether otherwise unheaded project code is GPL-v2-only or permits a
-later version is not stated in these files, so the mixed-version notice set
-needs review before distributing a new combined build.
+the original WonderSwan FPGA core author. The following findings come from the
+checked-in history, not from repository-host license classification:
+
+- MiSTer's first source-bearing commit (`2cebac3`, 2021-06-12) has a
+  program-level notice in `WonderSwan.sv` granting GPL v2-or-later. The same
+  commit contains `rtl/ddram.sv` and `rtl/sdram.sv`, which name Sorgelig and
+  grant GPL v3-or-later. Its parent (`1cb59d6`) added the GPL v2 license text.
+- Pocket's initial commit (`8aee749`, 2022-10-11) imported all 32 files under
+  `src/fpga/core/rtl/` byte-for-byte from MiSTer commit `ccd8c2a`, the MiSTer
+  head at that time. Pocket adapted MiSTer's `WonderSwan.sv` into
+  `src/fpga/core/main.sv` (now `wonderswan.sv`) but omitted its copyright and
+  GPL v2-or-later notice. Pocket added a byte-identical copy of MiSTer's GPL v2
+  license text in `db389a8` on 2023-01-10; that commit did not add a project
+  license declaration to the README or source files.
+- The Pocket-specific loaders, FIFO, and I2S bridge carry MIT notices. APF and
+  Intel-generated files retain their distinct vendor notices; the APF notice
+  expressly says applicable MIT or GPL terms prevail over inconsistent APF
+  terms.
+- The new C++ simulation harness files `sim/verilator/sim_main.cpp`,
+  `trace_logger.hpp`, and `trace_logger_test.cpp`, plus
+  `sim/rtl/dpram_sim.vhd`, are marked GPL v2-only. The simulation source list
+  does not include the GPL v3-or-later `ddram.sv` or `sdram.sv`, so that
+  executable does not create the GPL-v2-only/GPL-v3 combination at issue.
+  Other newly added build, test, and documentation files do not state a
+  uniform project-wide license.
+
+This history substantially narrows the apparent GPL version conflict. The
+inherited WonderSwan program was expressly offered under GPL v2-or-later, not
+GPL v2-only, so choosing GPL v3 for a combined work is compatible with the two
+GPL v3-or-later memory-controller files. This follows the FSF's
+[GPL version compatibility guidance](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility).
+The current notices therefore do not show a direct GPL-v2-only/GPL-v3-only
+contradiction in the inherited console core.
+
+The audit does **not** establish release clearance for a new combined binary.
+The Pocket adaptation removed the clearest program-level notice, many files
+remain unheaded, and the top-level `LICENSE` is only a copy of the GPL v2 text.
+The FSF advises that merely putting a GPL copy in a repository does not clearly
+apply it to particular code
+([guidance](https://www.gnu.org/licenses/gpl-faq.en.html#CopyingLicense)). The
+tree also does not include the GPL v3 license text requested by the two explicit
+GPL v3-or-later file notices. Before publishing a new bitstream, obtain a
+maintainer/copyright-holder confirmation of the intended whole-project license,
+restore or normalize notices with their approval, include every required
+license text, and review the APF and Intel-generated-file terms. No inherited
+notice has been changed by this audit.
 
 The checked-in `testroms/` tree is byte-identical to the pinned MiSTer
 `testroms/` directory. Those individual test files do not carry separate
-license headers; the source repository supplies its top-level GPL v2 license.
-The directory contains no commercial game ROM.
+license headers or declarations; their only repository-level license material
+is MiSTer's top-level GPL v2 text, so their intended grant is not independently
+stated. The directory contains no commercial game ROM.

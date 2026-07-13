@@ -117,6 +117,38 @@ Intel's `altsyncram`, and compiles the result with Verilator. It does not
 simulate the Pocket-facing `core_top`/`wonderswan.sv` wrappers or physical SDRAM
 controller. Its C++ harness models cartridge ROM reads and a zero-initialized
 1 MiB external SRAM with byte-enable writes, programs BIOS RAM, captures the
-GPU's direct RGB444 framebuffer stream, and optionally writes a VCD. With no
-BIOS argument it uses a nine-byte simulation-only bootstrap that disables the BIOS overlay
-and jumps to the open test ROM.
+GPU's direct RGB444 framebuffer stream, and optionally writes either a
+whole-design VCD or a filtered structured event trace. With no BIOS argument it
+uses a nine-byte simulation-only bootstrap that disables the BIOS overlay and
+jumps through the cartridge reset vector.
+
+### Simulation observability
+
+`SwanTop` exposes nine observability outputs when its `is_simu` generic is set:
+an instruction-complete pulse with `CS`, `IP`, and the wrapped 20-bit physical
+PC; the register-bus write address and value; and a GPU VRAM-fetch address and
+valid pulse. The GPU validity tap marks graphics arbiter issue slots and omits
+the two sound-RAM slots. With `is_simu = '0'`, all nine outputs are constants;
+the unconnected outputs and their source logic can therefore be pruned from a
+production build. These are observation points, not new console behavior.
+
+The Verilator adapter converts the raw taps into three event classes:
+
+| Event | Source | Harness behavior |
+| --- | --- | --- |
+| `cpu` | instruction-complete pulse and CPU export state | records physical PC, `CS`, and `IP` at that boundary; an optional inclusive physical-PC range filters only this class |
+| `bank` | post-mux register-bus writes | records writes to cartridge bank registers C0-C3 and de-duplicates a write level spanning adjacent system clocks |
+| `vram` | GPU graphics-memory arbiter | records the 16-bit VRAM address for each graphics issue slot |
+
+Structured capture begins after reset is released and uses 36.864 MHz system
+cycles as its timebase. CSV and JSON Lines share a stable seven-field schema;
+event selection, CPU-PC filtering, output path, and format may be supplied on
+the command line or in a `KEY=VALUE` config file. A build translated without
+the observability ports remains usable for normal simulation, but the harness
+rejects a structured-trace request rather than silently producing an empty
+file. See `sim/verilator/TRACE.md` for the command-line workflow and schema.
+
+This instrumentation has no coverage of Pocket wrapper state, physical SDRAM,
+or behavior on an Analogue Pocket. Its value for a specific game's text
+renderer is established only after a trace from that title is captured and
+correlated with known on-screen text.

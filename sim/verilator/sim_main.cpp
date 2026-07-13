@@ -12,9 +12,12 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "VSwanTop.h"
+#include "trace_logger.hpp"
 
 namespace fs = std::filesystem;
 
@@ -39,10 +42,65 @@ static void write_rgb(const fs::path& path,
 }
 
 static void usage(const char* argv0) {
-  std::cerr << "usage: " << argv0
-            << " --rom FILE [--bios FILE] [--frames N] [--out DIR]"
-               " [--trace FILE.vcd] [--max-cycles N]\n";
+  std::cerr
+      << "usage: " << argv0 << " --rom FILE [OPTIONS]\n\n"
+      << "Simulation:\n"
+      << "  --bios FILE             4 KiB mono or 8 KiB color BIOS\n"
+      << "  --frames N              stop after N complete frames (default: 1)\n"
+      << "  --out DIR               raw/PNG frame directory\n"
+      << "  --max-cycles N          timeout in 36.864 MHz system cycles\n"
+      << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
+      << "Structured debug trace:\n"
+      << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
+      << "  --trace-events LIST     comma list: cpu,bank,vram (default: all)\n"
+      << "  --trace-pc START-END    inclusive 20-bit physical CPU PC filter\n"
+      << "  --trace-format FORMAT   csv or jsonl (overrides filename suffix)\n"
+      << "  --trace-config FILE     load KEY=VALUE trace settings; later CLI"
+         " options win\n"
+      << "  --help                  show this help\n";
 }
+
+template <typename Top, typename = void>
+struct DebugTapAdapter {
+  static constexpr bool available = false;
+  void capture(const Top&, swansong::trace::Logger&, uint64_t) {}
+};
+
+template <typename Top>
+struct DebugTapAdapter<
+    Top, std::void_t<decltype(std::declval<Top>().debug_cpu_done),
+                     decltype(std::declval<Top>().debug_cpu_cs),
+                     decltype(std::declval<Top>().debug_cpu_ip),
+                     decltype(std::declval<Top>().debug_cpu_pc),
+                     decltype(std::declval<Top>().debug_reg_write),
+                     decltype(std::declval<Top>().debug_reg_addr),
+                     decltype(std::declval<Top>().debug_reg_data),
+                     decltype(std::declval<Top>().debug_gpu_vram_valid),
+                     decltype(std::declval<Top>().debug_gpu_vram_addr)>> {
+  static constexpr bool available = true;
+
+  void capture(const Top& top, swansong::trace::Logger& logger, uint64_t cycle) {
+    if (top.debug_cpu_done) {
+      logger.cpu(cycle, top.debug_cpu_pc, top.debug_cpu_cs, top.debug_cpu_ip);
+    }
+    const bool repeated_write = previous_reg_write_ &&
+                                previous_reg_addr_ == top.debug_reg_addr &&
+                                previous_reg_data_ == top.debug_reg_data;
+    if (top.debug_reg_write && !repeated_write && top.debug_reg_addr >= 0xc0 &&
+        top.debug_reg_addr <= 0xc3) {
+      logger.bank(cycle, top.debug_reg_addr, top.debug_reg_data);
+    }
+    if (top.debug_gpu_vram_valid) logger.vram(cycle, top.debug_gpu_vram_addr);
+    previous_reg_write_ = top.debug_reg_write;
+    previous_reg_addr_ = top.debug_reg_addr;
+    previous_reg_data_ = top.debug_reg_data;
+  }
+
+ private:
+  bool previous_reg_write_ = false;
+  uint8_t previous_reg_addr_ = 0;
+  uint8_t previous_reg_data_ = 0;
+};
 
 int main(int argc, char** argv) {
   Verilated::commandArgs(argc, argv);
@@ -50,6 +108,7 @@ int main(int argc, char** argv) {
   fs::path bios_path;
   fs::path out_dir = "build/sim/frames";
   fs::path trace_path;
+  swansong::trace::Config event_trace_config;
   uint64_t max_cycles = 36'864'000;
   unsigned target_frames = 1;
 
@@ -64,6 +123,16 @@ int main(int argc, char** argv) {
     else if (arg == "--frames") target_frames = std::stoul(value("--frames"));
     else if (arg == "--out") out_dir = value("--out");
     else if (arg == "--trace") trace_path = value("--trace");
+    else if (arg == "--event-trace") event_trace_config.output = value("--event-trace");
+    else if (arg == "--trace-events") {
+      event_trace_config.events = swansong::trace::parse_events(value("--trace-events"));
+    } else if (arg == "--trace-pc") {
+      event_trace_config.cpu_pc = swansong::trace::parse_pc_range(value("--trace-pc"));
+    } else if (arg == "--trace-format") {
+      event_trace_config.format = swansong::trace::parse_format(value("--trace-format"));
+    } else if (arg == "--trace-config") {
+      swansong::trace::parse_config_file(value("--trace-config"), event_trace_config);
+    }
     else if (arg == "--max-cycles") max_cycles = std::stoull(value("--max-cycles"));
     else if (arg == "--help") { usage(argv[0]); return 0; }
     else throw std::runtime_error("unknown argument: " + arg);
@@ -87,13 +156,25 @@ int main(int argc, char** argv) {
     }
   } else {
     // Open simulation bootstrap: enable cartridge visibility via port A0, then
-    // jump to F000:0000. This is not a replacement firmware implementation.
+    // jump through the cartridge reset vector at FFFF:0000. This is not a
+    // replacement firmware implementation.
     bios.assign(color_cartridge ? 8192 : 4096, 0x90);
-    const uint8_t bootstrap[] = {0xb0, 0x01, 0xe6, 0xa0, 0xea, 0x00, 0x00, 0x00, 0xf0};
+    const uint8_t bootstrap[] = {0xb0, 0x01, 0xe6, 0xa0, 0xea,
+                                 0x00, 0x00, 0xff, 0xff};
     std::copy(std::begin(bootstrap), std::end(bootstrap), bios.end() - 16);
   }
 
   auto top = std::make_unique<VSwanTop>();
+  using TraceTaps = DebugTapAdapter<VSwanTop>;
+  TraceTaps trace_taps;
+  if (event_trace_config.enabled() && !TraceTaps::available) {
+    throw std::runtime_error(
+        "structured trace requested, but this model was built without debug taps");
+  }
+  std::unique_ptr<swansong::trace::Logger> event_trace;
+  if (event_trace_config.enabled()) {
+    event_trace = std::make_unique<swansong::trace::Logger>(event_trace_config);
+  }
   std::unique_ptr<VerilatedVcdC> trace;
   if (!trace_path.empty()) {
     if (trace_path.has_parent_path()) fs::create_directories(trace_path.parent_path());
@@ -136,11 +217,16 @@ int main(int argc, char** argv) {
 
   std::vector<uint8_t> sram(1u << 20, 0);
   uint64_t ticks = 0;
+  uint64_t trace_cycle = 0;
+  bool trace_capture_active = false;
   auto eval = [&] {
     top->eval();
     const uint32_t raw_address = top->EXTRAM_addr & 0x01ff'ffffu;
     if (raw_address & 0x0100'0000u) {
-      const size_t address = (raw_address & 0x00ff'ffffu) % sram.size();
+      // The Pocket wrapper drops EXTRAM_addr bit 0 when addressing its 16-bit
+      // SDRAM. Model the same aligned word; memorymux supplies byte enables
+      // and selects the requested byte for odd CPU addresses.
+      const size_t address = ((raw_address & 0x00ff'ffffu) & ~1u) % sram.size();
       if (top->EXTRAM_write) {
         if (top->EXTRAM_be & 0x1) sram[address] = top->EXTRAM_datawrite & 0xff;
         if (top->EXTRAM_be & 0x2) sram[(address + 1) % sram.size()] = top->EXTRAM_datawrite >> 8;
@@ -148,7 +234,7 @@ int main(int argc, char** argv) {
       top->EXTRAM_dataread = static_cast<uint16_t>(
           sram[address] | (sram[(address + 1) % sram.size()] << 8));
     } else {
-      const uint32_t address = raw_address & 0x00ff'ffffu;
+      const uint32_t address = (raw_address & 0x00ff'ffffu) & ~1u;
       const uint32_t a = address & static_cast<uint32_t>(rom.size() - 1);
       const uint8_t lo = rom[a % rom.size()];
       const uint8_t hi = rom[(a + 1) % rom.size()];
@@ -165,7 +251,11 @@ int main(int argc, char** argv) {
       if (phase == 0) top->clk = 1;
       if (phase == 3) top->clk = 0;
       eval();
+      if (trace_capture_active && event_trace) {
+        if (phase == 0) trace_taps.capture(*top, *event_trace, trace_cycle);
+      }
     }
+    if (trace_capture_active) ++trace_cycle;
   };
 
   // Program the inferred BIOS RAM while reset is asserted.
@@ -179,6 +269,7 @@ int main(int argc, char** argv) {
   top->bios_wr = top->bios_wrcolor = 0;
   for (int i = 0; i < 16; ++i) cycle();
   top->reset_in = 0;
+  trace_capture_active = true;
 
   fs::create_directories(out_dir);
   std::array<uint16_t, 224 * 144> frame{};

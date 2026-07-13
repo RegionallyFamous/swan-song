@@ -55,7 +55,8 @@ entity gpu is
       SSBUS_Dout     : out std_logic_vector(SSBUS_buswidth-1 downto 0);
       
       -- debug
-      export_vtime   : out std_logic_vector(7 downto 0)
+      export_vtime           : out std_logic_vector(7 downto 0);
+      debug_vram_fetch_valid : out std_logic := '0'
    );
 end entity;
 
@@ -453,15 +454,19 @@ begin
       if rising_edge(clk) then
       
          memoryArbiter <= memoryArbiter + 1;
+         -- RAM_addr is a graphics VRAM request in every arbiter slot except
+         -- the two SOUND_addr slots. Register validity beside the selected
+         -- address so an external trace sees the request without phase math.
+         debug_vram_fetch_valid <= '0';
         
          case (to_integer(memoryArbiter)) is
-            when 0 => RAM_addr <= RAM_Address_BG0;
-            when 1 => RAM_addr <= spriteDMAAddr;
-            when 2 => RAM_addr <= RAM_Address_SPR;
+            when 0 => RAM_addr <= RAM_Address_BG0; debug_vram_fetch_valid <= is_simu;
+            when 1 => RAM_addr <= spriteDMAAddr;   debug_vram_fetch_valid <= is_simu;
+            when 2 => RAM_addr <= RAM_Address_SPR; debug_vram_fetch_valid <= is_simu;
             when 3 => RAM_addr <= SOUND_addr;
-            when 4 => RAM_addr <= RAM_Address_BG1;
-            when 5 => RAM_addr <= spriteDMAAddr;
-            when 6 => RAM_addr <= RAM_Address_SPR;
+            when 4 => RAM_addr <= RAM_Address_BG1; debug_vram_fetch_valid <= is_simu;
+            when 5 => RAM_addr <= spriteDMAAddr;   debug_vram_fetch_valid <= is_simu;
+            when 6 => RAM_addr <= RAM_Address_SPR; debug_vram_fetch_valid <= is_simu;
             when 7 => RAM_addr <= SOUND_addr;
             when others => null;
          end case;
@@ -812,8 +817,6 @@ begin
    
 
 end architecture;
-
-
 
 
 
