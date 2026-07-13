@@ -13,6 +13,15 @@
   Its 32 atomic sprite-row events bind four cached descriptors to slots 0-3
   on lines 72-79 and distinguish 32 contributing 2bpp words from the engine's
   32 noncontributing second reads.
+- Wonderful's open mono `80186_quirks.ws` fixture now renders all three PASS
+  results for non-decimal-base AAM, non-decimal-base AAD, and D6/SALC. The
+  strict gate binds the checked-in source, licenses, ROM/footer/font identities,
+  terminal CPU loop, all 24 promoted PASS-tile rows, exact first/final frames,
+  and byte-identical paired traces and framebuffers. Its stable final RGB
+  SHA-256 is
+  `871d7e2de2f915ceaae2a94fcf99b86825430f79588e43e640f9bfa8fed6dce0`.
+  This upstream ROM checks result values; it does not test flags, AAM base-zero
+  interrupt behavior, or instruction timing.
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
@@ -244,6 +253,16 @@ instruction origins for probe-owned accesses across the paired trace-space
 coverage.
 The boot probes bind both input images and prove the overlay-to-cartridge
 transition at identical physical addresses.
+
+The checked-in
+`testroms/ws-test-suite/80186_quirks/80186_quirks.ws` regression runs twice
+with CPU and atomic-background tracing. Its dedicated verifier binds the
+pinned MIT/zlib source inputs and exact ROM, requires the final 128 CPU events
+to remain in the fixture's idle loop, rejects any FAIL tile at the three result
+positions, reconstructs all eight rows of every PASS marker from the embedded
+font, and compares both traces and both frame pairs byte for byte. Focused
+mutation tests reject changed source, footer, checksum, ROM, terminal state,
+result tile, framebuffer, manifest, and paired-run identity.
 
 The simulator also accepts a strict `--input-script FILE` schedule keyed to
 36.864 MHz system cycles from reset release. The integrated regression uses an

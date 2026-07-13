@@ -12,6 +12,7 @@ Pinned on 2026-07-12:
 | Wonderful native example reference | https://github.com/WonderfulToolchain/target-wswan-examples | `811b739ab1f0203336a08da8db34365d29869617` | CC0-1.0 example scaffold; linked libraries use zlib terms |
 | Misaki Japanese font source mirror | https://github.com/OpenWitch/AthenaOS | `d37beae7482616313883dcfa4bdb7114d1ef5749` | author's official source/license: https://littlelimit.net/misaki.htm; unlimited use/copy/distribution with or without modification; no warranty |
 | ares behavioral reference | https://github.com/ares-emulator/ares | `449b93716fb162632de2fd43bf2eba2064fa43f2` | ares core under ISC-style notice; bundled notices vary |
+| Mesen behavioral reference | https://github.com/SourMesen/Mesen2 | `b9fa69ddc6d0a331fb103fdb5eef6904305703c2` | GPL v3 |
 
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
 the original WonderSwan FPGA core author. The following findings come from the
@@ -167,6 +168,32 @@ and that fixture's pinned [source](https://github.com/asiekierka/ws-test-suite/b
 Those sources validate attributes, scanline selection, and open stimulus; none
 reports this translated RTL's internal line-buffer acceptance edge, so the
 atomic provenance claim is explicitly simulation-only.
+
+The checked-in `80186_quirks.ws` fixture is likewise a byte-identical build of
+the pinned MIT ws-test-suite source at `7dfa0e2e`. Its local README records the
+pinned Wonderful container, `target-wswan-syslibs` version and zlib notice,
+source files, 131,072-byte size, and ROM SHA-256
+`b44090665f0165c7e3279da13359a0b27c69e3127823d55b2bb16f3dd4a2eb1c`.
+The hardware-authored [test vectors](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/cpu/80186_quirks/tests.s#L10-L39)
+establish D4/AAM and D5/AAD base-16 results plus D6/SALC values for both carry
+states. They do not test flags, D4 base-zero, memory side effects, or timing.
+Renesas's official [V30MZ hardware manual](https://www.renesas.com/en/document/lbr/v30mztm-hardware-preliminary)
+lists CVTBD/AAM at 17 clocks and CVTDB/AAD at six, while the official
+[16-Bit V Series instruction manual](https://www.renesas.com/en/document/mah/16-bit-v-seriestm-instruction)
+marks AAM parity/sign/zero as result-defined and auxiliary-carry/carry/overflow
+as undefined. The shared-RTL correction was also reviewed against pinned ares
+[adjust instructions](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/component/processor/v30mz/instructions-adjust.cpp#L48-L63)
+and [SALC](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/component/processor/v30mz/instructions-misc.cpp#L71-L78),
+plus pinned Mesen's [AAM/AAD](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsCpu.cpp#L729-L767)
+and [SALC](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsCpu.cpp#L595-L599).
+Both references agree on D5's full eight-bit ADD flags and D6's eight-clock,
+flag-preserving, memory-free behavior. They diverge on AAM flags, but pinned
+Mesen and the documented result semantics agree that the three defined flags
+derive from AL; the core preserves the undefined flags. The
+imported MiSTer timing ROM's D6 `XLAT` label is not
+used as an opcode oracle; its measured timing expectation nevertheless agrees
+with the independent eight-clock SALC references. These are translated-model
+and reference-correlated claims, not Pocket hardware validation.
 
 The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
 Wonderful build of project source plus six unmodified 8×8 rows from Misaki

@@ -154,6 +154,7 @@ architecture arch of cpu is
       OP_DIVI,
       OP_MULADJUST,
       OP_DIVADJUST,
+      OP_SALC,
       OP_NOP,
       OP_INVALID
    );
@@ -1011,7 +1012,10 @@ begin
                         when x"D4" => opcode <= OP_MULADJUST; cpustage <= CPUSTAGE_FETCHDATA1_8; source1 <= OPSOURCE_FETCHVALUE8; newDelay := 2; opsize <= 2;
                         when x"D5" => opcode <= OP_DIVADJUST; cpustage <= CPUSTAGE_FETCHDATA1_8; source1 <= OPSOURCE_FETCHVALUE8; newDelay := 4; opsize <= 2;
                      
-                     	when x"D6" | x"D7" => 
+                        when x"D6" =>
+                           opcode <= OP_SALC; cpustage <= CPUSTAGE_EXECUTE; newDelay := 7;
+
+                        when x"D7" =>
                            opcode <= OP_MOVREG; cpustage <= CPUSTAGE_CHECKDATAREADY; source1 <= OPSOURCE_MEM; opsize <= 1; optarget <= OPTARGET_DECODE; target_decode <= CPU_REG_al; newDelay := 3;
                            memSegment <= regs.reg_ds;
                            if (prefixSegmentES = '1') then memSegment <= regs.reg_es; end if;
@@ -1019,7 +1023,6 @@ begin
                            if (prefixSegmentSS = '1') then memSegment <= regs.reg_ss; end if;
                            if (prefixSegmentDS = '1') then memSegment <= regs.reg_ds; end if;
                            memAddr <= regs.reg_bx + regs.reg_ax(7 downto 0);
-                           if (opcodebyte = x"D6") then newDelay := 6; else newDelay := 3; end if;
                      
                         -- when x"D8" => fpo1
                         -- when x"D9" => fpo1
@@ -2767,7 +2770,13 @@ begin
                               opstep     <= 1;
                               DIVstart   <= '1';
                               DIVdividend <= '0' & x"000000" & signed(regs.reg_ax(7 downto 0));
-                              DIVdivisor <= to_signed(10, 33);
+                              if (fetch1Val = 0) then
+                                 -- AAM base 0 raises divide error after the normal execution delay.
+                                 -- Feed the divider a harmless value while preserving that timing.
+                                 DIVdivisor <= to_signed(1, 33);
+                              else
+                                 DIVdivisor <= signed(resize(fetch1Val(7 downto 0), 33));
+                              end if;
                            elsif (ce = '1') then
                               exeDone := '1';
                               if (fetch1Val = 0) then
@@ -2775,20 +2784,33 @@ begin
                                  irqvector  <= (others => '0');
                               else
                                  regs.reg_ax <= unsigned(DIVquotient(7 downto 0)) & unsigned(DIVremainder(7 downto 0));
-                                 if (DIVremainder(7 downto 0) = 0 and DIVquotient(7 downto 0) = 0) then regs.FlagZer <= '1'; else regs.FlagZer <= '0'; end if;
+                                 if (DIVremainder(7 downto 0) = 0) then regs.FlagZer <= '1'; else regs.FlagZer <= '0'; end if;
                                  regs.FlagSgn <= DIVremainder(7);
                                  regs.FlagPar <= not(DIVremainder(7) xor DIVremainder(6) xor DIVremainder(5) xor DIVremainder(4) xor DIVremainder(3) xor DIVremainder(2) xor DIVremainder(1) xor DIVremainder(0));
                               end if;
                            end if;  
                         
                         when OP_DIVADJUST =>
-                           result8 := regs.reg_ax(7 downto 0) + resize(regs.reg_ax(15 downto 8) * 10, 8);
+                           op2value := x"00" & resize(regs.reg_ax(15 downto 8) * fetch1Val(7 downto 0), 8);
+                           result17 := resize(regs.reg_ax(7 downto 0), 17) + resize(op2value, 17);
+                           result8 := result17(7 downto 0);
                            regs.reg_ax( 7 downto 0) <= result8;
                            regs.reg_ax(15 downto 8) <= x"00";
+                           regs.FlagCar <= result17(8);
+                           if (to_integer(regs.reg_ax(3 downto 0)) + to_integer(op2value(3 downto 0)) >= 16) then regs.FlagHaC <= '1'; else regs.FlagHaC <= '0'; end if;
+                           regs.FlagOvf <= (regs.reg_ax(7) xor result8(7)) and (op2value(7) xor result8(7));
                            if (result8 = 0) then regs.FlagZer <= '1'; else regs.FlagZer <= '0'; end if;
-                           regs.FlagSgn <='0';
+                           regs.FlagSgn <= result8(7);
                            regs.FlagPar <= not(result8(7) xor result8(6) xor result8(5) xor result8(4) xor result8(3) xor result8(2) xor result8(1) xor result8(0));
                            exeDone       := '1';
+
+                        when OP_SALC =>
+                           if (regs.FlagCar = '1') then
+                              regs.reg_ax(7 downto 0) <= x"FF";
+                           else
+                              regs.reg_ax(7 downto 0) <= x"00";
+                           end if;
+                           exeDone := '1';
                            
                         when others => 
                            exeDone    := '1';
@@ -2937,7 +2959,6 @@ begin
    cpu_export.opcodebyte_last  <= opcodebyte;        
 
 end architecture;
-
 
 
 

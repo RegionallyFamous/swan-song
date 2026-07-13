@@ -16,7 +16,10 @@ differences are:
 
 - `cpu.vhd`: adds simulation-gated instruction identity, first-byte physical
   PC, and prefetch/IRQ attribution taps. Prefix chains and REP iterations retain
-  one owning identity; functional execution is unchanged.
+  one owning identity. Its shared console logic also corrects V30MZ D4/D5 to
+  consume their immediate base, raises divide error for D4 base zero after the
+  immediate, and implements D6 as the eight-clock SALC instruction. Those CPU
+  semantics are upstreamable console behavior, not Pocket glue.
 - `rtc.vhd`: comment-only Pocket annotation.
 - `gpu.vhd`: adds a simulation-gated active-request and semantic-role tap for
   Screen 1/2 map/tile and sprite table/tile arbiter lanes, completion-aligned
@@ -35,9 +38,10 @@ differences are:
 - `sdram.sv`: Pocket's single SDRAM chip-select adaptation and refresh-state
   changes.
 - `swanTop.vhd`: exports save-state busy status to the Pocket controller and,
-  for `is_simu = '1'`, stages 39 debug outputs covering CPU completion/origin,
+  for `is_simu = '1'`, stages 47 debug outputs covering CPU completion/origin,
   accepted mapper writes, completed CPU/GDMA/SDMA memory transactions,
-  completion-aligned display reads/collisions, and promoted Screen 1/2 cells.
+  completion-aligned display reads/collisions, promoted Screen 1/2 cells, and
+  promoted sprite rows.
   The non-simulation branch drives those observability outputs to constants.
 
 The Pocket tree omits MiSTer's PLL wrapper and uses APF-specific PLL IP instead.

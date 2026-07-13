@@ -31,6 +31,7 @@ python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_80186_quirks_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 
@@ -470,6 +471,29 @@ run_case() {
     --max-cycles 4000000 --out "$output" >/dev/null
   check_case "$name" "$expected" "$output"
 }
+
+# Exercise the V30MZ's 80186-compatible AAM/AAD immediate-base behavior and
+# undocumented SALC opcode with the pinned open ws-test-suite ROM. Two complete
+# CPU/background captures must agree byte for byte, end in the fixture's idle
+# loop, promote the PASS tile for all three tests, and render the exact frame.
+QUIRKS_FIXTURE="$ROOT/testroms/ws-test-suite/80186_quirks"
+QUIRKS_OUT="$BUILD/80186-quirks"
+rm -rf "$QUIRKS_OUT"
+for quirks_run in a b; do
+  "$SIM" --rom "$QUIRKS_FIXTURE/80186_quirks.ws" \
+    --frames 2 --max-cycles 4000000 \
+    --out "$QUIRKS_OUT/$quirks_run/frames" \
+    --event-trace "$QUIRKS_OUT/$quirks_run/events.csv" \
+    --trace-events cpu,bg_cell >/dev/null
+done
+python3 "$ROOT/sim/verilator/verify_80186_quirks.py" \
+  --fixture "$QUIRKS_FIXTURE" \
+  --trace-a "$QUIRKS_OUT/a/events.csv" \
+  --frame0-a "$QUIRKS_OUT/a/frames/frame-0.rgb" \
+  --frame1-a "$QUIRKS_OUT/a/frames/frame-1.rgb" \
+  --trace-b "$QUIRKS_OUT/b/events.csv" \
+  --frame0-b "$QUIRKS_OUT/b/frames/frame-0.rgb" \
+  --frame1-b "$QUIRKS_OUT/b/frames/frame-1.rgb"
 
 # Wonderful's open WSC fixture distinguishes the valid 2bpp Color extended
 # screen/tile/sprite ranges from their 16-KiB aliases. Verify the visible PASS
