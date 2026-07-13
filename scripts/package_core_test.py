@@ -22,6 +22,7 @@ from reverse_rbf import REVERSE
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSEMBLY = ROOT / "src/support/chip32.asm"
 ENCODED_IMAGE = ROOT / "src/support/chip32.bin.hex"
+RELEASE_POLICY = ROOT / "release-policy.json"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores/agg23.WonderSwan")
 
 
@@ -34,17 +35,20 @@ class PackageCoreTest(unittest.TestCase):
         self.rbf = self.root / "ap_core.rbf"
         self.rbf_bytes = bytes((0x00, 0x01, 0x80, 0xFF, 0x55, 0xAA))
         self.rbf.write_bytes(self.rbf_bytes)
+        self.release_policy = self.root / "release-policy.json"
+        shutil.copy2(RELEASE_POLICY, self.release_policy)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def package(self, output: pathlib.Path, **overrides: pathlib.Path) -> None:
+    def package(self, output: pathlib.Path, **overrides: object) -> None:
         arguments = {
             "dist": self.dist,
             "rbf": self.rbf,
             "output": output,
             "chip32_assembly": ASSEMBLY,
             "chip32_encoded_image": ENCODED_IMAGE,
+            "release_policy": self.release_policy,
         }
         arguments.update(overrides)
         create_package(**arguments)
@@ -61,6 +65,26 @@ class PackageCoreTest(unittest.TestCase):
         definition = json.loads(path.read_text(encoding="utf-8"))
         mutation(definition)
         path.write_text(json.dumps(definition), encoding="utf-8")
+
+    def mutate_release_policy(self, mutation) -> None:
+        definition = json.loads(self.release_policy.read_text(encoding="utf-8"))
+        mutation(definition)
+        self.release_policy.write_text(json.dumps(definition), encoding="utf-8")
+
+    def authorize_release_policy(self) -> None:
+        self.mutate_release_policy(
+            lambda definition: definition["release_policy"]["publisher"].__setitem__(
+                "authorized", True
+            )
+        )
+
+    def set_release_metadata(self, version: str, release_date: str) -> None:
+        def mutate(definition) -> None:
+            metadata = definition["core"]["metadata"]
+            metadata["version"] = version
+            metadata["date_release"] = release_date
+
+        self.mutate_core_json(mutate)
 
     def mutate_json(self, relative: pathlib.PurePosixPath, mutation) -> None:
         path = self.dist / relative
@@ -178,6 +202,10 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(
                 archive.read((CORE_DIRECTORY / "input.json").as_posix()),
                 (self.dist / CORE_DIRECTORY / "input.json").read_bytes(),
+            )
+            self.assertEqual(
+                archive.read((CORE_DIRECTORY / "info.txt").as_posix()),
+                (self.dist / CORE_DIRECTORY / "info.txt").read_bytes(),
             )
             slots_by_id = {
                 int(slot["id"]): slot
@@ -382,6 +410,54 @@ class PackageCoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not overwrite"):
             self.package(self.rbf)
 
+        assembly = self.root / "chip32.asm"
+        assembly.write_bytes(ASSEMBLY.read_bytes())
+        with self.assertRaisesRegex(ValueError, "must not overwrite --chip32-assembly"):
+            self.package(assembly, chip32_assembly=assembly)
+        self.assertEqual(assembly.read_bytes(), ASSEMBLY.read_bytes())
+
+        encoded = self.root / "chip32.bin.hex"
+        encoded.write_bytes(ENCODED_IMAGE.read_bytes())
+        with self.assertRaisesRegex(
+            ValueError, "must not overwrite --chip32-encoded-image"
+        ):
+            self.package(encoded, chip32_encoded_image=encoded)
+        self.assertEqual(encoded.read_bytes(), ENCODED_IMAGE.read_bytes())
+
+        evidence = self.build_evidence()
+        evidence_bytes = evidence.read_bytes()
+        with self.assertRaisesRegex(ValueError, "must not overwrite --build-evidence"):
+            self.package(evidence, build_evidence=evidence)
+        self.assertEqual(evidence.read_bytes(), evidence_bytes)
+
+        alias_directory = self.root / "alias"
+        alias_directory.mkdir()
+        policy_alias = alias_directory / ".." / self.release_policy.name
+        policy_bytes = self.release_policy.read_bytes()
+        with self.assertRaisesRegex(ValueError, "must not overwrite --release-policy"):
+            self.package(
+                policy_alias,
+                build_evidence=evidence,
+                release_policy=policy_alias,
+                release=True,
+            )
+        self.assertEqual(self.release_policy.read_bytes(), policy_bytes)
+
+        provenance_policy = self.root / "collision.zip.provenance.json"
+        shutil.copy2(self.release_policy, provenance_policy)
+        provenance_policy_bytes = provenance_policy.read_bytes()
+        with self.assertRaisesRegex(
+            ValueError,
+            "package provenance output must not overwrite --release-policy",
+        ):
+            self.package(
+                self.root / "collision.zip",
+                build_evidence=evidence,
+                release_policy=provenance_policy,
+                release=True,
+            )
+        self.assertEqual(provenance_policy.read_bytes(), provenance_policy_bytes)
+
     def test_strict_tree_allowlist_and_case_safety(self) -> None:
         output = self.root / "allowlist.zip"
         unexpected_file = self.dist / "README.md"
@@ -509,6 +585,220 @@ class PackageCoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only 0x0000/0xFF00 pixels"):
             self.package(output)
 
+    def test_non_release_ignores_release_policy(self) -> None:
+        output = self.root / "development.zip"
+        self.package(output)
+        expected_package = output.read_bytes()
+        expected_provenance = self.provenance_path(output).read_bytes()
+
+        self.release_policy.write_text("{not valid JSON", encoding="utf-8")
+        self.package(output)
+        self.assertEqual(output.read_bytes(), expected_package)
+        self.assertEqual(self.provenance_path(output).read_bytes(), expected_provenance)
+
+    def test_release_rejects_unauthorized_publisher_before_public_tuple(self) -> None:
+        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        output.write_bytes(b"stale package")
+        self.provenance_path(output).write_bytes(b"stale provenance")
+        with self.assertRaisesRegex(ValueError, "publisher is not authorized"):
+            self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_published_tuple_and_reused_version(self) -> None:
+        self.authorize_release_policy()
+        evidence = self.build_evidence()
+
+        tuple_output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        with self.assertRaisesRegex(ValueError, "release tuple is already published"):
+            self.package(tuple_output, build_evidence=evidence, release=True)
+        self.assertFalse(tuple_output.exists())
+        self.assertFalse(self.provenance_path(tuple_output).exists())
+
+        self.set_release_metadata("1.0.1", "2026-07-13")
+        version_output = self.root / "agg23.WonderSwan_1.0.1_2026-07-13.zip"
+        with self.assertRaisesRegex(ValueError, "release version is already published"):
+            self.package(version_output, build_evidence=evidence, release=True)
+        self.assertFalse(version_output.exists())
+        self.assertFalse(self.provenance_path(version_output).exists())
+
+        self.set_release_metadata("0.9.0", "2026-07-13")
+        older_output = self.root / "agg23.WonderSwan_0.9.0_2026-07-13.zip"
+        with self.assertRaisesRegex(
+            ValueError, "release version must be newer than latest published Semantic Version"
+        ):
+            self.package(older_output, build_evidence=evidence, release=True)
+        self.assertFalse(older_output.exists())
+        self.assertFalse(self.provenance_path(older_output).exists())
+
+        self.set_release_metadata("1.0.1+repacked", "2026-07-13")
+        repacked_output = (
+            self.root / "agg23.WonderSwan_1.0.1+repacked_2026-07-13.zip"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "release version must be newer than latest published Semantic Version"
+        ):
+            self.package(repacked_output, build_evidence=evidence, release=True)
+        self.assertFalse(repacked_output.exists())
+        self.assertFalse(self.provenance_path(repacked_output).exists())
+
+    def test_release_rejects_non_monotonic_date(self) -> None:
+        evidence = self.build_evidence()
+        for release_date in ("2023-05-05", "2023-05-06"):
+            with self.subTest(release_date=release_date):
+                self.reset_dist()
+                shutil.copy2(RELEASE_POLICY, self.release_policy)
+                self.authorize_release_policy()
+                self.set_release_metadata("2.0.0", release_date)
+                output = self.root / f"agg23.WonderSwan_2.0.0_{release_date}.zip"
+                output.write_bytes(b"stale package")
+                self.provenance_path(output).write_bytes(b"stale provenance")
+                with self.assertRaisesRegex(
+                    ValueError, "release date must be later than latest published date"
+                ):
+                    self.package(output, build_evidence=evidence, release=True)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_repository_url_before_public_tuple(self) -> None:
+        self.authorize_release_policy()
+        self.mutate_core_json(
+            lambda definition: definition["core"]["metadata"].__setitem__(
+                "url", "https://github.com/example/swan-song"
+            )
+        )
+        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        with self.assertRaisesRegex(ValueError, "release repository URL .* does not match"):
+            self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_publisher_identity_before_public_tuple(self) -> None:
+        self.authorize_release_policy()
+        self.mutate_release_policy(
+            lambda definition: definition["release_policy"]["publisher"].__setitem__(
+                "core_id", "example.WonderSwan"
+            )
+        )
+        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        with self.assertRaisesRegex(
+            ValueError, "release publisher identity .* does not match"
+        ):
+            self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_policy_schema_is_strict(self) -> None:
+        evidence = self.build_evidence()
+
+        def malformed() -> None:
+            self.release_policy.write_text("{not valid JSON", encoding="utf-8")
+
+        def unknown_member() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"].__setitem__(
+                    "unreviewed", True
+                )
+            )
+
+        def bad_commit() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"].__setitem__(
+                    "inventory_commit", "ABC"
+                )
+            )
+
+        def bad_date() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"][
+                    "published_releases"
+                ][0].__setitem__("date_release", "2023-02-30")
+            )
+
+        def duplicate_version() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"][
+                    "published_releases"
+                ].append({"version": "1.0.1", "date_release": "2024-01-01"})
+            )
+
+        def malformed_version() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"][
+                    "published_releases"
+                ][0].__setitem__("version", "release-one")
+            )
+
+        def duplicate_version_precedence() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"][
+                    "published_releases"
+                ].append(
+                    {"version": "1.0.1+repacked", "date_release": "2024-01-01"}
+                )
+            )
+
+        def empty_releases() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"].__setitem__(
+                    "published_releases", []
+                )
+            )
+
+        def missing() -> None:
+            self.release_policy.unlink()
+
+        def symlink() -> None:
+            self.release_policy.unlink()
+            self.release_policy.symlink_to(RELEASE_POLICY)
+
+        cases = (
+            ("malformed", malformed, "invalid release policy"),
+            ("unknown", unknown_member, "unknown unreviewed"),
+            ("commit", bad_commit, "lowercase 40-hex commit"),
+            ("date", bad_date, "must be YYYY-MM-DD"),
+            ("duplicate", duplicate_version, "published version is duplicated"),
+            ("version", malformed_version, "must be a Semantic Version"),
+            (
+                "precedence",
+                duplicate_version_precedence,
+                "Semantic Version precedence is duplicated",
+            ),
+            ("empty", empty_releases, "published_releases must not be empty"),
+            ("missing", missing, "does not exist or is not a regular file"),
+            ("symlink", symlink, "must not be a symlink"),
+        )
+        for name, mutation, message in cases:
+            with self.subTest(name=name):
+                if self.release_policy.exists() or self.release_policy.is_symlink():
+                    self.release_policy.unlink()
+                shutil.copy2(RELEASE_POLICY, self.release_policy)
+                mutation()
+                output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+                output.write_bytes(b"stale package")
+                self.provenance_path(output).write_bytes(b"stale provenance")
+                with self.assertRaisesRegex(ValueError, message):
+                    self.package(output, build_evidence=evidence, release=True)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_requires_evidence_before_policy(self) -> None:
+        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        with self.assertRaisesRegex(ValueError, "requires --build-evidence"):
+            self.package(output, release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+        with self.assertRaisesRegex(ValueError, "requires --release-policy"):
+            self.package(
+                output,
+                build_evidence=self.build_evidence(),
+                release_policy=None,
+                release=True,
+            )
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
     def test_release_evidence_is_verified_and_bound_to_provenance(self) -> None:
         evidence = self.build_evidence()
         output = self.root / "evidence.zip"
@@ -523,12 +813,25 @@ class PackageCoreTest(unittest.TestCase):
         )
         self.assertEqual(set(verified["reports"]), {"flow", "fit", "sta"})
 
-        release_output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        self.authorize_release_policy()
+        self.set_release_metadata("2.0.0", "2026-07-13")
+        release_output = self.root / "agg23.WonderSwan_2.0.0_2026-07-13.zip"
         self.package(release_output, build_evidence=evidence, release=True)
         release_provenance = json.loads(
             self.provenance_path(release_output).read_text(encoding="utf-8")
         )["package_provenance"]
         self.assertTrue(release_provenance["release"])
+        verified_policy = release_provenance["release_policy"]
+        self.assertEqual(
+            verified_policy["manifest_sha256"],
+            hashlib.sha256(self.release_policy.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            verified_policy["inventory_commit"],
+            "dfc9af340d4b2104bdc771831f7e08aa4df4e20f",
+        )
+        self.assertEqual(verified_policy["core_id"], "agg23.WonderSwan")
+        self.assertEqual(verified_policy["latest_published_version"], "1.0.1")
 
         with self.assertRaisesRegex(ValueError, "requires --build-evidence"):
             self.package(release_output, release=True)
@@ -546,6 +849,12 @@ class PackageCoreTest(unittest.TestCase):
         evidence.write_text(json.dumps(definition), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "RBF SHA-256 does not match"):
             self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        evidence_link = self.root / "release-evidence-link.json"
+        evidence_link.symlink_to(evidence)
+        with self.assertRaisesRegex(ValueError, "build evidence must not be a symlink"):
+            self.package(output, build_evidence=evidence_link)
 
         evidence = self.build_evidence()
         build_id_path = evidence.parent / "build_id.mif"

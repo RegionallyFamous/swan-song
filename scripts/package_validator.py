@@ -101,8 +101,13 @@ class ValidatedDistribution:
     chip32_name: str
     author: str
     shortname: str
+    repository_url: str
     version: str
     release_date: str
+
+    @property
+    def core_id(self) -> str:
+        return f"{self.author}.{self.shortname}"
 
     @property
     def recommended_archive_name(self) -> str:
@@ -650,6 +655,7 @@ def validate_distribution(dist: pathlib.Path) -> ValidatedDistribution:
         chip32_name=chip32_name,
         author=metadata["author"],
         shortname=metadata["shortname"],
+        repository_url=metadata["url"],
         version=metadata["version"],
         release_date=metadata["date_release"],
     )
