@@ -24,7 +24,28 @@ MEM_FIELDS = [
 FIELDS_V3 = [*FIELDS_V2, *MEM_FIELDS]
 FETCH_FIELDS = ["fetch_value", "fetch_collision"]
 FIELDS_V4 = [*FIELDS_V3, *FETCH_FIELDS]
-EVENTS = {"cpu", "bank", "vram", "mem"}
+BG_FIELDS = [
+    "bg_layer",
+    "map_address",
+    "map_value",
+    "map_x",
+    "map_y",
+    "tile_bank_enabled",
+    "tile_index",
+    "palette",
+    "hflip",
+    "vflip",
+    "bpp",
+    "packed",
+    "tile_row",
+    "tile_row_address",
+    "tile_row_bytes",
+    "tile_row_value",
+    "map_collision",
+    "tile_row_collision",
+]
+FIELDS_V5 = [*FIELDS_V4, *BG_FIELDS]
+EVENTS = {"cpu", "bank", "vram", "mem", "bg_cell"}
 VRAM_ROLES = {
     "screen1_map",
     "screen1_tile",
@@ -222,6 +243,8 @@ def verify(
             schema = 3
         elif reader.fieldnames == FIELDS_V4:
             schema = 4
+        elif reader.fieldnames == FIELDS_V5:
+            schema = 5
         else:
             raise ValueError(f"unexpected CSV header: {reader.fieldnames!r}")
         if schema == 1 and (vram_role_filter is not None or required_vram_roles):
@@ -250,6 +273,8 @@ def verify(
                 row.update({field: "" for field in MEM_FIELDS})
             if schema < 4:
                 row.update({field: "" for field in FETCH_FIELDS})
+            if schema < 5:
+                row.update({field: "" for field in BG_FIELDS})
             event = row["event"]
             if event not in allowed:
                 raise ValueError(f"line {line}: event {event!r} is not allowed")
@@ -262,7 +287,11 @@ def verify(
                 physical_pc = number(row["physical_pc"], "physical_pc", line, 0xFFFFF)
                 cs = number(row["cs"], "cs", line, 0xFFFF)
                 ip = number(row["ip"], "ip", line, 0xFFFF)
-                empty(row, ("address", "value", "role", *MEM_FIELDS, *FETCH_FIELDS), line)
+                empty(
+                    row,
+                    ("address", "value", "role", *MEM_FIELDS, *FETCH_FIELDS, *BG_FIELDS),
+                    line,
+                )
                 expected_pc = ((cs << 4) + ip) & 0xFFFFF
                 if physical_pc != expected_pc:
                     raise ValueError(
@@ -271,14 +300,22 @@ def verify(
                 if pc_filter and not pc_filter[0] <= physical_pc <= pc_filter[1]:
                     raise ValueError(f"line {line}: CPU PC {physical_pc:#x} escaped requested filter")
             elif event == "bank":
-                empty(row, ("physical_pc", "cs", "ip", "role", *MEM_FIELDS, *FETCH_FIELDS), line)
+                empty(
+                    row,
+                    ("physical_pc", "cs", "ip", "role", *MEM_FIELDS, *FETCH_FIELDS, *BG_FIELDS),
+                    line,
+                )
                 address = number(row["address"], "address", line, 0xFF)
                 number(row["value"], "value", line, 0xFF)
                 if not 0xC0 <= address <= 0xC3:
                     raise ValueError(f"line {line}: bank address is outside 0xc0..0xc3: {address:#x}")
                 bank_addresses.add(address)
             elif event == "vram":
-                empty(row, ("physical_pc", "cs", "ip", "value", *MEM_FIELDS), line)
+                empty(
+                    row,
+                    ("physical_pc", "cs", "ip", "value", *MEM_FIELDS, *BG_FIELDS),
+                    line,
+                )
                 address = number(row["address"], "address", line, 0xFFFF)
                 if address & 1:
                     raise ValueError(f"line {line}: VRAM word address is not aligned: {address:#x}")
@@ -305,7 +342,11 @@ def verify(
             elif event == "mem":
                 if schema < 3:
                     raise ValueError(f"line {line}: memory event requires v3 schema")
-                empty(row, ("physical_pc", "cs", "ip", "role", *FETCH_FIELDS), line)
+                empty(
+                    row,
+                    ("physical_pc", "cs", "ip", "role", *FETCH_FIELDS, *BG_FIELDS),
+                    line,
+                )
                 address = number(row["address"], "address", line, 0xFFFFF)
                 number(row["value"], "value", line, 0xFFFF)
                 number(row["byte_enable"], "byte_enable", line, 3)
@@ -378,6 +419,97 @@ def verify(
                         raise ValueError(f"line {line}: unattributed event escaped origin PC filter")
                 mem_initiators.add(initiator)
                 origin_statuses.add(origin_status)
+            elif event == "bg_cell":
+                if schema < 5:
+                    raise ValueError(f"line {line}: background-cell event requires v5 schema")
+                empty(
+                    row,
+                    (
+                        "physical_pc",
+                        "cs",
+                        "ip",
+                        "address",
+                        "value",
+                        "role",
+                        *MEM_FIELDS,
+                        *FETCH_FIELDS,
+                    ),
+                    line,
+                )
+                bg_layer = number(row["bg_layer"], "bg_layer", line, 2)
+                if bg_layer not in {1, 2}:
+                    raise ValueError(f"line {line}: bg_layer must be 1 or 2")
+                map_address = number(row["map_address"], "map_address", line, 0xFFFF)
+                if map_address & 1:
+                    raise ValueError(
+                        f"line {line}: background map word address is not aligned: "
+                        f"{map_address:#x}"
+                    )
+                map_value = number(row["map_value"], "map_value", line, 0xFFFF)
+                map_x = number(row["map_x"], "map_x", line, 31)
+                map_y = number(row["map_y"], "map_y", line, 31)
+                tile_bank_enabled = number(
+                    row["tile_bank_enabled"], "tile_bank_enabled", line, 1
+                )
+                tile_index = number(row["tile_index"], "tile_index", line, 1023)
+                palette = number(row["palette"], "palette", line, 15)
+                hflip = number(row["hflip"], "hflip", line, 1)
+                vflip = number(row["vflip"], "vflip", line, 1)
+                bpp = number(row["bpp"], "bpp", line, 4)
+                if bpp not in {2, 4}:
+                    raise ValueError(f"line {line}: bpp must be 2 or 4")
+                number(row["packed"], "packed", line, 1)
+                tile_row = number(row["tile_row"], "tile_row", line, 7)
+                tile_row_address = number(
+                    row["tile_row_address"], "tile_row_address", line, 0xFFFF
+                )
+                tile_row_bytes = number(row["tile_row_bytes"], "tile_row_bytes", line, 4)
+                expected_row_bytes = 2 if bpp == 2 else 4
+                if tile_row_bytes != expected_row_bytes:
+                    raise ValueError(
+                        f"line {line}: tile_row_bytes {tile_row_bytes} does not match "
+                        f"{bpp}bpp ({expected_row_bytes})"
+                    )
+                tile_row_value = number(
+                    row["tile_row_value"], "tile_row_value", line, 0xFFFFFFFF
+                )
+                if tile_row_value >= 1 << (8 * tile_row_bytes):
+                    raise ValueError(
+                        f"line {line}: tile_row_value exceeds {tile_row_bytes}-byte width"
+                    )
+                number(row["map_collision"], "map_collision", line, 1)
+                number(row["tile_row_collision"], "tile_row_collision", line, 1)
+
+                expected_x = (map_address >> 1) & 31
+                expected_y = (map_address >> 6) & 31
+                if (map_x, map_y) != (expected_x, expected_y):
+                    raise ValueError(
+                        f"line {line}: map coordinates ({map_x},{map_y}) do not match "
+                        f"address ({expected_x},{expected_y})"
+                    )
+                expected_tile_index = map_value & 0x1FF
+                if tile_bank_enabled:
+                    expected_tile_index |= ((map_value >> 13) & 1) << 9
+                if tile_index != expected_tile_index:
+                    raise ValueError(
+                        f"line {line}: tile_index {tile_index} does not match map word "
+                        f"({expected_tile_index})"
+                    )
+                expected_decode = ((map_value >> 9) & 15, (map_value >> 14) & 1,
+                                   (map_value >> 15) & 1)
+                if (palette, hflip, vflip) != expected_decode:
+                    raise ValueError(
+                        f"line {line}: palette/flip fields do not match map word"
+                    )
+                tile_base = 0x2000 if bpp == 2 else 0x4000
+                expected_row_address = (
+                    tile_base + tile_index * tile_row_bytes * 8 + tile_row * tile_row_bytes
+                )
+                if tile_row_address != expected_row_address:
+                    raise ValueError(
+                        f"line {line}: tile_row_address {tile_row_address:#x} does not "
+                        f"match decoded tile row ({expected_row_address:#x})"
+                    )
             counts[event] += 1
 
     missing = required - counts.keys()

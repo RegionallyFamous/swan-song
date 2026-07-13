@@ -33,7 +33,9 @@ entity gpu is
       RegBus_Dout    : out std_logic_vector(BUS_buswidth-1 downto 0);   
 
       RAM_addr       : out std_logic_vector(15 downto 0) := (others => '0');
-      RAM_dataread   : in  std_logic_vector(15 downto 0);       
+      RAM_dataread   : in  std_logic_vector(15 downto 0);
+      RAM_response_addr      : in std_logic_vector(15 downto 0);
+      RAM_response_collision : in std_logic;
       
       Color_addr     : out std_logic_vector(7 downto 0) := (others => '0');
       Color_dataread : in  std_logic_vector(15 downto 0);    
@@ -57,7 +59,19 @@ entity gpu is
       -- debug
       export_vtime           : out std_logic_vector(7 downto 0);
       debug_vram_fetch_valid : out std_logic := '0';
-      debug_vram_fetch_role  : out std_logic_vector(2 downto 0) := (others => '0')
+      debug_vram_fetch_role  : out std_logic_vector(2 downto 0) := (others => '0');
+      debug_bg0_cell_valid     : out std_logic := '0';
+      debug_bg0_cell_map_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_map_value : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_row_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_row_value : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_bg0_cell_meta      : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_bg1_cell_valid     : out std_logic := '0';
+      debug_bg1_cell_map_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_map_value : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_row_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_row_value : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_bg1_cell_meta      : out std_logic_vector(23 downto 0) := (others => '0')
    );
 end entity;
 
@@ -195,6 +209,10 @@ architecture arch of gpu is
    signal RAM_valid_BG0       : std_logic;
    signal RAM_valid_BG1       : std_logic;
    signal RAM_valid_SPR       : std_logic;
+   signal RAM_ResponseAddress_BG0   : std_logic_vector(15 downto 0) := (others => '0');
+   signal RAM_ResponseAddress_BG1   : std_logic_vector(15 downto 0) := (others => '0');
+   signal RAM_ResponseCollision_BG0 : std_logic := '0';
+   signal RAM_ResponseCollision_BG1 : std_logic := '0';
    signal debug_fetch_valid_BG0 : std_logic;
    signal debug_fetch_valid_BG1 : std_logic;
    signal debug_fetch_tile_BG0  : std_logic;
@@ -527,11 +545,19 @@ begin
          SOUND_valid   <= '0';
          
          case (to_integer(memoryArbiter)) is
-            when 2 => RAM_Data_BG0 <= RAM_dataread; RAM_valid_BG0 <= '1';
+            when 2 =>
+               RAM_Data_BG0              <= RAM_dataread;
+               RAM_ResponseAddress_BG0   <= RAM_response_addr;
+               RAM_ResponseCollision_BG0 <= RAM_response_collision;
+               RAM_valid_BG0             <= '1';
             when 3 => null; -- sprite DMA
             when 4 => null; -- sprite Color
             when 5 => SOUND_dataread <= RAM_dataread; SOUND_valid <= '1';
-            when 6 => RAM_Data_BG1 <= RAM_dataread; RAM_valid_BG1 <= '1';
+            when 6 =>
+               RAM_Data_BG1              <= RAM_dataread;
+               RAM_ResponseAddress_BG1   <= RAM_response_addr;
+               RAM_ResponseCollision_BG1 <= RAM_response_collision;
+               RAM_valid_BG1             <= '1';
             when 7 => null; -- sprite DMA
             when 0 => null; -- sprite Color
             when 1 => SOUND_dataread <= RAM_dataread; SOUND_valid <= '1';
@@ -686,14 +712,22 @@ begin
            
       RAM_Address    => RAM_Address_BG0,
       RAM_Data       => RAM_Data_BG0,           
-      RAM_valid      => RAM_valid_BG0,  
+      RAM_valid      => RAM_valid_BG0,
+      RAM_ResponseAddress   => RAM_ResponseAddress_BG0,
+      RAM_ResponseCollision => RAM_ResponseCollision_BG0,
 
       tileActive     => tileActive_BG0,
       tilePalette    => tilePalette_BG0,      
       tileColor      => tileColor_BG0,
 
       debug_fetch_valid => debug_fetch_valid_BG0,
-      debug_fetch_tile  => debug_fetch_tile_BG0
+      debug_fetch_tile  => debug_fetch_tile_BG0,
+      debug_cell_valid     => debug_bg0_cell_valid,
+      debug_cell_map_addr  => debug_bg0_cell_map_addr,
+      debug_cell_map_value => debug_bg0_cell_map_value,
+      debug_cell_row_addr  => debug_bg0_cell_row_addr,
+      debug_cell_row_value => debug_bg0_cell_row_value,
+      debug_cell_meta      => debug_bg0_cell_meta
    );
    
    igpu_bg1 : entity work.gpu_bg
@@ -723,14 +757,22 @@ begin
       
       RAM_Address    => RAM_Address_BG1,
       RAM_Data       => RAM_Data_BG1,           
-      RAM_valid      => RAM_valid_BG1,                       
+      RAM_valid      => RAM_valid_BG1,
+      RAM_ResponseAddress   => RAM_ResponseAddress_BG1,
+      RAM_ResponseCollision => RAM_ResponseCollision_BG1,
    
       tileActive     => tileActive_BG1,
       tilePalette    => tilePalette_BG1,      
       tileColor      => tileColor_BG1,
 
       debug_fetch_valid => debug_fetch_valid_BG1,
-      debug_fetch_tile  => debug_fetch_tile_BG1
+      debug_fetch_tile  => debug_fetch_tile_BG1,
+      debug_cell_valid     => debug_bg1_cell_valid,
+      debug_cell_map_addr  => debug_bg1_cell_map_addr,
+      debug_cell_map_value => debug_bg1_cell_map_value,
+      debug_cell_row_addr  => debug_bg1_cell_row_addr,
+      debug_cell_row_value => debug_bg1_cell_row_value,
+      debug_cell_meta      => debug_bg1_cell_meta
    );
    
    isprites : entity work.sprites

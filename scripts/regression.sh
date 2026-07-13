@@ -14,6 +14,35 @@ mkdir -p "$BUILD"
 echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
+python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
+
+require_bg_layers() {
+  local summary="$1"
+  shift
+  if [[ ! "$summary" =~ cells=[1-9][0-9]* ]]; then
+    echo "background-cell correlation produced no cells: $summary" >&2
+    exit 1
+  fi
+  local layer
+  for layer in "$@"; do
+    if [[ ! "$summary" =~ ${layer}=[1-9][0-9]* ]]; then
+      echo "background-cell correlation did not cover $layer: $summary" >&2
+      exit 1
+    fi
+  done
+}
+
+require_bg_counts() {
+  local summary="$1"
+  shift
+  local expected
+  for expected in "$@"; do
+    if [[ " $summary " != *" $expected "* ]]; then
+      echo "background-cell correlation expected $expected: $summary" >&2
+      exit 1
+    fi
+  done
+}
 
 # Always rebuild the VHDL translation and simulator. Otherwise a local source
 # edit can be checked against a stale VSwanTop binary left in build/sim.
@@ -22,11 +51,12 @@ rm -rf "$BUILD/bootstrap"
   --rom "$ROOT/testroms/spritepriority/spritepriority.ws" \
   --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
   --event-trace "$BUILD/bootstrap/events.csv" \
-  --trace-events cpu,vram,mem --trace-pc 0xf0000-0xfffff \
+  --trace-events cpu,vram,mem,bg_cell --trace-pc 0xf0000-0xfffff \
   >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bootstrap/events.csv" \
-  --allowed cpu,vram,mem --require cpu,vram,mem --pc-range 0xf0000-0xfffff \
+  --allowed cpu,vram,mem,bg_cell --require cpu,vram,mem,bg_cell \
+  --pc-range 0xf0000-0xfffff \
   --vram-role all --require-vram-roles all \
   --vram-address 0x0000-0xbfff \
   --require-fetch-values --require-mem-initiators cpu \
@@ -35,9 +65,18 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage \
-  --expect-count fetches=78760 --expect-count match=78760 \
+  --expect-count fetches=78946 --expect-count match=78946 \
   --expect-count collision=0 --expect-count cpu_exact=78754 \
-  --expect-count initial_powerup=6 --expect-count gdma_rom=0
+  --expect-count initial_powerup=192 --expect-count gdma_rom=0
+BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
+  "$BUILD/bootstrap/events.csv" \
+  --output "$BUILD/bootstrap/bg-cells.csv" \
+  --require-complete-coverage)"
+echo "$BOOTSTRAP_BG_SUMMARY"
+require_bg_layers "$BOOTSTRAP_BG_SUMMARY" screen1 screen2
+require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
+  cells=26224 screen1=13112 screen2=13112 bpp2=26224 bpp4=0 \
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see
@@ -139,17 +178,25 @@ EXT_ROM="$ROOT/testroms/ws-test-suite/tile_screen_extended_range/tile_screen_ext
 EXT_OUT="$BUILD/tile-screen-extended-range"
 rm -rf "$EXT_OUT"
 "$SIM" --rom "$EXT_ROM" --frames 2 --max-cycles 4000000 --out "$EXT_OUT" \
-  --event-trace "$EXT_OUT/events.csv" --trace-events mem,vram >/dev/null
+  --event-trace "$EXT_OUT/events.csv" --trace-events mem,vram,bg_cell >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
-  "$EXT_OUT/events.csv" --allowed mem,vram --require mem,vram \
+  "$EXT_OUT/events.csv" --allowed mem,vram,bg_cell --require mem,vram,bg_cell \
   --require-fetch-values --reject-fetch-collisions \
   --require-mem-initiators cpu --require-origin-statuses exact
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage \
-  --expect-count fetches=15610 --expect-count match=15610 \
+  --expect-count fetches=15796 --expect-count match=15796 \
   --expect-count collision=0 --expect-count cpu_exact=15610 \
-  --expect-count initial_powerup=0 --expect-count gdma_rom=0
+  --expect-count initial_powerup=186 --expect-count gdma_rom=0
+EXT_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
+  "$EXT_OUT/events.csv" --output "$EXT_OUT/bg-cells.csv" \
+  --require-complete-coverage)"
+echo "$EXT_BG_SUMMARY"
+require_bg_layers "$EXT_BG_SUMMARY" screen1
+require_bg_counts "$EXT_BG_SUMMARY" \
+  cells=5176 screen1=5176 screen2=0 bpp2=5176 bpp4=0 \
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
 python3 "$ROOT/sim/verilator/verify_extended_range.py" \
   "$EXT_ROM" "$EXT_OUT/events.csv" "$EXT_OUT/frame-1.rgb"
 check_case tile-screen-extended-range \

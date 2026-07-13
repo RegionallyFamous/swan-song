@@ -17,7 +17,13 @@
 
 namespace swansong::trace {
 
-enum class EventType : uint8_t { Cpu = 1, Bank = 2, Vram = 4, Mem = 8 };
+enum class EventType : uint8_t {
+  Cpu = 1,
+  Bank = 2,
+  Vram = 4,
+  Mem = 8,
+  BgCell = 16,
+};
 enum class Format { Auto, Csv, Jsonl };
 enum class VramRole : uint8_t {
   Screen1Map = 0,
@@ -83,7 +89,8 @@ struct Config {
   uint8_t events = static_cast<uint8_t>(EventType::Cpu) |
                    static_cast<uint8_t>(EventType::Bank) |
                    static_cast<uint8_t>(EventType::Vram) |
-                   static_cast<uint8_t>(EventType::Mem);
+                   static_cast<uint8_t>(EventType::Mem) |
+                   static_cast<uint8_t>(EventType::BgCell);
   std::optional<PcRange> cpu_pc;
   std::vector<AddressRange> vram_address;
   uint8_t vram_roles = kAllVramRoles;
@@ -430,7 +437,8 @@ inline uint8_t parse_events(const std::string& text) {
       result |= static_cast<uint8_t>(EventType::Cpu) |
                 static_cast<uint8_t>(EventType::Bank) |
                 static_cast<uint8_t>(EventType::Vram) |
-                static_cast<uint8_t>(EventType::Mem);
+                static_cast<uint8_t>(EventType::Mem) |
+                static_cast<uint8_t>(EventType::BgCell);
     } else if (token == "cpu") {
       result |= static_cast<uint8_t>(EventType::Cpu);
     } else if (token == "bank") {
@@ -439,6 +447,8 @@ inline uint8_t parse_events(const std::string& text) {
       result |= static_cast<uint8_t>(EventType::Vram);
     } else if (token == "mem") {
       result |= static_cast<uint8_t>(EventType::Mem);
+    } else if (token == "bg_cell") {
+      result |= static_cast<uint8_t>(EventType::BgCell);
     } else {
       throw std::runtime_error("unknown trace event type: " + token);
     }
@@ -526,6 +536,24 @@ struct Event {
   std::optional<OriginStatus> origin_status = std::nullopt;
   std::optional<uint32_t> fetch_value = std::nullopt;
   std::optional<uint32_t> fetch_collision = std::nullopt;
+  std::optional<uint32_t> bg_layer = std::nullopt;
+  std::optional<uint32_t> map_address = std::nullopt;
+  std::optional<uint32_t> map_value = std::nullopt;
+  std::optional<uint32_t> map_x = std::nullopt;
+  std::optional<uint32_t> map_y = std::nullopt;
+  std::optional<uint32_t> tile_bank_enabled = std::nullopt;
+  std::optional<uint32_t> tile_index = std::nullopt;
+  std::optional<uint32_t> palette = std::nullopt;
+  std::optional<uint32_t> hflip = std::nullopt;
+  std::optional<uint32_t> vflip = std::nullopt;
+  std::optional<uint32_t> bpp = std::nullopt;
+  std::optional<uint32_t> packed = std::nullopt;
+  std::optional<uint32_t> tile_row = std::nullopt;
+  std::optional<uint32_t> tile_row_address = std::nullopt;
+  std::optional<uint32_t> tile_row_bytes = std::nullopt;
+  std::optional<uint32_t> tile_row_value = std::nullopt;
+  std::optional<uint32_t> map_collision = std::nullopt;
+  std::optional<uint32_t> tile_row_collision = std::nullopt;
 };
 
 inline const char* event_name(EventType type) {
@@ -534,6 +562,7 @@ inline const char* event_name(EventType type) {
     case EventType::Bank: return "bank";
     case EventType::Vram: return "vram";
     case EventType::Mem: return "mem";
+    case EventType::BgCell: return "bg_cell";
   }
   return "unknown";
 }
@@ -567,7 +596,10 @@ class Writer {
       output_ << "cycle,event,physical_pc,cs,ip,address,value,role,"
                   "initiator,access,byte_enable,space,mapped_offset,"
                   "instruction_id,origin_pc,origin_status,fetch_value,"
-                  "fetch_collision\n";
+                  "fetch_collision,bg_layer,map_address,map_value,map_x,map_y,"
+                  "tile_bank_enabled,tile_index,palette,hflip,vflip,bpp,packed,"
+                  "tile_row,tile_row_address,tile_row_bytes,tile_row_value,"
+                  "map_collision,tile_row_collision\n";
     }
   }
 
@@ -623,6 +655,42 @@ class Writer {
     csv_optional(output_, event.fetch_value);
     output_ << ',';
     csv_optional(output_, event.fetch_collision);
+    output_ << ',';
+    csv_optional(output_, event.bg_layer);
+    output_ << ',';
+    csv_optional(output_, event.map_address);
+    output_ << ',';
+    csv_optional(output_, event.map_value);
+    output_ << ',';
+    csv_optional(output_, event.map_x);
+    output_ << ',';
+    csv_optional(output_, event.map_y);
+    output_ << ',';
+    csv_optional(output_, event.tile_bank_enabled);
+    output_ << ',';
+    csv_optional(output_, event.tile_index);
+    output_ << ',';
+    csv_optional(output_, event.palette);
+    output_ << ',';
+    csv_optional(output_, event.hflip);
+    output_ << ',';
+    csv_optional(output_, event.vflip);
+    output_ << ',';
+    csv_optional(output_, event.bpp);
+    output_ << ',';
+    csv_optional(output_, event.packed);
+    output_ << ',';
+    csv_optional(output_, event.tile_row);
+    output_ << ',';
+    csv_optional(output_, event.tile_row_address);
+    output_ << ',';
+    csv_optional(output_, event.tile_row_bytes);
+    output_ << ',';
+    csv_optional(output_, event.tile_row_value);
+    output_ << ',';
+    csv_optional(output_, event.map_collision);
+    output_ << ',';
+    csv_optional(output_, event.tile_row_collision);
     output_ << '\n';
   }
 
@@ -656,6 +724,24 @@ class Writer {
     else output_ << "null";
     json_optional(output_, "fetch_value", event.fetch_value);
     json_optional(output_, "fetch_collision", event.fetch_collision);
+    json_optional(output_, "bg_layer", event.bg_layer);
+    json_optional(output_, "map_address", event.map_address);
+    json_optional(output_, "map_value", event.map_value);
+    json_optional(output_, "map_x", event.map_x);
+    json_optional(output_, "map_y", event.map_y);
+    json_optional(output_, "tile_bank_enabled", event.tile_bank_enabled);
+    json_optional(output_, "tile_index", event.tile_index);
+    json_optional(output_, "palette", event.palette);
+    json_optional(output_, "hflip", event.hflip);
+    json_optional(output_, "vflip", event.vflip);
+    json_optional(output_, "bpp", event.bpp);
+    json_optional(output_, "packed", event.packed);
+    json_optional(output_, "tile_row", event.tile_row);
+    json_optional(output_, "tile_row_address", event.tile_row_address);
+    json_optional(output_, "tile_row_bytes", event.tile_row_bytes);
+    json_optional(output_, "tile_row_value", event.tile_row_value);
+    json_optional(output_, "map_collision", event.map_collision);
+    json_optional(output_, "tile_row_collision", event.tile_row_collision);
     output_ << "}\n";
   }
 
@@ -697,6 +783,131 @@ class Logger {
     event.fetch_value = value;
     event.fetch_collision = collision ? 1 : 0;
     writer_->write(event);
+  }
+
+  void bg_cell(uint64_t cycle, uint8_t bg_layer, uint16_t map_address,
+               uint16_t map_value, uint8_t map_x, uint8_t map_y,
+               bool tile_bank_enabled, uint16_t tile_index, uint8_t palette,
+               bool hflip, bool vflip, uint8_t bpp, bool packed,
+               uint8_t tile_row, uint16_t tile_row_address,
+               uint8_t tile_row_bytes, uint32_t tile_row_value,
+               bool map_collision, bool tile_row_collision) {
+    const auto fail = [&](const std::string& invariant) -> void {
+      std::ostringstream message;
+      message << "invalid background-cell trace event: " << invariant
+              << " [cycle=" << cycle
+              << " layer=" << static_cast<unsigned>(bg_layer)
+              << " map_address=0x" << std::hex << map_address
+              << " map_value=0x" << map_value << std::dec
+              << " map_xy=" << static_cast<unsigned>(map_x) << ','
+              << static_cast<unsigned>(map_y)
+              << " bank=" << tile_bank_enabled
+              << " tile_index=" << tile_index
+              << " palette=" << static_cast<unsigned>(palette)
+              << " hflip=" << hflip << " vflip=" << vflip
+              << " bpp=" << static_cast<unsigned>(bpp)
+              << " packed=" << packed
+              << " tile_row=" << static_cast<unsigned>(tile_row)
+              << " row_address=0x" << std::hex << tile_row_address
+              << " row_bytes=" << std::dec
+              << static_cast<unsigned>(tile_row_bytes)
+              << " row_value=0x" << std::hex << tile_row_value << std::dec
+              << " map_collision=" << map_collision
+              << " row_collision=" << tile_row_collision << ']';
+      throw std::runtime_error(message.str());
+    };
+    const uint16_t decoded_tile_index =
+        static_cast<uint16_t>((map_value & 0x01ffu) |
+                              (tile_bank_enabled ? ((map_value >> 4) & 0x0200u)
+                                                 : 0u));
+    const uint8_t decoded_palette = (map_value >> 9) & 0x0f;
+    const uint8_t decoded_hflip = (map_value >> 14) & 1;
+    const uint8_t decoded_vflip = (map_value >> 15) & 1;
+    const uint8_t decoded_map_x = (map_address >> 1) & 0x1f;
+    const uint8_t decoded_map_y = (map_address >> 6) & 0x1f;
+    if (bg_layer != 1 && bg_layer != 2) fail("bg_layer must be 1 or 2");
+    if (map_address & 1) fail("map_address must be word-aligned");
+    if (map_x > 31 || map_y > 31) fail("map coordinates must be within 0..31");
+    if (map_x != decoded_map_x || map_y != decoded_map_y) {
+      fail("map coordinates do not match map_address; expected " +
+           std::to_string(decoded_map_x) + "," +
+           std::to_string(decoded_map_y));
+    }
+    if (tile_index > 1023) fail("tile_index must be within 0..1023");
+    if (tile_index != decoded_tile_index) {
+      fail("tile_index does not match map_value/tile_bank_enabled; expected " +
+           std::to_string(decoded_tile_index));
+    }
+    if (palette > 15) fail("palette must be within 0..15");
+    if (palette != decoded_palette) {
+      fail("palette does not match map_value; expected " +
+           std::to_string(decoded_palette));
+    }
+    if (hflip != (decoded_hflip != 0)) {
+      fail("hflip does not match map_value; expected " +
+           std::to_string(decoded_hflip));
+    }
+    if (vflip != (decoded_vflip != 0)) {
+      fail("vflip does not match map_value; expected " +
+           std::to_string(decoded_vflip));
+    }
+    if (bpp != 2 && bpp != 4) fail("bpp must be 2 or 4");
+    if (tile_row > 7) fail("tile_row must be within 0..7");
+    const uint8_t expected_row_bytes = bpp == 2 ? 2 : 4;
+    if (tile_row_bytes != expected_row_bytes) {
+      fail("tile_row_bytes does not match bpp; expected " +
+           std::to_string(expected_row_bytes));
+    }
+    const uint32_t expected_row_address =
+        (bpp == 2 ? 0x2000u : 0x4000u) +
+        static_cast<uint32_t>(tile_index) * expected_row_bytes * 8u +
+        static_cast<uint32_t>(tile_row) * expected_row_bytes;
+    if (tile_row_address != expected_row_address) {
+      std::ostringstream expected;
+      expected << "tile_row_address does not match decoded tile row; expected 0x"
+               << std::hex << expected_row_address;
+      fail(expected.str());
+    }
+    if (tile_row_bytes == 2 && tile_row_value > 0xffffu) {
+      fail("tile_row_value exceeds the 16-bit 2bpp row width");
+    }
+    if (!config_.includes(EventType::BgCell)) return;
+    writer_->write({cycle,
+                    EventType::BgCell,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    bg_layer,
+                    map_address,
+                    map_value,
+                    map_x,
+                    map_y,
+                    tile_bank_enabled ? 1u : 0u,
+                    tile_index,
+                    palette,
+                    hflip ? 1u : 0u,
+                    vflip ? 1u : 0u,
+                    bpp,
+                    packed ? 1u : 0u,
+                    tile_row,
+                    tile_row_address,
+                    tile_row_bytes,
+                    tile_row_value,
+                    map_collision ? 1u : 0u,
+                    tile_row_collision ? 1u : 0u});
   }
 
   void mem(uint64_t cycle, MemInitiator initiator, MemAccess access,

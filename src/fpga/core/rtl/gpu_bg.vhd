@@ -29,7 +29,9 @@ entity gpu_bg is
 
       RAM_Address    : out std_logic_vector(15 downto 0);
       RAM_Data       : in  std_logic_vector(15 downto 0);    
-      RAM_valid      : in  std_logic;    
+      RAM_valid      : in  std_logic;
+      RAM_ResponseAddress   : in  std_logic_vector(15 downto 0);
+      RAM_ResponseCollision : in  std_logic;
       
       tileActive     : out std_logic := '0';
       tilePalette    : out std_logic_vector(3 downto 0) := (others => '0');
@@ -38,7 +40,17 @@ entity gpu_bg is
       -- Simulation observability. A screen-map word and the tile-pattern
       -- words are distinct reads even when their IRAM ranges overlap.
       debug_fetch_valid : out std_logic := '0';
-      debug_fetch_tile  : out std_logic := '0'
+      debug_fetch_tile  : out std_logic := '0';
+
+      -- One event describes the complete background cell promoted into the
+      -- pixel shifter: its map word, decoded attributes, and only the tile-row
+      -- word(s) that can contribute pixels for that cell.
+      debug_cell_valid     : out std_logic := '0';
+      debug_cell_map_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_cell_map_value : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_cell_row_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_cell_row_value : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_cell_meta      : out std_logic_vector(23 downto 0) := (others => '0')
    );
 end entity;
 
@@ -72,6 +84,13 @@ architecture arch of gpu_bg is
    
    signal colorBuf        : std_logic_vector(31 downto 0) := (others => '0');
    signal colorBuf_1      : std_logic_vector(31 downto 0) := (others => '0');
+
+   signal debug_map_addr_buf       : std_logic_vector(15 downto 0) := (others => '0');
+   signal debug_map_collision_buf  : std_logic := '0';
+   signal debug_row0_addr_buf      : std_logic_vector(15 downto 0) := (others => '0');
+   signal debug_row0_collision_buf : std_logic := '0';
+   signal debug_row1_addr_buf      : std_logic_vector(15 downto 0) := (others => '0');
+   signal debug_row1_collision_buf : std_logic := '0';
    
    -- window
    signal wX0             : unsigned(7 downto 0) := (others => '0');
@@ -88,7 +107,11 @@ begin
    -- separate map-word and tile-data reads:
    -- https://ws.nesdev.org/w/index.php?title=Display&oldid=555
    -- https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/screen.cpp#L17-L32
-   debug_fetch_valid <= '1' when enable = '1' and fetchState /= FETCHDONE else '0';
+   -- This is the physical fetch stream, including prefetches performed while
+   -- the layer is disabled.  A completed pre-enable group can later be the
+   -- first buffer promoted after enable, so omitting those reads would break
+   -- end-to-end provenance for a real cell event.
+   debug_fetch_valid <= '1' when fetchState /= FETCHDONE else '0';
    debug_fetch_tile  <= '1' when fetchState = FETCHCOLOR0 or fetchState = FETCHCOLOR1 else '0';
 
    tilemapAddress <= "00" & screenbase(2 downto 0) & posY(7 downto 3) & std_logic_vector(posX(7 downto 3)) & '0' when isColor = '0' else
@@ -113,9 +136,12 @@ begin
 
    
    process (clk)
+      variable cell_meta : std_logic_vector(23 downto 0);
    begin
       if rising_edge(clk) then
-      
+         -- Cell-valid is a pulse at the exact edge where the completed fetch
+         -- buffer becomes the next pixel-producing buffer.
+         debug_cell_valid <= '0';
       
          -- read tile
          case (fetchState) is
@@ -126,18 +152,24 @@ begin
                elsif (RAM_valid = '1') then
                   fetchState <= FETCHCOLOR0;
                   tilemapBuf <= RAM_Data;
+                  debug_map_addr_buf      <= RAM_ResponseAddress;
+                  debug_map_collision_buf <= RAM_ResponseCollision;
                end if;
                
             when FETCHCOLOR0 => 
                if (RAM_valid = '1') then
                   fetchState <= FETCHCOLOR1;
                   colorBuf(15 downto  0) <= RAM_Data;
+                  debug_row0_addr_buf      <= RAM_ResponseAddress;
+                  debug_row0_collision_buf <= RAM_ResponseCollision;
                end if;
                
             when FETCHCOLOR1 => 
                if (RAM_valid = '1') then
                   fetchState <= FETCHDONE;
                   colorBuf(31 downto 16) <= RAM_Data;
+                  debug_row1_addr_buf      <= RAM_ResponseAddress;
+                  debug_row1_collision_buf <= RAM_ResponseCollision;
                end if;
                
             when FETCHDONE =>
@@ -193,6 +225,46 @@ begin
                   if (depth2 = '1' and tileY(0) = '1') then
                      colorBuf_1 <= x"0000" & colorBuf(31 downto 16);
                   end if;
+
+                  if (enable = '1' and fetchState = FETCHDONE) then
+                     debug_cell_valid     <= '1';
+                     debug_cell_map_addr  <= debug_map_addr_buf;
+                     debug_cell_map_value <= tilemapBuf;
+
+                     cell_meta := (others => '0');
+                     cell_meta(9 downto 0)   := tileIndex;
+                     cell_meta(13 downto 10) := tilemapBuf(12 downto 9);
+                     cell_meta(14)           := tilemapBuf(14);
+                     cell_meta(15)           := tilemapBuf(15);
+                     cell_meta(16)           := not depth2;
+                     cell_meta(17)           := packed;
+                     cell_meta(21)           := tilemapSize and isColor;
+                     cell_meta(22)           := debug_map_collision_buf;
+
+                     if (depth2 = '1') then
+                        debug_cell_row_value(31 downto 16) <= (others => '0');
+                        if (tileY(0) = '1') then
+                           debug_cell_row_addr                 <= debug_row1_addr_buf;
+                           debug_cell_row_value(15 downto 0)   <= colorBuf(31 downto 16);
+                           -- Report the row of the word actually promoted.
+                           -- posY can advance at startLine after this block was
+                           -- fetched, so live tileY is not authoritative here.
+                           cell_meta(20 downto 18)             := debug_row1_addr_buf(3 downto 1);
+                           cell_meta(23)                       := debug_row1_collision_buf;
+                        else
+                           debug_cell_row_addr                 <= debug_row0_addr_buf;
+                           debug_cell_row_value(15 downto 0)   <= colorBuf(15 downto 0);
+                           cell_meta(20 downto 18)             := debug_row0_addr_buf(3 downto 1);
+                           cell_meta(23)                       := debug_row0_collision_buf;
+                        end if;
+                     else
+                        debug_cell_row_addr  <= debug_row0_addr_buf;
+                        debug_cell_row_value <= colorBuf;
+                        cell_meta(20 downto 18) := debug_row0_addr_buf(4 downto 2);
+                        cell_meta(23)        := debug_row0_collision_buf or debug_row1_collision_buf;
+                     end if;
+                     debug_cell_meta <= cell_meta;
+                  end if;
                end if;
                
             end if;
@@ -241,6 +313,3 @@ begin
    
 
 end architecture;
-
-
-

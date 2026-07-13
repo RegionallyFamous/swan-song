@@ -115,6 +115,18 @@ entity SwanTop is
       debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0');
       debug_gpu_vram_value       : out std_logic_vector(15 downto 0) := (others => '0');
       debug_gpu_vram_collision   : out std_logic := '0';
+      debug_bg0_cell_valid       : out std_logic := '0';
+      debug_bg0_cell_map_addr    : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_map_value   : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_row_addr    : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg0_cell_row_value   : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_bg0_cell_meta        : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_bg1_cell_valid       : out std_logic := '0';
+      debug_bg1_cell_map_addr    : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_map_value   : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_row_addr    : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_bg1_cell_row_value   : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_bg1_cell_meta        : out std_logic_vector(23 downto 0) := (others => '0');
       debug_mem_valid            : out std_logic := '0';
       debug_mem_write            : out std_logic := '0';
       debug_mem_initiator        : out std_logic_vector(1 downto 0) := (others => '0');
@@ -257,6 +269,18 @@ architecture arch of SwanTop is
    signal GPU_dataread           : std_logic_vector(15 downto 0); 
    signal GPU_vram_fetch_valid   : std_logic;
    signal GPU_vram_fetch_role    : std_logic_vector(2 downto 0);
+   signal GPU_bg0_cell_valid     : std_logic;
+   signal GPU_bg0_cell_map_addr  : std_logic_vector(15 downto 0);
+   signal GPU_bg0_cell_map_value : std_logic_vector(15 downto 0);
+   signal GPU_bg0_cell_row_addr  : std_logic_vector(15 downto 0);
+   signal GPU_bg0_cell_row_value : std_logic_vector(31 downto 0);
+   signal GPU_bg0_cell_meta      : std_logic_vector(23 downto 0);
+   signal GPU_bg1_cell_valid     : std_logic;
+   signal GPU_bg1_cell_map_addr  : std_logic_vector(15 downto 0);
+   signal GPU_bg1_cell_map_value : std_logic_vector(15 downto 0);
+   signal GPU_bg1_cell_row_addr  : std_logic_vector(15 downto 0);
+   signal GPU_bg1_cell_row_value : std_logic_vector(31 downto 0);
+   signal GPU_bg1_cell_meta      : std_logic_vector(23 downto 0);
 
    signal vram_stage1_valid      : std_logic := '0';
    signal vram_stage1_address    : std_logic_vector(15 downto 0) := (others => '0');
@@ -524,10 +548,16 @@ begin
             vram_stage1_valid <= GPU_vram_fetch_valid;
             vram_stage2_valid <= vram_stage1_valid;
 
+            -- GPU_dataread is the synchronous response to the preceding
+            -- GPU_addr on every clock, including the functional prefetches a
+            -- background layer performs before it is enabled.  Keep response
+            -- metadata aligned with that data independently of the raw-trace
+            -- visibility gate below.
+            vram_stage1_address   <= GPU_addr;
+            vram_stage1_collision <= mux_debug_gpu_collision;
+
             if (GPU_vram_fetch_valid = '1') then
-               vram_stage1_address <= GPU_addr;
                vram_stage1_role    <= GPU_vram_fetch_role;
-               vram_stage1_collision <= mux_debug_gpu_collision;
             end if;
 
             if (vram_stage1_valid = '1') then
@@ -858,7 +888,11 @@ begin
       RegBus_Dout    => reg_wired_or(3), 
    
       RAM_addr       => GPU_addr,    
-      RAM_dataread   => GPU_dataread, 
+      RAM_dataread   => GPU_dataread,
+      -- Stage 1 identifies the synchronous VRAM response currently present
+      -- on GPU_dataread. The GPU carries it beside the selected BG response.
+      RAM_response_addr      => vram_stage1_address,
+      RAM_response_collision => vram_stage1_collision,
       
       Color_addr     => Color_addr,    
       Color_dataread => Color_dataread,  
@@ -873,6 +907,18 @@ begin
 
       debug_vram_fetch_valid => GPU_vram_fetch_valid,
       debug_vram_fetch_role  => GPU_vram_fetch_role,
+      debug_bg0_cell_valid     => GPU_bg0_cell_valid,
+      debug_bg0_cell_map_addr  => GPU_bg0_cell_map_addr,
+      debug_bg0_cell_map_value => GPU_bg0_cell_map_value,
+      debug_bg0_cell_row_addr  => GPU_bg0_cell_row_addr,
+      debug_bg0_cell_row_value => GPU_bg0_cell_row_value,
+      debug_bg0_cell_meta      => GPU_bg0_cell_meta,
+      debug_bg1_cell_valid     => GPU_bg1_cell_valid,
+      debug_bg1_cell_map_addr  => GPU_bg1_cell_map_addr,
+      debug_bg1_cell_map_value => GPU_bg1_cell_map_value,
+      debug_bg1_cell_row_addr  => GPU_bg1_cell_row_addr,
+      debug_bg1_cell_row_value => GPU_bg1_cell_row_value,
+      debug_bg1_cell_meta      => GPU_bg1_cell_meta,
                
 -- synthesis translate_off
       export_vtime           => export_8,
@@ -1059,6 +1105,18 @@ begin
       debug_gpu_vram_role  <= vram_stage2_role;
       debug_gpu_vram_value <= vram_stage2_value;
       debug_gpu_vram_collision <= vram_stage2_collision;
+      debug_bg0_cell_valid     <= GPU_bg0_cell_valid;
+      debug_bg0_cell_map_addr  <= GPU_bg0_cell_map_addr;
+      debug_bg0_cell_map_value <= GPU_bg0_cell_map_value;
+      debug_bg0_cell_row_addr  <= GPU_bg0_cell_row_addr;
+      debug_bg0_cell_row_value <= GPU_bg0_cell_row_value;
+      debug_bg0_cell_meta      <= GPU_bg0_cell_meta;
+      debug_bg1_cell_valid     <= GPU_bg1_cell_valid;
+      debug_bg1_cell_map_addr  <= GPU_bg1_cell_map_addr;
+      debug_bg1_cell_map_value <= GPU_bg1_cell_map_value;
+      debug_bg1_cell_row_addr  <= GPU_bg1_cell_row_addr;
+      debug_bg1_cell_row_value <= GPU_bg1_cell_row_value;
+      debug_bg1_cell_meta      <= GPU_bg1_cell_meta;
       debug_mem_valid          <= mem_stage2_valid;
       debug_mem_write          <= mem_stage2_write;
       debug_mem_initiator      <= mem_stage2_initiator;
@@ -1087,6 +1145,18 @@ begin
       debug_gpu_vram_role  <= (others => '0');
       debug_gpu_vram_value <= (others => '0');
       debug_gpu_vram_collision <= '0';
+      debug_bg0_cell_valid     <= '0';
+      debug_bg0_cell_map_addr  <= (others => '0');
+      debug_bg0_cell_map_value <= (others => '0');
+      debug_bg0_cell_row_addr  <= (others => '0');
+      debug_bg0_cell_row_value <= (others => '0');
+      debug_bg0_cell_meta      <= (others => '0');
+      debug_bg1_cell_valid     <= '0';
+      debug_bg1_cell_map_addr  <= (others => '0');
+      debug_bg1_cell_map_value <= (others => '0');
+      debug_bg1_cell_row_addr  <= (others => '0');
+      debug_bg1_cell_row_value <= (others => '0');
+      debug_bg1_cell_meta      <= (others => '0');
       debug_mem_valid          <= '0';
       debug_mem_write          <= '0';
       debug_mem_initiator      <= (others => '0');

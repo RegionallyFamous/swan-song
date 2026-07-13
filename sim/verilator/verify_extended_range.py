@@ -8,7 +8,7 @@ import csv
 import hashlib
 from pathlib import Path
 
-from verify_trace import FIELDS_V4
+from verify_trace import FIELDS_V4, FIELDS_V5
 
 
 ROM_SHA256 = "72bf0fca0b6e7d3a61cb8c93c7675b4c1ac4e744b39f64ecf63ee3095aaf4346"
@@ -33,8 +33,8 @@ def verify_trace(path: Path) -> dict[str, int]:
     sprite_addresses: set[int] = set()
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
-        if reader.fieldnames != FIELDS_V4:
-            raise ValueError(f"expected exact v4 trace header, got {reader.fieldnames!r}")
+        if reader.fieldnames not in (FIELDS_V4, FIELDS_V5):
+            raise ValueError(f"expected exact v4/v5 trace header, got {reader.fieldnames!r}")
         for line, row in enumerate(reader, start=2):
             if row["event"] != "vram":
                 continue

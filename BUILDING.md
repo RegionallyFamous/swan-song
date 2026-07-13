@@ -8,16 +8,23 @@
   224×144 PNG frame hashes in repeated runs.
 - Wonderful's open WSC extended-range fixture renders all three PASS fields and
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
-  above 16 KiB without aliasing; its 15,610 display words all match provenance.
+  above 16 KiB without aliasing; all 15,796 physical display reads match
+  provenance (15,610 exact CPU-written words and 186 power-up prefetches).
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
   C++ unit test. The regression also validates CPU, display-RAM, and completed
   memory events from the
   translated model, including `CS:IP` conversion, inclusive PC/address filters,
   exact CPU memory origins, resolved mapper offsets, completion-aligned display
   words/collision status, and all six screen-map/tile and sprite-table/tile roles.
-  A byte-lane correlator independently reconstructs all 78,760 fetched words
+  A byte-lane correlator independently reconstructs all 78,946 fetched words
   from complete IRAM history. The suite also generates build-only
   ROMs that verify all C0-C3 bank writes and an exact GDMA ROM-to-IRAM chain.
+- V5 atomic Screen 1/2 background-cell serialization, map/tile decode, 2bpp
+  selected-word versus 4bpp two-word handling, collision semantics, and
+  fetch-time writer snapshots pass focused C++/Python fixtures. The translated
+  ROM regression validates 26,224 bootstrap cells across both layers and 5,176
+  extended-range Color cells, including superseded and end-of-capture prefetch
+  accounting.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
@@ -58,8 +65,8 @@ harness never searches for or downloads firmware.
 ### Structured event traces
 
 The VCD option captures the whole translated design. For a smaller,
-machine-readable stream, select one or more of the `cpu`, `bank`, `vram`, and `mem`
-event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
+machine-readable stream, select one or more of the `cpu`, `bank`, `vram`, `mem`,
+and `bg_cell` event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
 generic for this simulator build; the production default leaves it disabled.
 
 ```sh
@@ -79,7 +86,7 @@ mixed trace:
   --rom /path/to/legally-obtained-title.wsc \
   --frames 10 \
   --event-trace build/sim/text-renderer.jsonl \
-  --trace-events cpu,bank,vram,mem \
+  --trace-events cpu,bank,vram,mem,bg_cell \
   --trace-pc 0x80000-0x8ffff \
   --trace-vram-role screen1_tile \
   --trace-vram-address 0x2000-0x5fff
@@ -105,13 +112,19 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 
 This unit test proves config parsing, filtering primitives, and serialization.
 `make regression` separately runs `verify_trace.py` against an end-to-end ROM
-capture to check all four CSV schema versions, event-specific fields, monotonic cycles,
+capture to check all five CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) minimal open bank-write
 and WSC GDMA probes. The latter requires two known ROM words to appear in the
 ordered completed read/write events at their resolved ROM and IRAM offsets.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
 memory/display capture and fails on any non-collision fetched-word mismatch.
+The v5 path additionally runs `correlate_bg_cells.py`: it independently groups
+Screen 1/2 map and tile reads, validates each promoted atomic background cell,
+and preserves the writers observed on the raw-fetch edge rather than consulting
+IRAM at the later promotion edge. Across the open-ROM suite it requires nonzero
+coverage from both screen layers. This proves the promoted map and contributing tile row, not that any
+specific pixel survived windows, transparency, priority, sprites, or clipping.
 The capture manifest is bound to that exact trace by size and digest; regression
 also proves a failed same-path rerun removes the preceding success certificate.
 

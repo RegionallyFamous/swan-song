@@ -109,10 +109,11 @@ static void write_trace_manifest(const swansong::trace::Config& config,
       !config.vram_address.empty();
   const bool has_mem = config.includes(swansong::trace::EventType::Mem);
   const bool has_vram = config.includes(swansong::trace::EventType::Vram);
+  const bool has_bg_cell = config.includes(swansong::trace::EventType::BgCell);
 
   output << "{\n"
          << "  \"schema\": \"swan-song-trace-manifest-v1\",\n"
-         << "  \"trace_schema\": 4,\n"
+         << "  \"trace_schema\": 5,\n"
          << "  \"trace_file\": \"" << json_escape(config.output.string()) << "\",\n"
          << "  \"trace_size_bytes\": " << trace_size << ",\n"
          << "  \"trace_fnv1a64\": \"" << trace_hash << "\",\n"
@@ -127,12 +128,14 @@ static void write_trace_manifest(const swansong::trace::Config& config,
          << "    \"cpu\": " << (config.includes(swansong::trace::EventType::Cpu) ? "true" : "false") << ",\n"
          << "    \"bank\": " << (config.includes(swansong::trace::EventType::Bank) ? "true" : "false") << ",\n"
          << "    \"vram\": " << (has_vram ? "true" : "false") << ",\n"
-         << "    \"mem\": " << (has_mem ? "true" : "false") << "\n"
+         << "    \"mem\": " << (has_mem ? "true" : "false") << ",\n"
+         << "    \"bg_cell\": " << (has_bg_cell ? "true" : "false") << "\n"
          << "  },\n"
          << "  \"memory_filters_active\": " << (memory_filters ? "true" : "false") << ",\n"
          << "  \"display_filters_active\": " << (display_filters ? "true" : "false") << ",\n"
          << "  \"complete_memory_history\": " << (has_mem && !memory_filters ? "true" : "false") << ",\n"
-         << "  \"complete_display_history\": " << (has_vram && !display_filters ? "true" : "false") << "\n"
+         << "  \"complete_display_history\": " << (has_vram && !display_filters ? "true" : "false") << ",\n"
+         << "  \"complete_bg_cell_history\": " << (has_bg_cell ? "true" : "false") << "\n"
          << "}\n";
   if (!output) throw std::runtime_error("failed to write " + path.string());
 }
@@ -148,7 +151,7 @@ static void usage(const char* argv0) {
       << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
-      << "  --trace-events LIST     comma list: cpu,bank,vram,mem (default: all)\n"
+      << "  --trace-events LIST     cpu,bank,vram,mem,bg_cell (default: all)\n"
       << "  --trace-pc START-END    inclusive 20-bit physical CPU PC filter\n"
       << "  --trace-vram-address R  VRAM ADDR or START-END list (inclusive)\n"
       << "  --trace-vram-role LIST  screen1_map,screen1_tile,screen2_map,\n"
@@ -187,6 +190,18 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_gpu_vram_role),
                      decltype(std::declval<Top>().debug_gpu_vram_value),
                      decltype(std::declval<Top>().debug_gpu_vram_collision),
+                     decltype(std::declval<Top>().debug_bg0_cell_valid),
+                     decltype(std::declval<Top>().debug_bg0_cell_map_addr),
+                     decltype(std::declval<Top>().debug_bg0_cell_map_value),
+                     decltype(std::declval<Top>().debug_bg0_cell_row_addr),
+                     decltype(std::declval<Top>().debug_bg0_cell_row_value),
+                     decltype(std::declval<Top>().debug_bg0_cell_meta),
+                     decltype(std::declval<Top>().debug_bg1_cell_valid),
+                     decltype(std::declval<Top>().debug_bg1_cell_map_addr),
+                     decltype(std::declval<Top>().debug_bg1_cell_map_value),
+                     decltype(std::declval<Top>().debug_bg1_cell_row_addr),
+                     decltype(std::declval<Top>().debug_bg1_cell_row_value),
+                     decltype(std::declval<Top>().debug_bg1_cell_meta),
                      decltype(std::declval<Top>().debug_mem_valid),
                      decltype(std::declval<Top>().debug_mem_write),
                      decltype(std::declval<Top>().debug_mem_initiator),
@@ -218,6 +233,33 @@ struct DebugTapAdapter<
                       top.debug_gpu_vram_role),
                   top.debug_gpu_vram_value,
                   top.debug_gpu_vram_collision != 0);
+    }
+    const auto capture_bg_cell = [&](uint8_t layer, uint16_t map_address,
+                                     uint16_t map_value, uint16_t row_address,
+                                     uint32_t row_value, uint32_t meta) {
+      const uint8_t bpp = (meta & (1u << 16)) ? 4 : 2;
+      logger.bg_cell(
+          cycle, layer, map_address, map_value,
+          static_cast<uint8_t>((map_address >> 1) & 31),
+          static_cast<uint8_t>((map_address >> 6) & 31),
+          (meta & (1u << 21)) != 0, static_cast<uint16_t>(meta & 0x3ff),
+          static_cast<uint8_t>((meta >> 10) & 0xf),
+          (meta & (1u << 14)) != 0, (meta & (1u << 15)) != 0, bpp,
+          (meta & (1u << 17)) != 0,
+          static_cast<uint8_t>((meta >> 18) & 7), row_address, bpp,
+          row_value, (meta & (1u << 22)) != 0, (meta & (1u << 23)) != 0);
+    };
+    if (top.debug_bg0_cell_valid) {
+      capture_bg_cell(1, top.debug_bg0_cell_map_addr,
+                      top.debug_bg0_cell_map_value,
+                      top.debug_bg0_cell_row_addr,
+                      top.debug_bg0_cell_row_value, top.debug_bg0_cell_meta);
+    }
+    if (top.debug_bg1_cell_valid) {
+      capture_bg_cell(2, top.debug_bg1_cell_map_addr,
+                      top.debug_bg1_cell_map_value,
+                      top.debug_bg1_cell_row_addr,
+                      top.debug_bg1_cell_row_value, top.debug_bg1_cell_meta);
     }
     if (top.debug_mem_valid) {
       const auto origin_status = swansong::trace::origin_status_from_code(

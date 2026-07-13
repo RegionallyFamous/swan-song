@@ -52,24 +52,32 @@ Capture completed GDMA transfers from the linear ROM window into IRAM:
   --trace-mem-space cart_rom_linear,iram
 ```
 
-Build a confirmation-grade IRAM writer report for every completed display read:
+Build confirmation-grade reports for every completed display read and every
+background cell promoted into a pixel-producing buffer:
 
 ```sh
 ./sim/verilator/run.sh \
   --rom /path/to/game.wsc \
   --frames 10 \
   --event-trace build/sim/text.csv \
-  --trace-events mem,vram
+  --trace-events mem,vram,bg_cell
 python3 sim/verilator/correlate_provenance.py \
   build/sim/text.csv \
   --output build/sim/text-provenance.csv \
   --fail-on-mismatch \
   --require-complete-coverage
+python3 sim/verilator/correlate_bg_cells.py \
+  build/sim/text.csv \
+  --output build/sim/text-bg-cells.csv \
+  --require-complete-coverage
 ```
 
 Do not apply memory or display filters to the capture used for complete
 provenance. Apply `correlate_provenance.py` output filters afterward so the
-tool can reconstruct the full IRAM history.
+tool can reconstruct the full IRAM history. The atomic background correlator
+also requires an exact, unfiltered capture. Every `bg_cell` must match a raw
+Screen 1/2 fetch group; physical read-ahead that has not been promoted when the
+capture ends is counted explicitly rather than mistaken for corruption.
 
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` filters
 only `cpu` events; bank and VRAM events remain visible, which makes a mixed
@@ -80,7 +88,8 @@ ranges. `--trace-vram-role` accepts `screen1_map`, `screen1_tile`,
 `screen2_map`, `screen2_tile`, `sprite_table`, `sprite_tile`, or `all`.
 Multiple address ranges form a union; address and role filters combine with
 AND. Both filters affect only `vram` events, so CPU and bank events remain in a
-mixed trace.
+mixed trace. They do not filter `bg_cell`; capture all three of `mem`, `vram`,
+and `bg_cell` for complete atomic-cell provenance.
 
 Memory filters are `--trace-mem-initiator`, `--trace-mem-access`,
 `--trace-mem-address`, `--trace-mem-space`, `--trace-mem-offset`,
@@ -99,7 +108,7 @@ override the file. `format` is `csv` or `jsonl`; when omitted, a `.jsonl` or
 
 ## Events and schema
 
-New traces use the fetched-value-aware v4 fields below. Numbers are unsigned decimal
+New traces use the atomic-background-aware v5 fields below. Numbers are unsigned decimal
 values; inapplicable CSV fields are empty and inapplicable JSONL fields are
 `null`.
 
@@ -110,7 +119,7 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | Field | Meaning |
 | --- | --- |
 | `cycle` | 36.864 MHz system cycle since reset was released |
-| `event` | `cpu`, `bank`, `vram`, or `mem` |
+| `event` | `cpu`, `bank`, `vram`, `mem`, or `bg_cell` |
 | `physical_pc` | 20-bit CPU physical PC sampled at instruction completion |
 | `cs`, `ip` | logical CPU location sampled at instruction completion |
 | `address` | C0-C3 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
@@ -126,6 +135,15 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `origin_status` | `exact`, `unattributed` for CPU prefetch/IRQ traffic, or `not_applicable` for DMA |
 | `fetch_value` | completed 16-bit display-read word for `vram` |
 | `fetch_collision` | 1 when the CPU/DMA write port addressed the same IRAM word on the display-read edge; otherwise 0 |
+| `bg_layer` | 1 for Screen 1 or 2 for Screen 2 on `bg_cell` |
+| `map_address`, `map_value` | completed screen-map word address and value promoted for the cell |
+| `map_x`, `map_y` | 0-31 map coordinates decoded from `map_address`; these are map-space coordinates, not final screen pixels |
+| `tile_bank_enabled`, `tile_index` | extended tile-bank mode and resulting 10-bit tile index decoded from the map word |
+| `palette`, `hflip`, `vflip` | palette and flip attributes decoded from the map word |
+| `bpp`, `packed` | 2/4-bit depth and planar/packed mode used for this row |
+| `tile_row` | 0-7 row after vertical-flip selection |
+| `tile_row_address`, `tile_row_bytes`, `tile_row_value` | exact contributing tile row: one 16-bit word for 2bpp or both words, low word first, for 4bpp |
+| `map_collision`, `tile_row_collision` | mixed-port uncertainty on the promoted map word or contributing row |
 
 `cpu` is sampled on the instruction-complete pulse. `bank` reports actual
 post-mux writes to cartridge bank registers C0-C3 and de-duplicates a write
@@ -162,8 +180,26 @@ The screen roles distinguish tile-map attribute reads from tile bitmap reads.
 `sprite_table` identifies sprite-table DMA reads into the core's internal
 sprite buffer, while `sprite_tile` identifies sprite bitmap reads. A role
 describes an active fetch source, not a guarantee that the word contributes a
-visible pixel. V4 includes the completed fetched word, but raw physical reads
+visible pixel. V5 retains the completed fetched word, but raw physical reads
 can still include pipeline or prefetch work that does not contribute a pixel.
+
+`bg_cell` is the logical companion to those raw reads. It pulses when a
+completed Screen 1 or Screen 2 fetch buffer is promoted into the buffer used by
+the pixel shifter. It binds the map word to its decoded tile index, palette,
+flips, format, and exact contributing tile row. The existing background engine
+physically reads both aligned words around a row; in 2bpp only the word selected
+by the row address can contribute, while in 4bpp both words contribute. The
+event records that distinction instead of treating every raw tile read as
+visible data. The 16-byte 2bpp and 32-byte 4bpp tile layouts, and therefore the
+2-byte versus 4-byte row formulas, follow WSdev's
+[tile-data specification](https://ws.nesdev.org/wiki/Display/Tile_Data).
+
+This is a cell-consumption boundary, not a final-pixel assertion. A promoted
+cell may still be outside a window, transparent, disabled, covered by the other
+background or a sprite, or fetched for scroll prefill. The event also says
+nothing by itself about glyph or character identity. `bg_cell` excludes the
+sprite pipeline; sprite-table and sprite-tile activity remains available only
+through the raw `vram` roles.
 
 This split follows the [WSdev display and unified-memory
 model](https://ws.nesdev.org/w/index.php?title=Display&oldid=555) and pinned
@@ -176,18 +212,21 @@ The seven-column schema is v1 and the role-aware eight-column schema is v2.
 `verify_trace.py` accepts both exact legacy headers; assertions requiring
 missing role or provenance data fail explicitly. V3 appends the eight memory
 fields without changing the first eight columns. V4 appends `fetch_value` and
-`fetch_collision`. JSONL contains the same v4 properties, although the
+`fetch_collision`. V5 appends the 18 atomic background-cell fields without
+changing the v4 prefix. JSONL contains the same v5 properties, although the
 standalone verifier currently validates CSV only.
 
 Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame
-target, included unfiltered `mem` and `vram` history, avoided save-state input,
-and can therefore use the defined zero power-up state of IRAM. Its byte length
-and FNV-1a digest bind that certificate to the exact trace file; starting a new
-capture at the same path invalidates the old manifest before truncating the
-trace. The correlator
-only labels coverage `complete_from_reset` when all of those conditions hold;
-otherwise it reports `observed_only` and never treats an absent write as zero.
+target, included unfiltered `mem` and `vram` history, included `bg_cell` when
+requested, avoided save-state input, and can therefore use the defined zero
+power-up state of IRAM. Its byte length and FNV-1a digest bind that certificate
+to the exact trace file; starting a new capture at the same path invalidates
+the old manifest before truncating the trace. The word-level correlator labels
+coverage `complete_from_reset` only when the memory/display conditions hold.
+The atomic correlator additionally requires `events.bg_cell=true` and
+`complete_bg_cell_history=true`; otherwise it refuses
+`--require-complete-coverage` and never treats an absent write as zero.
 
 `correlate_provenance.py` maintains IRAM per byte, respects partial and odd
 writes, preserves exact CPU origins, and pairs GDMA reads/writes only in
@@ -199,6 +238,21 @@ reports the low/high writer and any mapped ROM source. A collision produces
 not by itself prove that a tile index is a character code. Rasterized text can
 write glyph bitmaps into preassigned canvas tiles, as documented for
 [WonderWitch Shift-JIS text](https://ws.nesdev.org/wiki/WonderWitch/FreyaBIOS/Text).
+
+`correlate_bg_cells.py` independently assembles map/tile0/tile1 groups for
+Screen 1 and Screen 2, then matches each atomic cell to the newest completed
+group held by that layer. The GPU continues physical prefetch while a layer is
+disabled; completed groups replaced before promotion are counted as
+`raw_superseded`, not FIFO-paired to a later cell. Completed or partial
+read-ahead at the capture boundary is likewise reported as `raw_unpromoted` or
+`raw_inflight`. Every emitted atomic cell still requires an exact group.
+Crucially, the correlator snapshots each byte's writer and optional GDMA ROM
+source on the raw-fetch edge, before a same-cycle or intervening IRAM write; it
+never looks up the current writer at the later promotion edge. It validates the
+map decode, row formula, raw addresses and values, and reports per-byte map and
+contributing-row provenance. A map or contributing-row mismatch/collision
+fails. In 2bpp, uncertainty on the physically fetched but non-contributing
+aligned neighbor remains visible in the raw fields without tainting the cell.
 
 The structured trace is simulation-only and does not imply Pocket hardware
 behavior. A model translated without the debug tap ports still builds and runs,
@@ -214,9 +268,11 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 ./build/trace_logger_test
 ```
 
-`make regression` runs that unit test plus explicit v1/v2/v3/v4 verifier fixtures,
-requires all six display-role encodings and exact CPU memory origins from a
-translated open ROM, and generates temporary bank and WSC GDMA probes. The
+`make regression` runs that unit test plus explicit v1/v2/v3/v4/v5 verifier
+fixtures and focused byte-lane/atomic-cell correlator tests. Its translated
+open-ROM captures require all six display-role encodings, exact CPU memory
+origins, `bg_cell` events, and nonzero atomic-cell coverage from both screen
+layers. The suite generates temporary bank and WSC GDMA probes. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
 completed chain `ROM 0x0100 -> IRAM 0x4000` and `ROM 0x0102 -> IRAM 0x4002`,
 including known values and mapped offsets. SRAM, ROM0, ROM1, BIOS, and
@@ -224,7 +280,11 @@ absent-SRAM formulas are RTL-reviewed but do not yet have dedicated runtime
 probes.
 Generated ROMs remain under `build/` and are never checked in.
 
-The six-frame display-provenance regression currently requires 78,760/78,760
-non-collision display words to match the complete-from-reset IRAM scoreboard:
-78,754 are tied to exact CPU writer instructions and six to the defined
-power-up value. Any value mismatch fails regression.
+The six-frame display-provenance regression requires 78,946/78,946
+non-collision physical display reads to match the complete-from-reset IRAM
+scoreboard: 78,754 are tied to exact CPU writer instructions and 192 pre-enable
+prefetches to the defined power-up value. Any value mismatch fails regression.
+The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
+the extended-range Color fixture adds 5,176 Screen 1 cells. The focused unit
+test locks 2bpp/4bpp selection, simultaneous layers, collisions, superseded
+prefetches, and writer-snapshot timing.

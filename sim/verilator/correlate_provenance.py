@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Correlate v4 display reads with observed IRAM writers and DMA ROM sources."""
+"""Correlate v4/v5 display reads with observed IRAM writers and DMA ROM sources."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, TextIO
 
-from verify_trace import FIELDS_V4, VRAM_ROLES
+from verify_trace import FIELDS_V4, FIELDS_V5, VRAM_ROLES
 
 
 ROM_SPACES = {"cart_rom0", "cart_rom1", "cart_rom_linear"}
@@ -116,7 +116,7 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
         raise ValueError(f"cannot validate trace binding for {trace}: {error}") from error
     complete = (
         manifest.get("schema") == "swan-song-trace-manifest-v1"
-        and manifest.get("trace_schema") == 4
+        and manifest.get("trace_schema") in {4, 5}
         and binding_matches
         and manifest.get("capture_start") == "reset_release"
         and manifest.get("capture_completed") is True
@@ -225,8 +225,11 @@ def summarize_versions(
 
 def iter_rows(source: TextIO) -> Iterable[TraceRow]:
     reader = csv.DictReader(source)
-    if reader.fieldnames != FIELDS_V4:
-        raise ValueError(f"provenance correlation requires exact v4 header, got {reader.fieldnames!r}")
+    if reader.fieldnames not in (FIELDS_V4, FIELDS_V5):
+        raise ValueError(
+            "provenance correlation requires an exact v4/v5 header, "
+            f"got {reader.fieldnames!r}"
+        )
     previous_cycle = -1
     for line, values in enumerate(reader, start=2):
         try:
