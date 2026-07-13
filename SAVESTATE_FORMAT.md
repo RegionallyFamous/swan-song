@@ -22,6 +22,12 @@ the version/format gate must reject it explicitly. The disabled top-level flags
 make this the safe time to break format compatibility rather than ship a Memory
 that resumes with different CPU, EEPROM, RTC, video, or audio behavior.
 
+The frozen target revision is documented in
+[`SAVESTATE_V2_FORMAT.md`](SAVESTATE_V2_FORMAT.md). Its package and exhaustive
+layout test define the fixed header, payload regions, title/model identity,
+active-size rules, and deterministic padding, but are deliberately not yet
+connected to the live core.
+
 Reference coverage is consistent with this decision: pinned
 [ares system serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/system/serialization.cpp#L40-L49)
 includes CPU, PPU, APU, system EEPROM, cartridge, IRAM, and serial state, while

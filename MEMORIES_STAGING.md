@@ -73,13 +73,16 @@ controller exposes a 25-bit word address. The current byte ranges are:
 | --- | --- |
 | `0x0000000..0x0ffffff` | Cartridge ROM, maximum implemented 16 MiB |
 | `0x1000000..0x107ffff` | Maximum 512 KiB cartridge SRAM |
-| `0x1100000..0x11902ff` | Proposed maximum payload staging reservation; the 32-byte envelope is synthesized |
+| `0x1100000..0x11902ff` | Isolated v1 transport fixture's proposed payload range; not a production target |
+| `0x1100000..0x121ffff` | Frozen v2 payload staging reservation; the 256-byte envelope is synthesized separately |
 
-The proposed staging base leaves a 512 KiB guard gap after maximum cartridge
-SRAM and consumes one protected `0x90300`-byte payload region. It must be
-encoded once as a shared address-map constant and compile-time checked against
-every ROM/save/staging maximum; the literal is not yet present in production
-RTL.
+The common staging base leaves a 512 KiB guard gap after maximum cartridge
+SRAM. Production uses the fixed `0x120000`-byte v2 payload range defined and
+compile-time checked by
+[`SAVESTATE_V2_FORMAT.md`](SAVESTATE_V2_FORMAT.md) and its isolated layout
+package. Those constants are not yet present in production RTL. The smaller
+v1 range remains useful only for testing the fail-closed transport controller
+and must never be enabled as Pocket Memories.
 
 ## Channel-1 ownership boundary
 

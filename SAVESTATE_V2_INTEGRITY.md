@@ -9,6 +9,11 @@ absent from `src/fpga/ap_core.qsf` and is not instantiated by
 live state controller. Version 1 remains the only implemented envelope, and
 Memories plus Sleep + Wake remain disabled.
 
+The complete target header and payload allocation are now frozen separately in
+[`SAVESTATE_V2_FORMAT.md`](SAVESTATE_V2_FORMAT.md). This CRC block remains an
+isolated primitive for that future implementation; the layout contract does
+not make the v2 serializer or loader live.
+
 The primitive implements the direct, unreflected CRC-64/ECMA-182 parameters:
 
 - polynomial `0x42f0e1eba9ea3693`

@@ -259,6 +259,7 @@ global drain state and retains channel-3 completion locally, but the state
 engine does not consume that acknowledgement yet. The complete state controller
 and physical Pocket lifecycle have not passed the release gate; see
 [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md) and
+[`SAVESTATE_V2_FORMAT.md`](SAVESTATE_V2_FORMAT.md), plus
 [`MEMORIES_STAGING.md`](MEMORIES_STAGING.md).
 
 ### Fast Forward
