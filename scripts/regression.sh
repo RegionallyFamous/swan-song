@@ -18,6 +18,7 @@ echo "PASS structured trace parser and writer"
   -o "$BUILD/input_script_test"
 "$BUILD/input_script_test"
 echo "PASS deterministic controller input-script parser"
+"$ROOT/sim/rtl/run_dma_pending_tb.sh"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
@@ -29,6 +30,7 @@ python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_sdma_modes_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_frame_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
@@ -375,6 +377,31 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --require-mem-initiators sdma --require-origin-statuses not_applicable
 python3 "$ROOT/sim/verilator/verify_sdma_probe.py" \
   "$SDMA_OUT/sdma_probe.wsc" "$SDMA_OUT/events.csv"
+
+# Exercise the documented Sound-DMA counter/control modes with a self-checking
+# open WSC program.  Success markers are emitted only after live register,
+# pause/resume, zero-length, repeat-shadow, decrement, and held-zero checks.
+# Two exact filtered captures bind those software assertions to every selected
+# SDMA read.  Held reads are locked as the translated core's Mesen-aligned bus
+# policy, not claimed as hardware behavior; physical bus-steal phase is open.
+SDMA_MODES_OUT="$BUILD/sdma-modes-probe"
+rm -rf "$SDMA_MODES_OUT"
+python3 "$ROOT/sim/verilator/generate_sdma_modes_probe.py" \
+  "$SDMA_MODES_OUT" >/dev/null
+for run in a b; do
+  "$SIM" \
+    --rom "$SDMA_MODES_OUT/sdma_modes_probe.wsc" \
+    --input-script "$SDMA_MODES_OUT/sdma_modes_probe.input" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$SDMA_MODES_OUT/frames-$run" \
+    --event-trace "$SDMA_MODES_OUT/events-$run.csv" \
+    --trace-events mem,bank --trace-mem-initiator sdma >/dev/null
+done
+python3 "$ROOT/sim/verilator/verify_sdma_modes_probe.py" \
+  --rom "$SDMA_MODES_OUT/sdma_modes_probe.wsc" \
+  --script "$SDMA_MODES_OUT/sdma_modes_probe.input" \
+  --trace-a "$SDMA_MODES_OUT/events-a.csv" \
+  --trace-b "$SDMA_MODES_OUT/events-b.csv"
 
 # Exercise every memory-space classification that can be reached with open,
 # generated stimuli. The paired ROMs differ only in their unambiguous 128 KiB
