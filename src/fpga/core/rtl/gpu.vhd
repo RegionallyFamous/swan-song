@@ -562,7 +562,10 @@ begin
                spriteCount  <= to_integer(unsigned(SPR_COUNT));
             end if;
                         
-            if (DISP_MODE(7 downto 6) /= "11") then
+            -- SPR_BASE bit 5 is available in every Color mode, including
+            -- 2bpp; it is not a 4bpp-only feature. See WSdev Display/IO_Ports
+            -- ($04) and ws-test-suite tile_screen_extended_range.
+            if (DISP_MODE(7 downto 6) = "00") then
                spriteDMAAddr <= "00" & SPR_BASE(4 downto 0) & SPR_FIRST(6 downto 0) & "00";
             else
                spriteDMAAddr <=  '0' & SPR_BASE(5 downto 0) & SPR_FIRST(6 downto 0) & "00";

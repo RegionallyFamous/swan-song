@@ -7,7 +7,7 @@
 | History-preserving Pocket fork | Complete | current branch is based at Pocket `1.0.1` / `073213a2` and retains its ancestry |
 | Upstream pins and license audit | Provenance complete; release clearance open | `UPSTREAMS.md`; MiSTer program notice is GPL v2-or-later and is version-compatible with GPL-v3-or-later RTL, but Pocket omitted that notice and the tree lacks a GPL v3 license copy |
 | Architecture and port boundary | Complete | `ARCHITECTURE.md`, `PORTING.md` |
-| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; Pocket wrappers and SDRAM controller are outside this harness |
+| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests and Wonderful's WSC extended-range fixture via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; Pocket wrappers and SDRAM controller are outside this harness |
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
 | Structured event trace | Verified in Verilator | simulation-gated CPU, bank-register, completion-aligned display word/collision, and completed CPU/GDMA/SDMA memory taps; v4 CSV/JSONL with v1/v2/v3 CSV verification; automated all-role, address, value, PC, exact CPU-origin, C0-C3 bank, and ROM-to-IRAM GDMA checks; `sim/verilator/TRACE.md` |
@@ -23,7 +23,7 @@ timing closure, and optional device testing are performed.
 | Item | Status | Evidence needed or available |
 | --- | --- | --- |
 | ROM bank-switch writes | Verified with generated open probe | `make regression` executes C0-C3 writes with distinct values and requires all four serialized addresses; no probe binary is checked in |
-| VRAM/character fetch addresses | Runtime roles and fetched words verified | open-ROM regression requires all six Screen 1/2 map/tile and sprite table/tile roles with aligned completion data and collision status; Wonderful v2 evidence is recorded in `WONDERFUL_VALIDATION.md`, but title-specific glyph provenance remains open |
+| VRAM/character fetch addresses | Runtime roles and fetched words verified | open-ROM regression requires all six Screen 1/2 map/tile and sprite table/tile roles with aligned completion data and collision status; the open WSC fixture proves map `0x5a20`, bank-1 tile `0x5fc0`, and 2bpp Color sprite table `0x5600`; title-specific glyph provenance remains open |
 | CPU PC ranges | Verified with running ROMs | regression checks `CS:IP` against wrapped physical PC and range containment; Wonderful execution terminates at the expected `0xff68b` loop |
 | Memory provenance | Linear ROM/IRAM verified with generated open WSC probe; other mappings RTL-reviewed | completed CPU/GDMA/SDMA transaction schema includes value, raw byte enable, distinct mapped space, exact resolved byte offset, and honest CPU origin status; regression proves two ordered GDMA ROM-read/IRAM-write value pairs |
 | Display-to-writer correlation | Verified on open regression | complete-from-reset manifest plus byte-lane IRAM scoreboard matches all 78,760 fetched words: 78,754 exact CPU writers, six power-up words, zero mismatches/collisions; `correlate_provenance.py` |
@@ -62,3 +62,9 @@ The provenance audit also exposed and fixed a console-logic error: mono writes
 above the documented 16 KiB IRAM range were classified unmapped but still
 enabled the hidden 64 KiB backing RAM. The mono-unmapped branch now suppresses
 that write enable; the open golden-frame regressions remain unchanged.
+
+The open WSC extended-range fixture exposed a second console-logic error:
+`SPR_BASE` bit 5 was incorrectly restricted to 4bpp, aliasing a 2bpp Color
+sprite table at `0x5600` down to `0x1600`. The corrected Color-mode decode now
+renders PASS and traces the exact extended table words, matching WSdev, ares,
+and Mesen behavior.

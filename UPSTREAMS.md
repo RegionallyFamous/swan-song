@@ -69,3 +69,9 @@ are never checked in. They contribute new minimal 80186 programs and copy only
 the final 16-byte reset-vector/header footer from the open `spritepriority.ws`
 carrier above; the provenance probe changes the footer's color flag so the
 color-only GDMA block can be exercised.
+
+The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
+build of the pinned MIT ws-test-suite source. Its local README records the
+pinned Wonderful container, ROM hash, source files, and linked
+`target-wswan-syslibs` zlib notice. It is open test software and includes no
+firmware or commercial game content.

@@ -97,10 +97,10 @@ python3 "$ROOT/sim/verilator/verify_provenance_probe.py" \
   "$BUILD/provenance-probe/events.csv"
 
 check_case() {
-  local name="$1" expected="$2" output="$3"
-  python3 "$ROOT/sim/verilator/rgb_to_png.py" "$output/frame-5.rgb" >/dev/null
+  local name="$1" expected="$2" output="$3" frame="${4:-5}"
+  python3 "$ROOT/sim/verilator/rgb_to_png.py" "$output/frame-$frame.rgb" >/dev/null
   local actual
-  actual="$(python3 - "$output/frame-5.png" <<'PY'
+  actual="$(python3 - "$output/frame-$frame.png" <<'PY'
 import hashlib
 import pathlib
 import struct
@@ -131,6 +131,30 @@ run_case() {
     --max-cycles 4000000 --out "$output" >/dev/null
   check_case "$name" "$expected" "$output"
 }
+
+# Wonderful's open WSC fixture distinguishes the valid 2bpp Color extended
+# screen/tile/sprite ranges from their 16-KiB aliases. Verify the visible PASS
+# fields and exact fetch semantics, then independently reconstruct every word.
+EXT_ROM="$ROOT/testroms/ws-test-suite/tile_screen_extended_range/tile_screen_extended_range.wsc"
+EXT_OUT="$BUILD/tile-screen-extended-range"
+rm -rf "$EXT_OUT"
+"$SIM" --rom "$EXT_ROM" --frames 2 --max-cycles 4000000 --out "$EXT_OUT" \
+  --event-trace "$EXT_OUT/events.csv" --trace-events mem,vram >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$EXT_OUT/events.csv" --allowed mem,vram --require mem,vram \
+  --require-fetch-values --reject-fetch-collisions \
+  --require-mem-initiators cpu --require-origin-statuses exact
+python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+  "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
+  --fail-on-mismatch --require-complete-coverage \
+  --expect-count fetches=15610 --expect-count match=15610 \
+  --expect-count collision=0 --expect-count cpu_exact=15610 \
+  --expect-count initial_powerup=0 --expect-count gdma_rom=0
+python3 "$ROOT/sim/verilator/verify_extended_range.py" \
+  "$EXT_ROM" "$EXT_OUT/events.csv" "$EXT_OUT/frame-1.rgb"
+check_case tile-screen-extended-range \
+  4a79f141e6f47dd902c67a77996ca83bb1b4684eae527109321491d93365e4a5 \
+  "$EXT_OUT" 1
 
 # The bootstrap run above is also the sprite-priority golden run, avoiding a
 # duplicate six-frame simulation after rebuilding the model.

@@ -6,6 +6,9 @@
 - Verilator 5.050 successfully elaborates, compiles, and runs that translation.
 - The open MiSTer sprite-priority and window test ROMs produce deterministic
   224×144 PNG frame hashes in repeated runs.
+- Wonderful's open WSC extended-range fixture renders all three PASS fields and
+  proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
+  above 16 KiB without aliasing; its 15,610 display words all match provenance.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
   C++ unit test. The regression also validates CPU, display-RAM, and completed
   memory events from the
@@ -32,7 +35,7 @@ Requirements:
 - a C++17 compiler
 - Python 3
 
-Run the two-image regression:
+Run the regression suite:
 
 ```sh
 make regression
