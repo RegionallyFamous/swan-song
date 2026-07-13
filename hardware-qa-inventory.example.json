@@ -1,0 +1,47 @@
+{
+  "hardware_qa_inventory": {
+    "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V1",
+    "run_id": "replace-with-private-run-id",
+    "created_at": "2026-07-13T12:00:00Z",
+    "operator": {
+      "name": "Replace with tester name",
+      "organization": "Replace with team or independent"
+    },
+    "firmware": {
+      "version": "2.6.0",
+      "update_path": "private/pocket_firmware.bin",
+      "expected_md5": "d5be2c99e436081266810594117db496"
+    },
+    "pocket": {
+      "model": "Analogue Pocket",
+      "hardware_revision": "Replace with observed revision",
+      "device_id_path": "private/pocket-device-id.txt"
+    },
+    "dock": {
+      "model": "Analogue Dock",
+      "hardware_revision": "Replace with observed revision",
+      "firmware_version": "Replace with observed or not-reported",
+      "device_id_path": "private/dock-device-id.txt"
+    },
+    "core": {
+      "core_json_path": "sd/Cores/agg23.WonderSwan/core.json",
+      "raw_rbf_path": "build/output_files/ap_core.rbf",
+      "installed_bitstream_path": "sd/Cores/agg23.WonderSwan/wonderswan.rev"
+    },
+    "bios": [
+      {"id": "bw", "path": "private/bw.rom"},
+      {"id": "color", "path": "private/color.rom"}
+    ],
+    "roms": [
+      {"id": "horizontal-sram", "title": "Replace", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "vertical-eeprom-rtc", "title": "Replace", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true}
+    ],
+    "controllers": [
+      {"id": "pocket-built-in", "scope": "pocket", "device_type": "gamepad", "transport": "built_in", "model": "Pocket built-in controls", "firmware_version": "2.6.0", "mapping_mode": "APF type 1"},
+      {"id": "dock-wired", "scope": "dock", "device_type": "gamepad", "transport": "usb", "model": "Replace", "firmware_version": "Replace or not-reported", "mapping_mode": "Replace"},
+      {"id": "dock-wireless", "scope": "dock", "device_type": "gamepad", "transport": "bluetooth", "model": "Replace", "firmware_version": "Replace or not-reported", "mapping_mode": "Replace"},
+      {"id": "dock-keyboard", "scope": "dock", "device_type": "keyboard", "transport": "usb", "model": "Replace", "firmware_version": "not-reported", "mapping_mode": "USB HID"},
+      {"id": "dock-mouse", "scope": "dock", "device_type": "mouse", "transport": "usb", "model": "Replace", "firmware_version": "not-reported", "mapping_mode": "USB HID"}
+    ]
+  }
+}
