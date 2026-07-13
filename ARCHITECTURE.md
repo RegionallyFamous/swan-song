@@ -124,34 +124,38 @@ jumps through the cartridge reset vector.
 
 ### Simulation observability
 
-`SwanTop` exposes ten observability outputs when its `is_simu` generic is set:
-an instruction-complete pulse with `CS`, `IP`, and the wrapped 20-bit physical
-PC; the register-bus write address and value; and a GPU VRAM-fetch address and
-valid pulse plus a three-bit semantic role. The GPU validity tap suppresses
-sound, disabled/complete screen states, inactive sprite-table DMA, and idle
-sprite-tile lanes. With `is_simu = '0'`, all ten public outputs are constants;
-GHDL confirms that production-generic elaboration succeeds, but Quartus resource
-and timing impact remain unmeasured. These are observation points, not new
-console behavior.
+`SwanTop` exposes 39 observability outputs when its `is_simu` generic is set.
+They carry completed-instruction location; accepted mapper-write identity;
+completion-aligned display reads and mixed-port collision status; promoted
+Screen 1/2 background-cell metadata; and completed CPU/GDMA/SDMA transactions
+with resolved memory space, backing offset, and exact CPU origin where the CPU
+can prove one. With `is_simu = '0'`, all public debug outputs are constants;
+the checked-in translated-model regression exercises `is_simu = '1'`, so
+production-generic GHDL elaboration and Quartus resource/timing impact are not
+part of the current automated gate. These are observation points, not evidence
+of Pocket hardware behavior.
 
-The Verilator adapter converts the raw taps into three event classes:
+The Verilator adapter converts the raw taps into five event classes:
 
 | Event | Source | Harness behavior |
 | --- | --- | --- |
-| `cpu` | instruction-complete pulse and CPU export state | records physical PC, `CS`, and `IP` at that boundary; an optional inclusive physical-PC range filters only this class |
-| `bank` | post-mux register-bus writes | records writes to cartridge bank registers C0-C3 and de-duplicates a write level spanning adjacent system clocks |
-| `vram` | GPU graphics-memory arbiter | records an aligned 16-bit internal-RAM byte address plus one of six Screen 1/2 map/tile or sprite table/tile roles for each active request |
+| `cpu` | instruction-complete pulse and CPU export state | records physical PC, `CS`, and `IP` at that boundary; an optional union of inclusive physical-PC ranges filters only this class |
+| `bank` | accepted CPU register-bus writes, excluding reset/savestate overrides | records byte commits to cartridge bank registers C0-C3 with the exact owning instruction ID and first-byte PC |
+| `vram` | GPU unified-IRAM arbiter | records each completed aligned 16-bit display read, returned word, collision flag, and one of six Screen 1/2 map/tile or sprite table/tile roles; physical background prefetches remain visible while a layer is disabled |
+| `mem` | completed system-memory bridge | records CPU, GDMA, and SDMA reads/writes with raw address/value/lane mask, resolved space/offset, and exact, unattributed, or inapplicable CPU origin status |
+| `bg_cell` | Screen 1/2 background promotion boundary | binds one decoded map word to the exact 2bpp/4bpp row entering a pixel buffer, including tile mode, flips, palette, coordinates, contributing bytes, and collisions; it is not a final-compositor visibility claim |
 
 Structured capture begins after reset is released and uses 36.864 MHz system
-cycles as its timebase. New CSV and JSON Lines traces use an eight-field v2
-schema with an appended role; the verifier remains able to read exact v1
-seven-column CSV files without inventing missing roles. Event selection,
-CPU-PC filtering, VRAM address/role filtering, output path, and format may be
-supplied on the command line or in a `KEY=VALUE` config file. A build translated
-without the observability ports remains usable for normal simulation, but the
-harness rejects a structured-trace request rather than silently producing an
-empty file. See `sim/verilator/TRACE.md` for the command-line workflow and
-schema.
+cycles as its timebase. New CSV and JSON Lines traces use the 36-field v5
+schema; the CSV verifier retains exact v1-v4 compatibility without inventing
+fields absent from those legacy headers. Command-line or `KEY=VALUE` config
+filters can independently select events, CPU PCs, display addresses/roles, and
+memory initiators/accesses/addresses/spaces/offsets/origins. Each successful
+capture writes a manifest that binds its ROM/boot inputs, filters, reset start,
+requested termination, and completeness claims. A build translated without
+the observability ports remains usable for normal simulation, but the harness
+rejects a structured-trace request rather than silently producing an empty
+file. See `sim/verilator/TRACE.md` for the exact schema and workflow.
 
 This instrumentation has no coverage of Pocket wrapper state, physical SDRAM,
 or behavior on an Analogue Pocket. Its value for a specific game's text

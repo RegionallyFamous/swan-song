@@ -11,24 +11,34 @@ carry upstream license notices retain them. The Pocket and MiSTer repositories
 both carry a top-level GPL v2 license file; `ddram.sv` and `sdram.sv` additionally carry
 GPL-v3-or-later file headers. At the pinned heads before Swan Song development,
 every shared RTL file was byte-identical except five. Phase 1 adds changes in
-three shared RTL files (one was already divergent), so the current shared-RTL
+five shared RTL files (one was already divergent), so the current shared-RTL
 differences are:
 
+- `cpu.vhd`: adds simulation-gated instruction identity, first-byte physical
+  PC, and prefetch/IRQ attribution taps. Prefix chains and REP iterations retain
+  one owning identity; functional execution is unchanged.
 - `rtc.vhd`: comment-only Pocket annotation.
 - `gpu.vhd`: adds a simulation-gated active-request and semantic-role tap for
-  Screen 1/2 map/tile and sprite table/tile arbiter lanes; it does not change
-  address selection.
-- `gpu_bg.vhd`: exposes its map-versus-tile fetch state to `gpu.vhd` for
-  simulation observability; rendering state transitions are unchanged.
+  Screen 1/2 map/tile and sprite table/tile arbiter lanes, completion-aligned
+  returned values/collisions, and atomic background-cell exports. It also fixes
+  a functional Color-mode address bug: `SPR_BASE` bit 5 now applies in 2bpp as
+  well as 4bpp, matching the open extended-range test.
+- `gpu_bg.vhd`: exposes physical map/tile fetches, preserves disabled-layer
+  prefetch visibility, and exports the exact map/row metadata promoted into the
+  pixel buffer; rendering state transitions are unchanged.
+- `memorymux.vhd`: exports resolved memory space/offset and mixed-port display
+  collisions. It also functionally suppresses hidden backing-RAM writes for
+  mono addresses above the documented 16 KiB IRAM range.
 - `savestate_ui.sv`: MiSTer OSD/gamepad UI divergence; it is not instantiated by
   the Pocket top.
 - `savestates.vhd`: Pocket/APF save-state layout and operation-order changes.
 - `sdram.sv`: Pocket's single SDRAM chip-select adaptation and refresh-state
   changes.
 - `swanTop.vhd`: exports save-state busy status to the Pocket controller and,
-  for `is_simu = '1'`, CPU completion/location, register writes, and GPU fetch
-  address/valid/role taps. The non-simulation branch drives those observability
-  outputs to constants.
+  for `is_simu = '1'`, stages 39 debug outputs covering CPU completion/origin,
+  accepted mapper writes, completed CPU/GDMA/SDMA memory transactions,
+  completion-aligned display reads/collisions, and promoted Screen 1/2 cells.
+  The non-simulation branch drives those observability outputs to constants.
 
 The Pocket tree omits MiSTer's PLL wrapper and uses APF-specific PLL IP instead.
 Changes to CPU, GPU, sound, mapper, EEPROM, RTC semantics, DMA, or console timing
