@@ -369,12 +369,42 @@ history. A direct DMA-entity test separately forces queued-request cancellation
 in IDLE and behind GDMA plus the one-completion boundary for an already-issued
 read.
 
+The hidden-state coverage follows pinned [Mesen2
+serialization](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsDmaController.cpp#L196-L213)
+of live/reload counters, control-derived state, frequency, and timer, plus
+pinned ares [APU DMA
+serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/apu/serialization.cpp#L32-L44)
+of programmed/live counters, control fields, and DMA clock. The FPGA's queued
+request and shared-bus FSM checkpoint have no direct emulator counterpart.
+`sim/rtl/run_dma_savestate_tb.sh` adds a separate direct save/load contract.
+Legacy slot 17 remains unchanged. The existing unused zero slot 18 now carries
+reload length `[19:0]`, reload source `[39:20]`, the 10-bit timer phase
+`[49:40]`, queued request `[50]`, a fixed FSM code `[53:51]`, zero reserved
+bits `[59:54]`, version `001` `[62:60]`, and valid bit `[63]`; the state-image
+size does not change. The bench models state-bus capture and final-reset
+restore, then checks the exact wire layout and round-trips a nonzero timer
+phase, live/reload divergence through terminal repeat, a pending IDLE request,
+and the sole legal in-flight checkpoint: a granted but not yet issued
+`SDMA_READ`. Both enabled and post-grant-disabled pre-bus restores must produce
+exactly one read and sample, advance the live counters once, and produce no
+second transfer.
+
+An all-zero extension is treated as a legacy image: slot 17's live counters
+become the best-available reload values, while phase, request, and FSM restart
+at zero/clear/IDLE. Reserved-bit or unknown-version headers select the same
+fallback. A valid header with an impossible FSM/request combination retains
+its versioned reload/timer payload but clears the transaction to IDLE. The
+bench also proves that omitting the versioned extension loses a deliberately
+divergent reload pair, so the added slot is not redundant. This is exact
+translated-RTL continuation at the tested save-handshake boundaries, not a
+claim for arbitrary mid-transaction snapshots or external save-state formats.
+
 Pinned Mesen performs and traces a held memory read before substituting zero;
 pinned ares skips the held read. The four held `0xf1070` rows therefore lock the
 translated core's Mesen-aligned policy, not physical hardware activity. Rates
 below 24 kHz, exact arbitration/phase/cost, slow-source extension, additional
-source spaces and wrap, wider active-byte edits, Hyper Voice routing, exact
-save-state continuation, and hardware behavior remain outside this evidence.
+source spaces and wrap, wider active-byte edits, Hyper Voice routing, and
+hardware behavior remain outside this evidence.
 
 The raw 20-bit address and resolved offset are both intentional. The mapper's
 ROM0, ROM1, and linear windows can reach the same storage byte through different
@@ -601,7 +631,9 @@ ROM, their even/odd returned values and offsets, `not_applicable` CPU origin,
 the runtime initiator filter, and fastest-rate cadence. The second runs twice
 and binds 21 selected reads to 12 self-checking success markers for the
 live/shadow, pause/resume, repeat, decrement, zero-length, and held-zero subset;
-the direct entity test covers pending cancellation and issued completion.
+the direct entity test covers pending cancellation and issued completion, and
+the direct save/load test covers the exact versioned/legacy continuation
+boundaries described above.
 The pinned open mono interrupt fixture is run twice and binds all 13 PASS cells,
 the exact terminal loop, complete background history, and its derived final
 raster. It directly covers eight UART-send-ready and five vector/status

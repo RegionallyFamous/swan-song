@@ -130,6 +130,30 @@ zero rejection as Mesen/WSdev-consistent rather than claiming emulator or
 hardware consensus. The inherited raw DMA-bus byte-enable also remains
 distinct from logical SDMA sample width.
 
+The Sound-DMA save-state contract was reviewed separately against pinned
+[Mesen2 serialization](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsDmaController.cpp#L196-L213),
+which preserves the live and reload counters, control-derived state,
+frequency, and timer, and pinned ares [APU DMA
+serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/apu/serialization.cpp#L32-L44),
+which preserves programmed and live source/length plus the DMA clock and
+control fields. Both emulator models complete a transfer atomically inside
+their host execution path, so neither has an FPGA shared-bus request or FSM
+checkpoint to serialize. The new queued-request and granted-but-not-issued
+read fields are therefore implementation-specific continuation state, not a
+claim of emulator consensus.
+
+The direct save/load regression is a repository-authored GHDL test bench and
+contains no external ROM, firmware, or emulator code. It models the existing
+state-bus capture/final-reset sequence and proves the unchanged legacy slot 17
+alongside a versioned extension in the previously unused zero slot 18. Its
+scope is exact nonzero timer-phase restoration, divergent live/reload counters
+through a terminal repeat, pending-IDLE and enabled/disabled pre-bus
+single-read continuation, legacy all-zero fallback, invalid-header fallback,
+and impossible-state sanitization. These are translated-RTL continuation
+claims at the direct bench's tested state-bus boundaries; they do not establish
+arbitrary mid-transaction, external save-format, physical timing, or Pocket
+hardware equivalence.
+
 The paired planar/packed 4bpp regressions likewise generate self-contained
 128 KiB Color cartridges under `build/`. Their 80186 programs, pixel patterns,
 palettes, markers, footers, and checksums are repository-authored; they use no

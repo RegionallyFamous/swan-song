@@ -7,7 +7,7 @@
 | History-preserving Pocket fork | Complete | current branch is based at Pocket `1.0.1` / `073213a2` and retains its ancestry |
 | Upstream pins and license audit | Provenance complete; release clearance open | `UPSTREAMS.md`; MiSTer program notice is GPL v2-or-later and is version-compatible with GPL-v3-or-later RTL, but Pocket omitted that notice and the tree lacks a GPL v3 license copy |
 | Architecture and port boundary | Complete | `ARCHITECTURE.md`, `PORTING.md` |
-| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's mono 80186-quirks, SoC-interrupt, and WSC extended-range fixtures, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, build-generated Color sprite-priority, interrupt/input, and Sound-DMA modes probes, plus a direct DMA-entity arbitration test via `make regression`; a pinned Wonderful `initfini` pass is recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
+| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's mono 80186-quirks, SoC-interrupt, and WSC extended-range fixtures, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, build-generated Color sprite-priority, interrupt/input, and Sound-DMA modes probes, plus direct DMA-entity arbitration and save-state tests via `make regression`; a pinned Wonderful `initfini` pass is recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
 | V30MZ instruction quirks | Value, flag, exception, and memory-side-effect behavior verified in translated RTL | pinned open `80186_quirks.ws` renders three upstream-authored PASS results for D4/AAM and D5/AAD with base 16 plus D6/SALC; a separate build-generated probe records 24 exact results covering defined AAM flags, full AAD byte-ADD flags, D4 base-zero vector 0/post-IP/AX state, and D6 values with AH plus full before/after PUSHF words preserved and no data-memory access; exact hardware timing remains reference-correlated rather than trace-measured |
 | SoC interrupt controller | UART-TX level, vector/status/ACK, and keypad-edge paths verified in translated RTL | pinned open `interrupts.ws` renders all 13 real-hardware-authored PASS results in two byte-identical six-frame runs and remains at its exact terminal loop; a separate build-generated Color probe proves `$B0` F8 alignment, disabled-edge isolation, actual key dispatch through vector `$81`, held/release/repress edge behavior, mask-independent pending retention, ACK, and exact combined-row values through the deterministic `BDVIHRPACZ` marker; UART receive/transmit timing, cartridge IRQ, and exact interrupt latency remain open |
 | Simulation CI | Immutable workflow contract; remote run open | checkout is pinned by full SHA; official Verilator 5.050/GCC 13.3.0 and GHDL 6.0.0 images are digest-pinned and version-checked before `make regression`; the Ubuntu runner still supplies platform-managed shell/Make/Python; the current branch has not been pushed to a configured fork, so no remote green run is claimed |
@@ -38,7 +38,7 @@ deferred or Phase 1 accepted.
 | CPU PC ranges | Verified with running ROMs | regression checks `CS:IP` against wrapped physical PC and disjoint range-union containment; Wonderful execution terminates at the expected `0xff68b` loop |
 | Memory provenance | All eight trace-space labels runtime verified with generated open probes | paired complete-from-reset traces require 36,817 memory plus five bank events each and exact `iram`, `cart_sram`/`absent_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, and mono `unmapped` behavior; checks bind ROM/boot inputs, values, masks, offsets, CPU origins, ROM aliases, and the separate GDMA chains |
 | CPU ROM-to-IRAM provenance | Strictly verified for the trace-observed bootstrap `REP MOVSB` copies | conservative classification requires an `F3 A4` origin signature plus an immediate exact same-instruction ROM-read/IRAM-byte-write pair; a dedicated verifier binds the canonical open ROM, complete v5 manifest, uninterrupted alternating chains, ranges, lanes, and all 4,096 byte values; bootstrap yields two 2,048-byte chains, ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` and ROM `0x00a52..0x01251` to IRAM `0x2000..0x27ff`, totaling two origins, 52,512 display words, and 26,222 atomic cells whose contributing tile-row bytes are MOVSB-sourced; extended-range and Shift-JIS fixtures are zero for all four counts, and `unattributed` alone is not treated as proven prefetch |
-| Sound-DMA modes and provenance | Functional subset verified in translated RTL with generated open probes | the original `sdma` capture locks four one-shot linear-ROM reads at `0xf0100..0xf0103` and fastest-rate cadence; a second self-checking WSC probe runs twice with byte-identical selected traces containing 21 exact SDMA reads plus the 12 exact-origin `PONSREATDHUZ` success markers, covering masked live readback, terminal and zero-length behavior, pause/resume, active low-byte edits, repeat-shadow reload, decrement, and held Channel-2 zero; a direct entity test covers queued-request cancellation behind IDLE/GDMA and one already-issued completion; raw `byte_enable=3` and held reads are translated-core signals, not sample-width or hardware-bus claims |
+| Sound-DMA modes, provenance, and save-state continuation | Functional subset and legal save boundaries verified in translated RTL | the original `sdma` capture locks four one-shot linear-ROM reads at `0xf0100..0xf0103` and fastest-rate cadence; a second self-checking WSC probe runs twice with byte-identical selected traces containing 21 exact SDMA reads plus the 12 exact-origin `PONSREATDHUZ` success markers, covering masked live readback, terminal and zero-length behavior, pause/resume, active low-byte edits, repeat-shadow reload, decrement, and held Channel-2 zero; direct entity tests cover queued-request cancellation behind IDLE/GDMA, one already-issued completion, the versioned slot-18 layout, exact nonzero timer phase, divergent live/reload state, pending-IDLE and pre-bus continuation, legacy/invalid fallback, and illegal-state sanitization; raw `byte_enable=3` and held reads are translated-core signals, not sample-width or hardware-bus claims |
 | Boot-ROM overlay and lockout | Runtime verified for mono and Color models | generated 4 KiB/8 KiB open test images execute from byte zero, read exact markers at `0xff100`/`0xfe100`, write A0 lockout, then require physical addresses `0xffff0..0xffffe` to change from mono boot offsets `0xff0..0xffe` or Color offsets `0x1ff0..0x1ffe` to cartridge offsets `0x1fff0..0x1fffe`; no proprietary firmware is used |
 | Display-to-writer correlation | Verified on open regression | complete-from-reset manifest plus byte-lane IRAM scoreboard matches all 78,940 physical fetches: 78,750 exact CPU writers, 190 defined power-up prefetches, zero mismatches/collisions; `correlate_provenance.py` |
 | Atomic background-cell correlation | Verified on open regression | `correlate_bg_cells.py` independently groups Screen 1/2 map/tile reads, validates 2bpp selected-word and 4bpp two-word rows, and snapshots byte writers/GDMA sources at the raw-fetch edge; regression validates 26,224 bootstrap cells, 5,176 extended-range Color cells, 8,307 Shift-JIS fixture cells, and 8,493 cells in each generated 4bpp format, with no atomic mismatch/collision |
@@ -107,9 +107,26 @@ The repository implements and tests the Mesen/WSdev-consistent rule without
 claiming emulator consensus or importing those hardware tests. Physical
 `117 mod 128` phase, `6+N` bus-steal cost, slower rates and slow-source
 extension, wider active-byte edits, source-space/wrap cases, Hyper Voice
-routing, and hardware timing remain open. Exact save-state continuation also
-remains open: slot 17 omits repeat shadows, timer phase, queued request, FSM,
-and output state.
+routing, and hardware timing remain open. Save-state continuation now follows
+pinned [Mesen2's serialization](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsDmaController.cpp#L196-L213)
+of live/reload counters, control, frequency, and timer plus [ares'
+serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/apu/serialization.cpp#L32-L44)
+of programmed/live counters and its DMA clock, with FPGA-specific queued and
+pre-bus state added for the shared bus FSM. Existing
+slot 17 remains byte-for-byte unchanged and the previously unused, zero slot
+18 carries reload length `[19:0]`, reload source `[39:20]`, the 10-bit timer
+phase `[49:40]`, queued request `[50]`, fixed FSM code `[53:51]`, zero reserved
+bits `[59:54]`, version `001` `[62:60]`, and valid bit `[63]`; the save image
+size does not change. An all-zero legacy slot, or a header invalidated by its
+valid/version/reserved fields, derives both reload counters from slot 17's live
+counters and resumes with timer zero, request clear, and IDLE. A valid header
+with an illegal FSM code retains its reload/timer payload but sanitizes the
+FSM to IDLE with no request. The direct save/load bench proves the wire layout,
+timer phase, divergent live/reload repeat, pending IDLE, enabled and disabled
+pre-bus single-read continuation, legacy collapse, invalid-header fallback,
+and illegal-state fail-safe behavior. This is exact continuation at the legal
+save-handshake boundaries, not evidence for the open physical timing,
+Hyper Voice, source-space/wrap, or Pocket-hardware cases.
 
 ## Baseline corrections discovered
 
@@ -188,7 +205,12 @@ to finish. The paired generated probe verifies the functional subset in the
 translated top; a direct GHDL entity test forces the pending/GDMA and issued
 transaction boundaries and fails against the pre-fix RTL. The held bus read is
 an explicit translated policy because the pinned emulators disagree, and the
-timing, Hyper Voice, save-state, and hardware limits above still apply.
+timing, Hyper Voice, source-space/wrap, and hardware limits above still apply.
+The save-state extension now preserves repeat shadows, timer phase, queued
+request, and the only legal in-flight pre-bus FSM point while keeping old
+slot-17 images compatible; its direct entity bench covers exact restore and
+legacy/malformed fail-safe behavior without claiming arbitrary mid-transaction
+or on-device equivalence.
 
 The boot-overlay probe exposed a simulator initialization error: the model had
 not observed its initial low clock level before the first BIOS-programming
