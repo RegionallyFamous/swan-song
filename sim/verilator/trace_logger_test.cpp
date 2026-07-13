@@ -111,6 +111,7 @@ int main() {
   expect_failure([] { swansong::trace::vram_role_from_code(6); });
 
   assert(swansong::trace::parse_mem_initiators("CPU, gdma") == 0x03);
+  assert(swansong::trace::parse_mem_initiators("sdma") == 0x04);
   assert(swansong::trace::parse_mem_accesses("write") == 0x02);
   assert(swansong::trace::parse_mem_spaces("iram,cart_rom_linear") ==
          ((1u << 1) | (1u << 5)));

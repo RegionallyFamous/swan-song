@@ -27,9 +27,13 @@
   ROMs that verify all C0-C3 bank writes with their owning instruction IDs/PCs,
   including both accepted byte writes from one word `OUT`, and an exact GDMA
   ROM-to-IRAM chain.
-- The translated trace runtime covers CPU and GDMA memory transactions. The
-  schema reserves `sdma`, but `is_simu=1` suppresses sound-DMA bus traffic, so
-  no SDMA runtime coverage is claimed.
+- The translated trace runtime covers CPU, GDMA, and SDMA memory transactions.
+  A self-contained WSC probe streams four addressed bytes from linear ROM at
+  the 24 kHz setting and requires the exact SDMA values, offsets, initiator,
+  origin status, and 128-CPU-clock cadence. The inherited DMA bus reports its
+  raw `byte_enable=3` while SDMA still advances one byte per transfer, so the
+  trace contract does not treat that mask as SDMA sample width. This probe does
+  not establish the physical `117 mod 128` phase or `6+N` stolen-cycle cost.
 - Paired generated 2 MiB mapper probes runtime-verify `boot_rom`,
   `cart_sram`/`absent_sram`, mono `unmapped`, `cart_rom0`, `cart_rom1`, and
   `cart_rom_linear` classification. Exact checks cover C0/C1 bank bits that
@@ -139,9 +143,11 @@ This unit test proves config parsing, filtering primitives, and serialization.
 capture to check all five CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) minimal open bank-write,
-WSC GDMA, paired mapper-memory, and mono/Color boot-overlay probes. The GDMA
+WSC GDMA/SDMA, paired mapper-memory, and mono/Color boot-overlay probes. The GDMA
 probe requires two known ROM words to appear in the ordered completed
-read/write events at their resolved ROM and IRAM offsets. The mapper probes
+read/write events at their resolved ROM and IRAM offsets. The SDMA probe
+requires four byte-addressed linear-ROM reads, including odd addresses, at the
+fastest documented cadence through the runtime `sdma` filter. The mapper probes
 require complete unfiltered memory history, exact values and resolved offsets,
 issued write lane masks plus the CPU-read zero convention, and exact
 instruction origins for probe-owned accesses across the paired trace-space

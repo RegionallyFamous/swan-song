@@ -136,7 +136,7 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `role` | display fetch role; empty/null for other events |
 | `initiator` | `cpu`, `gdma`, or `sdma` for `mem` |
 | `access` | completed `read` or `write` for `mem` |
-| `byte_enable` | raw two-bit logical lane mask, 0-3, for writes and DMA transfers; CPU reads use 0 because the CPU does not drive a read mask, so this field does not encode CPU operand width |
+| `byte_enable` | raw two-bit bus lane mask, 0-3; CPU reads use 0 because the CPU does not drive a read mask, and inherited SDMA reports 3 despite advancing one byte, so this field is not a general operand/sample-width encoding |
 | `space` | `iram`, `cart_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, `unmapped`, or `absent_sram` |
 | `mapped_offset` | exact resolved byte offset within the backing space, including address bit 0; cartridge offsets include the active mask; null for unmapped/absent SRAM |
 | `instruction_id` | monotonic CPU instruction-chain identity for exact CPU-owned `mem` and `bank` events; required to be nonzero on v5 `bank` |
@@ -187,14 +187,21 @@ owned by a decoded instruction; the logger never guesses ownership from the
 nearest instruction-complete event. CPU read events deliberately report
 `byte_enable=0`: the functional CPU only drives byte enables for writes, so
 forwarding that signal on a read would expose stale state from an earlier
-write. DMA's fixed-width transfers continue to report their real mask. Do not
-infer the width of a CPU read from this field.
+write. GDMA's word transfers continue to report the raw bus mask. Do not infer
+the width of a CPU read from this field.
 
-The `sdma` initiator value and filter are reserved in the schema, but the
-translated `is_simu=1` configuration suppresses `sdma_request` and prevents an
-SDMA bus read. Runtime captures therefore cover CPU and GDMA only. SDMA
-provenance requires a simulation configuration that emits real sound-DMA bus
-traffic plus a focused probe; no such runtime evidence exists.
+The integrated top currently instantiates the DMA engine with its hardware
+path enabled, so `sdma` events are runtime-reachable in the translated model.
+The generated WSC probe requires four one-shot reads at `0xf0100..0xf0103`,
+including odd-byte alignment, and a 1,536 trace-clock interval: the documented
+128 CPU clocks at the trace clock's 12:1 ratio. [WSdev defines SDMA transfers
+as bytes](https://ws.nesdev.org/wiki/DMA), while this inherited RTL drives the
+shared DMA bus's raw `byte_enable=3` for both DMA engines. SDMA still advances
+one address and consumes the low returned byte each step; do not infer its
+sample width from the raw mask. The probe verifies translated-core cadence and
+provenance, not the physical transfer's documented `117 mod 128` phase or
+`6+N` stolen-cycle cost. Hold, repeat, decrement, Hyper Voice, live-counter
+writes, and resume behavior are outside this focused trace test.
 
 The raw 20-bit address and resolved offset are both intentional. The mapper's
 ROM0, ROM1, and linear windows can reach the same storage byte through different
@@ -307,7 +314,7 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 fixtures and focused byte-lane/atomic-cell correlator tests. Its translated
 open-ROM captures require all six display-role encodings, exact CPU memory
 origins, `bg_cell` events, and nonzero atomic-cell coverage from both screen
-layers. The suite generates temporary bank and WSC GDMA probes and runs a
+layers. The suite generates temporary bank and WSC GDMA/SDMA probes and runs a
 checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated glyph
 verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
 48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted
@@ -316,7 +323,11 @@ general Japanese-text provenance path while deliberately leaving any
 commercial title's private codepoint mapping unclaimed. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
 completed chain `ROM 0x0100 -> IRAM 0x4000` and `ROM 0x0102 -> IRAM 0x4002`,
-including known values and mapped offsets. Paired generated 2 MiB mapper
+including known values and mapped offsets.
+The SDMA probe runtime-verifies four successive byte addresses in linear ROM,
+their even/odd returned values and offsets, `not_applicable` CPU origin, the
+runtime initiator filter, and the fastest-rate cadence.
+Paired generated 2 MiB mapper
 probes add complete-from-reset CPU coverage of all eight trace-space labels:
 `iram`, `cart_sram`, `absent_sram`, `cart_rom0`, `cart_rom1`,
 `cart_rom_linear`, `boot_rom`, and mono `unmapped`. The verifier binds the ROM

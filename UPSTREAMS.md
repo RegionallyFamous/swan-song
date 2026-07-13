@@ -82,6 +82,15 @@ research](https://ws.nesdev.org/wiki/ROM_header) reports 32 KiB chips in known
 cartridges while the inherited RTL still interprets that value as 8 KiB.
 Resolving that hardware-accuracy question is outside the probe's role.
 
+The Sound-DMA regression generates a self-contained 128 KiB Color cartridge
+under `build/`. Its minimal open 80186 program streams four marker bytes from
+linear ROM through the core's SDMA engine; it includes no external carrier,
+firmware, or commercial data. The verifier locks current integrated RTL and
+trace behavior against the one-shot, incrementing byte-transfer subset
+documented by [WSdev](https://ws.nesdev.org/wiki/DMA), while keeping the
+inherited raw DMA-bus byte-enable value distinct from logical SDMA sample
+width.
+
 The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked

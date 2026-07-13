@@ -17,6 +17,7 @@ python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 
 require_bg_layers() {
   local summary="$1"
@@ -140,6 +141,27 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --mem-origin not_applicable
 python3 "$ROOT/sim/verilator/verify_provenance_probe.py" \
   "$BUILD/provenance-probe/events.csv"
+
+# Prove the integrated WSC sound-DMA path and its trace filter with an open,
+# self-contained four-byte ROM stream. At the fastest rate the four completed
+# byte steps are 1536 trace clocks apart (128 CPU clocks at 12 trace clocks per
+# CPU clock). The raw inherited DMA bus drives byte_enable=3 even though SDMA
+# advances and consumes one addressed byte per transfer; the dedicated
+# verifier locks both facts without conflating the bus mask with sample width.
+SDMA_OUT="$BUILD/sdma-probe"
+rm -rf "$SDMA_OUT"
+python3 "$ROOT/sim/verilator/generate_sdma_probe.py" "$SDMA_OUT" >/dev/null
+"$SIM" \
+  --rom "$SDMA_OUT/sdma_probe.wsc" \
+  --frames 1 --max-cycles 1000000 --out "$SDMA_OUT/frames" \
+  --event-trace "$SDMA_OUT/events.csv" \
+  --trace-events mem --trace-mem-initiator sdma >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$SDMA_OUT/events.csv" \
+  --allowed mem --require mem --mem-initiator sdma \
+  --require-mem-initiators sdma --require-origin-statuses not_applicable
+python3 "$ROOT/sim/verilator/verify_sdma_probe.py" \
+  "$SDMA_OUT/sdma_probe.wsc" "$SDMA_OUT/events.csv"
 
 # Exercise every memory-space classification that can be reached with open,
 # generated stimuli. The paired ROMs differ only in their unambiguous 128 KiB
