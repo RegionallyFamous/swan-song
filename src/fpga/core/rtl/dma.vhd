@@ -75,6 +75,12 @@ architecture arch of dma is
    signal SDMA_LEN     : std_logic_vector(19 downto 0) := (others => '0');
    signal SDMA_CTRL    : std_logic_vector( 7 downto 0) := (others => '0');
    
+   signal SDMA_SRC_L_written : std_logic;
+   signal SDMA_SRC_M_written : std_logic;
+   signal SDMA_SRC_H_written : std_logic;
+   signal SDMA_LEN_L_written : std_logic;
+   signal SDMA_LEN_M_written : std_logic;
+   signal SDMA_LEN_H_written : std_logic;
    signal SDMA_CTRL_written  : std_logic;
    
    type t_reg_wired_or is array(0 to 14) of std_logic_vector(7 downto 0);
@@ -123,12 +129,12 @@ begin
    iREG_DMA_LEN_H  : entity work.eReg generic map ( REG_DMA_LEN_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 6), DMA_LEN(15 downto  8) , open, DMA_LEN_H_written  ); 
    iREG_DMA_CTRL   : entity work.eReg generic map ( REG_DMA_CTRL   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 7), DMA_CTRL              , open, DMA_CTRL_written   );
    
-   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), SDMA_SRC( 7 downto  0)); 
-   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), SDMA_SRC(15 downto  8)); 
-   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), SDMA_SRC(19 downto 16)); 
-   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), SDMA_LEN( 7 downto  0)); 
-   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), SDMA_LEN(15 downto  8)); 
-   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), SDMA_LEN(19 downto 16)); 
+   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), SDMA_SRC( 7 downto  0), SDMA_SRC_L_written);
+   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), SDMA_SRC(15 downto  8), SDMA_SRC_M_written);
+   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), SDMA_SRC(19 downto 16), SDMA_SRC_H_written);
+   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), SDMA_LEN( 7 downto  0), SDMA_LEN_L_written);
+   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), SDMA_LEN(15 downto  8), SDMA_LEN_M_written);
+   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), SDMA_LEN(19 downto 16), SDMA_LEN_H_written);
    iREG_SDMA_CTRL  : entity work.eReg generic map ( REG_SDMA_CTRL  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(14), SDMA_CTRL             , open, SDMA_CTRL_written  ); 
 
    process (reg_wired_or)
@@ -211,13 +217,13 @@ begin
          -- SOUND DMA
          if (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1') then
             SDMA_CTRL <= RegBus_Din(7 downto 6) & '0' & RegBus_Din(4 downto 0);
-            if (SDMA_CTRL(7) = '0' and RegBus_Din(7) = '1') then -- new start
-               SDMA_SRC_work <= SDMA_SRC;
-               SDMA_LEN_work <= SDMA_LEN;
-               sdmaSlow      <= (others => '0');
-               if (unsigned(SDMA_LEN) = 0) then
-                  SDMA_CTRL(7) <= '0';
+            if (RegBus_Din(7) = '1' and unsigned(SDMA_LEN_work) = 0) then
+               SDMA_CTRL(7) <= '0';
+               if (state = IDLE) then
+                  sdma_requestIntern <= '0';
                end if;
+            elsif (RegBus_Din(7) = '0' and state = IDLE) then
+               sdma_requestIntern <= '0';
             end if;
          end if;
       
@@ -242,7 +248,7 @@ begin
             
          elsif (ce = '1') then
             
-            if (SDMA_CTRL(7) = '1') then
+            if (SDMA_CTRL(7) = '1' and not (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1' and (RegBus_Din(7) = '0' or unsigned(SDMA_LEN_work) = 0))) then
                sdmaSlow      <= sdmaSlow + 1;
                sdma_timerhit := '0';
                case (SDMA_CTRL(1 downto 0)) is
@@ -261,7 +267,9 @@ begin
             case (state) is
          
                when IDLE =>
-                  if (sdma_requestIntern = '1') then
+                  if (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1' and (RegBus_Din(7) = '0' or unsigned(SDMA_LEN_work) = 0)) then
+                     sdma_requestIntern <= '0';
+                  elsif (sdma_requestIntern = '1') then
                      if (cpu_idle = '1' or is_simu = '1') then
                         state         <= SDMA_READ;
                      end if;
@@ -313,11 +321,13 @@ begin
                      bus_read      <= '1';
                      bus_addr      <= unsigned(SDMA_SRC_work);
                   end if;
-                  SDMA_LEN_work <= std_logic_vector(unsigned(SDMA_LEN_work) - 1);
-                  if (SDMA_CTRL(6) = '1') then
-                     SDMA_SRC_work <= std_logic_vector(unsigned(SDMA_SRC_work) - 1);
-                  else
-                     SDMA_SRC_work <= std_logic_vector(unsigned(SDMA_SRC_work) + 1);
+                  if (SDMA_CTRL(2) = '0') then
+                     SDMA_LEN_work <= std_logic_vector(unsigned(SDMA_LEN_work) - 1);
+                     if (SDMA_CTRL(6) = '1') then
+                        SDMA_SRC_work <= std_logic_vector(unsigned(SDMA_SRC_work) - 1);
+                     else
+                        SDMA_SRC_work <= std_logic_vector(unsigned(SDMA_SRC_work) + 1);
+                     end if;
                   end if;
                
                when SDMA_READDONE =>
@@ -325,11 +335,15 @@ begin
                   sdma_requestIntern <= '0';
                   sdma_active  <= '0';
                   
-                  soundDMAvalue <= bus_dataread(7 downto 0);
+                  if (SDMA_CTRL(2) = '1') then
+                     soundDMAvalue <= x"00";
+                  else
+                     soundDMAvalue <= bus_dataread(7 downto 0);
+                  end if;
                   soundDMACh2   <= not SDMA_CTRL(4);
                   soundDMACh5   <= SDMA_CTRL(4);
                   
-                  if (unsigned(SDMA_LEN_work) = 0) then
+                  if (SDMA_CTRL(2) = '0' and unsigned(SDMA_LEN_work) = 0) then
                      if (SDMA_CTRL(3) = '1') then
                         SDMA_SRC_work <= SDMA_SRC;
                         SDMA_LEN_work <= SDMA_LEN;
@@ -341,18 +355,23 @@ begin
             end case;
             
          end if;
+
+         -- The visible source/length ports are the live counters while eReg
+         -- retains the same writes as repeat reload shadows.  These byte
+         -- assignments are last so CPU writes win coincident transfers.
+         if (reset = '0' and sleep_savestate = '0') then
+            if (SDMA_SRC_L_written = '1') then SDMA_SRC_work( 7 downto  0) <= RegBus_Din; end if;
+            if (SDMA_SRC_M_written = '1') then SDMA_SRC_work(15 downto  8) <= RegBus_Din; end if;
+            if (SDMA_SRC_H_written = '1') then SDMA_SRC_work(19 downto 16) <= RegBus_Din(3 downto 0); end if;
+            if (SDMA_LEN_L_written = '1') then SDMA_LEN_work( 7 downto  0) <= RegBus_Din; end if;
+            if (SDMA_LEN_M_written = '1') then SDMA_LEN_work(15 downto  8) <= RegBus_Din; end if;
+            if (SDMA_LEN_H_written = '1') then SDMA_LEN_work(19 downto 16) <= RegBus_Din(3 downto 0); end if;
+         end if;
       end if;
    end process;
      
 
 end architecture;
-
-
-
-
-
-
-
 
 
 
