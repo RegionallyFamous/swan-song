@@ -33,7 +33,12 @@ entity gpu_bg is
       
       tileActive     : out std_logic := '0';
       tilePalette    : out std_logic_vector(3 downto 0) := (others => '0');
-      tileColor      : out std_logic_vector(3 downto 0) := (others => '0')
+      tileColor      : out std_logic_vector(3 downto 0) := (others => '0');
+
+      -- Simulation observability. A screen-map word and the tile-pattern
+      -- words are distinct reads even when their IRAM ranges overlap.
+      debug_fetch_valid : out std_logic := '0';
+      debug_fetch_tile  : out std_logic := '0'
    );
 end entity;
 
@@ -78,6 +83,13 @@ architecture arch of gpu_bg is
    signal wxCheck         : unsigned(7 downto 0) := (others => '0');
 
 begin 
+
+   -- The public terminology follows WSdev's screen/tile split and ares'
+   -- separate map-word and tile-data reads:
+   -- https://ws.nesdev.org/w/index.php?title=Display&oldid=555
+   -- https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/screen.cpp#L17-L32
+   debug_fetch_valid <= '1' when enable = '1' and fetchState /= FETCHDONE else '0';
+   debug_fetch_tile  <= '1' when fetchState = FETCHCOLOR0 or fetchState = FETCHCOLOR1 else '0';
 
    tilemapAddress <= "00" & screenbase(2 downto 0) & posY(7 downto 3) & std_logic_vector(posX(7 downto 3)) & '0' when isColor = '0' else
                       '0' & screenbase & posY(7 downto 3) & std_logic_vector(posX(7 downto 3)) & '0'; 
@@ -229,8 +241,6 @@ begin
    
 
 end architecture;
-
-
 
 
 

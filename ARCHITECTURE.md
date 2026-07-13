@@ -124,13 +124,15 @@ jumps through the cartridge reset vector.
 
 ### Simulation observability
 
-`SwanTop` exposes nine observability outputs when its `is_simu` generic is set:
+`SwanTop` exposes ten observability outputs when its `is_simu` generic is set:
 an instruction-complete pulse with `CS`, `IP`, and the wrapped 20-bit physical
 PC; the register-bus write address and value; and a GPU VRAM-fetch address and
-valid pulse. The GPU validity tap marks graphics arbiter issue slots and omits
-the two sound-RAM slots. With `is_simu = '0'`, all nine outputs are constants;
-the unconnected outputs and their source logic can therefore be pruned from a
-production build. These are observation points, not new console behavior.
+valid pulse plus a three-bit semantic role. The GPU validity tap suppresses
+sound, disabled/complete screen states, inactive sprite-table DMA, and idle
+sprite-tile lanes. With `is_simu = '0'`, all ten public outputs are constants;
+GHDL confirms that production-generic elaboration succeeds, but Quartus resource
+and timing impact remain unmeasured. These are observation points, not new
+console behavior.
 
 The Verilator adapter converts the raw taps into three event classes:
 
@@ -138,15 +140,18 @@ The Verilator adapter converts the raw taps into three event classes:
 | --- | --- | --- |
 | `cpu` | instruction-complete pulse and CPU export state | records physical PC, `CS`, and `IP` at that boundary; an optional inclusive physical-PC range filters only this class |
 | `bank` | post-mux register-bus writes | records writes to cartridge bank registers C0-C3 and de-duplicates a write level spanning adjacent system clocks |
-| `vram` | GPU graphics-memory arbiter | records the 16-bit VRAM address for each graphics issue slot |
+| `vram` | GPU graphics-memory arbiter | records an aligned 16-bit internal-RAM byte address plus one of six Screen 1/2 map/tile or sprite table/tile roles for each active request |
 
 Structured capture begins after reset is released and uses 36.864 MHz system
-cycles as its timebase. CSV and JSON Lines share a stable seven-field schema;
-event selection, CPU-PC filtering, output path, and format may be supplied on
-the command line or in a `KEY=VALUE` config file. A build translated without
-the observability ports remains usable for normal simulation, but the harness
-rejects a structured-trace request rather than silently producing an empty
-file. See `sim/verilator/TRACE.md` for the command-line workflow and schema.
+cycles as its timebase. New CSV and JSON Lines traces use an eight-field v2
+schema with an appended role; the verifier remains able to read exact v1
+seven-column CSV files without inventing missing roles. Event selection,
+CPU-PC filtering, VRAM address/role filtering, output path, and format may be
+supplied on the command line or in a `KEY=VALUE` config file. A build translated
+without the observability ports remains usable for normal simulation, but the
+harness rejects a structured-trace request rather than silently producing an
+empty file. See `sim/verilator/TRACE.md` for the command-line workflow and
+schema.
 
 This instrumentation has no coverage of Pocket wrapper state, physical SDRAM,
 or behavior on an Analogue Pocket. Its value for a specific game's text

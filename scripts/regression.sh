@@ -18,12 +18,16 @@ echo "PASS structured trace parser and writer"
 rm -rf "$BUILD/bootstrap"
 "$ROOT/sim/verilator/run.sh" \
   --rom "$ROOT/testroms/spritepriority/spritepriority.ws" \
-  --frames 1 --max-cycles 4000000 --out "$BUILD/bootstrap" \
+  --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
   --event-trace "$BUILD/bootstrap/events.csv" \
-  --trace-events cpu,vram --trace-pc 0xf0000-0xfffff >/dev/null
+  --trace-events cpu,vram --trace-pc 0xf0000-0xfffff \
+  --trace-vram-role all \
+  --trace-vram-address 0x0000-0xbfff >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bootstrap/events.csv" \
-  --allowed cpu,vram --require cpu,vram --pc-range 0xf0000-0xfffff
+  --allowed cpu,vram --require cpu,vram --pc-range 0xf0000-0xfffff \
+  --vram-role all --require-vram-roles all \
+  --vram-address 0x0000-0xbfff
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see
@@ -42,12 +46,8 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --allowed bank --require bank \
   --require-bank-addresses 0xc0,0xc1,0xc2,0xc3
 
-run_case() {
-  local name="$1" expected="$2"
-  local output="$BUILD/$name"
-  rm -rf "$output"
-  "$SIM" --rom "$ROOT/testroms/$name/$name.ws" --frames 6 \
-    --max-cycles 4000000 --out "$output" >/dev/null
+check_case() {
+  local name="$1" expected="$2" output="$3"
   python3 "$ROOT/sim/verilator/rgb_to_png.py" "$output/frame-5.rgb" >/dev/null
   local actual
   actual="$(python3 - "$output/frame-5.png" <<'PY'
@@ -73,5 +73,16 @@ PY
   echo "PASS $name $actual"
 }
 
-run_case spritepriority c7e9cd656f0e156aa34956492d2ed1b8a482e72d71c2d3caf73c77b3604538fd
+run_case() {
+  local name="$1" expected="$2"
+  local output="$BUILD/$name"
+  rm -rf "$output"
+  "$SIM" --rom "$ROOT/testroms/$name/$name.ws" --frames 6 \
+    --max-cycles 4000000 --out "$output" >/dev/null
+  check_case "$name" "$expected" "$output"
+}
+
+# The bootstrap run above is also the sprite-priority golden run, avoiding a
+# duplicate six-frame simulation after rebuilding the model.
+check_case spritepriority c7e9cd656f0e156aa34956492d2ed1b8a482e72d71c2d3caf73c77b3604538fd "$BUILD/bootstrap"
 run_case windowtest c51c7a7681dd3d80667bfa2c5c236932c227d49036e0ae59a9fe6e39a12cf680

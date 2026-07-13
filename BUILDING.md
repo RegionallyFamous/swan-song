@@ -8,9 +8,10 @@
   224×144 PNG frame hashes in repeated runs.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
   C++ unit test. The regression also validates CPU and VRAM events from the
-  translated model, including `CS:IP` conversion and an inclusive PC filter,
-  and generates a build-only ROM that verifies writes to all four C0-C3 bank
-  registers.
+  translated model, including `CS:IP` conversion, inclusive PC/address filters,
+  aligned addresses, and all six screen-map/tile and sprite-table/tile roles.
+  It also generates a build-only ROM that verifies writes to all four C0-C3
+  bank registers.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
@@ -73,14 +74,17 @@ mixed trace:
   --frames 10 \
   --event-trace build/sim/text-renderer.jsonl \
   --trace-events cpu,bank,vram \
-  --trace-pc 0x80000-0x8ffff
+  --trace-pc 0x80000-0x8ffff \
+  --trace-vram-role screen1_tile \
+  --trace-vram-address 0x2000-0x5fff
 ```
 
 Use `--trace-format csv|jsonl` to override suffix-based format selection. For a
 repeatable investigation, copy `sim/verilator/trace.example.conf`, then pass
 `--trace-config FILE`. Later command-line options override config-file values.
-The config accepts `output`, `format`, `events`, and `cpu_pc`. Full field
-semantics and filtering behavior are in `sim/verilator/TRACE.md`.
+The config accepts `output`, `format`, `events`, `cpu_pc`, `vram_address`, and
+`vram_role`. Full field semantics and filtering behavior are in
+`sim/verilator/TRACE.md`.
 
 Run the parser/serializer unit test independently of GHDL and Verilator:
 
@@ -95,7 +99,7 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 This unit test proves config parsing, filtering primitives, and serialization.
 `make regression` separately runs `verify_trace.py` against an end-to-end ROM
 capture to check the CSV schema, event-specific fields, monotonic cycles,
-`CS:IP` to physical-PC conversion, and requested PC-range containment.
+`CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) a minimal open bank-write
 probe and requires serialized events for C0, C1, C2, and C3.
 

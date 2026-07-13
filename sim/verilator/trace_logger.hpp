@@ -13,11 +13,22 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace swansong::trace {
 
 enum class EventType : uint8_t { Cpu = 1, Bank = 2, Vram = 4 };
 enum class Format { Auto, Csv, Jsonl };
+enum class VramRole : uint8_t {
+  Screen1Map = 0,
+  Screen1Tile = 1,
+  Screen2Map = 2,
+  Screen2Tile = 3,
+  SpriteTable = 4,
+  SpriteTile = 5,
+};
+
+constexpr uint8_t kAllVramRoles = (1u << 6) - 1;
 
 struct PcRange {
   uint32_t first;
@@ -26,17 +37,38 @@ struct PcRange {
   bool contains(uint32_t pc) const { return pc >= first && pc <= last; }
 };
 
+struct AddressRange {
+  uint16_t first;
+  uint16_t last;
+
+  bool contains(uint16_t address) const {
+    return address >= first && address <= last;
+  }
+};
+
 struct Config {
   std::filesystem::path output;
   uint8_t events = static_cast<uint8_t>(EventType::Cpu) |
                    static_cast<uint8_t>(EventType::Bank) |
                    static_cast<uint8_t>(EventType::Vram);
   std::optional<PcRange> cpu_pc;
+  std::vector<AddressRange> vram_address;
+  uint8_t vram_roles = kAllVramRoles;
   Format format = Format::Auto;
 
   bool enabled() const { return !output.empty(); }
   bool includes(EventType type) const {
     return (events & static_cast<uint8_t>(type)) != 0;
+  }
+  bool includes(VramRole role) const {
+    return (vram_roles & (1u << static_cast<uint8_t>(role))) != 0;
+  }
+  bool includes_vram_address(uint16_t address) const {
+    return vram_address.empty() ||
+           std::any_of(vram_address.begin(), vram_address.end(),
+                       [address](const AddressRange& range) {
+                         return range.contains(address);
+                       });
   }
 };
 
@@ -85,6 +117,94 @@ inline PcRange parse_pc_range(const std::string& text) {
     throw std::runtime_error("CPU PC range start exceeds end: " + text);
   }
   return range;
+}
+
+inline std::vector<AddressRange> parse_address_ranges(const std::string& text) {
+  std::vector<AddressRange> ranges;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = trim(token);
+    if (token.empty()) {
+      throw std::runtime_error("VRAM address range list contains an empty item: " +
+                               text);
+    }
+    const size_t separator = token.find('-');
+    uint32_t first;
+    uint32_t last;
+    if (separator == std::string::npos) {
+      first = last = parse_number(token, 0xffff, "VRAM address");
+    } else {
+      if (separator == 0 || separator + 1 == token.size() ||
+          token.find('-', separator + 1) != std::string::npos) {
+        throw std::runtime_error(
+            "VRAM address range must be ADDR or START-END: " + token);
+      }
+      first = parse_number(token.substr(0, separator), 0xffff, "VRAM address");
+      last = parse_number(token.substr(separator + 1), 0xffff, "VRAM address");
+      if (first > last) {
+        throw std::runtime_error("VRAM address range start exceeds end: " + token);
+      }
+    }
+    ranges.push_back(
+        {static_cast<uint16_t>(first), static_cast<uint16_t>(last)});
+  }
+  if (ranges.empty() || (!text.empty() && text.back() == ',')) {
+    throw std::runtime_error("VRAM address range list must not be empty: " + text);
+  }
+  return ranges;
+}
+
+inline const char* vram_role_name(VramRole role) {
+  switch (role) {
+    case VramRole::Screen1Map: return "screen1_map";
+    case VramRole::Screen1Tile: return "screen1_tile";
+    case VramRole::Screen2Map: return "screen2_map";
+    case VramRole::Screen2Tile: return "screen2_tile";
+    case VramRole::SpriteTable: return "sprite_table";
+    case VramRole::SpriteTile: return "sprite_tile";
+  }
+  return "unknown";
+}
+
+inline VramRole vram_role_from_code(uint8_t code) {
+  if (code > static_cast<uint8_t>(VramRole::SpriteTile)) {
+    throw std::runtime_error("invalid VRAM role code: " + std::to_string(code));
+  }
+  return static_cast<VramRole>(code);
+}
+
+inline uint8_t parse_vram_roles(const std::string& text) {
+  uint8_t result = 0;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = lower(trim(token));
+    if (token.empty()) {
+      throw std::runtime_error("VRAM role list contains an empty item: " + text);
+    }
+    if (token == "all") {
+      result |= kAllVramRoles;
+    } else if (token == "screen1_map") {
+      result |= 1u << static_cast<uint8_t>(VramRole::Screen1Map);
+    } else if (token == "screen1_tile") {
+      result |= 1u << static_cast<uint8_t>(VramRole::Screen1Tile);
+    } else if (token == "screen2_map") {
+      result |= 1u << static_cast<uint8_t>(VramRole::Screen2Map);
+    } else if (token == "screen2_tile") {
+      result |= 1u << static_cast<uint8_t>(VramRole::Screen2Tile);
+    } else if (token == "sprite_table") {
+      result |= 1u << static_cast<uint8_t>(VramRole::SpriteTable);
+    } else if (token == "sprite_tile") {
+      result |= 1u << static_cast<uint8_t>(VramRole::SpriteTile);
+    } else {
+      throw std::runtime_error("unknown VRAM role: " + token);
+    }
+  }
+  if (result == 0 || (!text.empty() && text.back() == ',')) {
+    throw std::runtime_error("VRAM role list must not be empty: " + text);
+  }
+  return result;
 }
 
 inline uint8_t parse_events(const std::string& text) {
@@ -140,6 +260,8 @@ inline void parse_config(std::istream& input, Config& config,
       if (key == "output") config.output = value;
       else if (key == "events") config.events = parse_events(value);
       else if (key == "cpu_pc") config.cpu_pc = parse_pc_range(value);
+      else if (key == "vram_address") config.vram_address = parse_address_ranges(value);
+      else if (key == "vram_role") config.vram_roles = parse_vram_roles(value);
       else if (key == "format") config.format = parse_format(value);
       else throw std::runtime_error("unknown key: " + key);
     } catch (const std::exception& error) {
@@ -170,6 +292,7 @@ struct Event {
   std::optional<uint32_t> ip;
   std::optional<uint32_t> address;
   std::optional<uint32_t> value;
+  std::optional<VramRole> role;
 };
 
 inline const char* event_name(EventType type) {
@@ -185,7 +308,7 @@ class Writer {
  public:
   Writer(std::ostream& output, Format format) : output_(output), format_(format) {
     if (format_ == Format::Csv) {
-      output_ << "cycle,event,physical_pc,cs,ip,address,value\n";
+      output_ << "cycle,event,physical_pc,cs,ip,address,value,role\n";
     }
   }
 
@@ -219,6 +342,8 @@ class Writer {
     csv_optional(output_, event.address);
     output_ << ',';
     csv_optional(output_, event.value);
+    output_ << ',';
+    if (event.role) output_ << vram_role_name(*event.role);
     output_ << '\n';
   }
 
@@ -230,6 +355,9 @@ class Writer {
     json_optional(output_, "ip", event.ip);
     json_optional(output_, "address", event.address);
     json_optional(output_, "value", event.value);
+    output_ << ",\"role\":";
+    if (event.role) output_ << '\"' << vram_role_name(*event.role) << '\"';
+    else output_ << "null";
     output_ << "}\n";
   }
 
@@ -253,19 +381,20 @@ class Logger {
     if (!config_.includes(EventType::Cpu)) return;
     if (config_.cpu_pc && !config_.cpu_pc->contains(physical_pc)) return;
     writer_->write({cycle, EventType::Cpu, physical_pc, cs, ip,
-                    std::nullopt, std::nullopt});
+                    std::nullopt, std::nullopt, std::nullopt});
   }
 
   void bank(uint64_t cycle, uint8_t address, uint8_t value) {
     if (!config_.includes(EventType::Bank)) return;
     writer_->write({cycle, EventType::Bank, std::nullopt, std::nullopt,
-                    std::nullopt, address, value});
+                    std::nullopt, address, value, std::nullopt});
   }
 
-  void vram(uint64_t cycle, uint16_t address) {
+  void vram(uint64_t cycle, uint16_t address, VramRole role) {
     if (!config_.includes(EventType::Vram)) return;
+    if (!config_.includes(role) || !config_.includes_vram_address(address)) return;
     writer_->write({cycle, EventType::Vram, std::nullopt, std::nullopt,
-                    std::nullopt, address, std::nullopt});
+                    std::nullopt, address, std::nullopt, role});
   }
 
  private:

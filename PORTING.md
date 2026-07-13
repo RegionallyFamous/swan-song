@@ -6,17 +6,20 @@ WonderSwan implementation. The comparison baseline is recorded in
 
 ## Console logic
 
-The files under `src/fpga/core/rtl/` originate in the MiSTer core and retain
-their upstream license notices. The Pocket and MiSTer repositories both carry
-a top-level GPL v2 license file; `ddram.sv` and `sdram.sv` additionally carry
+The files under `src/fpga/core/rtl/` originate in the MiSTer core; files that
+carry upstream license notices retain them. The Pocket and MiSTer repositories
+both carry a top-level GPL v2 license file; `ddram.sv` and `sdram.sv` additionally carry
 GPL-v3-or-later file headers. At the pinned heads before Swan Song development,
 every shared RTL file was byte-identical except five. Phase 1 adds changes in
-two shared RTL files (one was already divergent), so the current shared-RTL
+three shared RTL files (one was already divergent), so the current shared-RTL
 differences are:
 
 - `rtc.vhd`: comment-only Pocket annotation.
-- `gpu.vhd`: adds a simulation-gated validity tap for graphics VRAM arbiter
-  issue slots; it does not change address selection.
+- `gpu.vhd`: adds a simulation-gated active-request and semantic-role tap for
+  Screen 1/2 map/tile and sprite table/tile arbiter lanes; it does not change
+  address selection.
+- `gpu_bg.vhd`: exposes its map-versus-tile fetch state to `gpu.vhd` for
+  simulation observability; rendering state transitions are unchanged.
 - `savestate_ui.sv`: MiSTer OSD/gamepad UI divergence; it is not instantiated by
   the Pocket top.
 - `savestates.vhd`: Pocket/APF save-state layout and operation-order changes.
@@ -24,8 +27,8 @@ differences are:
   changes.
 - `swanTop.vhd`: exports save-state busy status to the Pocket controller and,
   for `is_simu = '1'`, CPU completion/location, register writes, and GPU fetch
-  taps. The non-simulation branch drives those observability outputs to
-  constants.
+  address/valid/role taps. The non-simulation branch drives those observability
+  outputs to constants.
 
 The Pocket tree omits MiSTer's PLL wrapper and uses APF-specific PLL IP instead.
 Changes to CPU, GPU, sound, mapper, EEPROM, RTC semantics, DMA, or console timing

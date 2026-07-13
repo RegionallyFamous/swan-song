@@ -111,7 +111,8 @@ entity SwanTop is
       debug_reg_addr             : out std_logic_vector(7 downto 0) := (others => '0');
       debug_reg_data             : out std_logic_vector(7 downto 0) := (others => '0');
       debug_gpu_vram_addr        : out std_logic_vector(15 downto 0) := (others => '0');
-      debug_gpu_vram_valid       : out std_logic := '0'
+      debug_gpu_vram_valid       : out std_logic := '0';
+      debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0')
    );
 end entity;
 
@@ -206,6 +207,7 @@ architecture arch of SwanTop is
    signal GPU_addr               : std_logic_vector(15 downto 0);
    signal GPU_dataread           : std_logic_vector(15 downto 0); 
    signal GPU_vram_fetch_valid   : std_logic;
+   signal GPU_vram_fetch_role    : std_logic_vector(2 downto 0);
 
    signal Color_addr             : std_logic_vector(7 downto 0);
    signal Color_dataread         : std_logic_vector(15 downto 0);    
@@ -713,6 +715,7 @@ begin
       SOUND_valid    => SOUND_valid,
 
       debug_vram_fetch_valid => GPU_vram_fetch_valid,
+      debug_vram_fetch_role  => GPU_vram_fetch_role,
                
 -- synthesis translate_off
       export_vtime           => export_8,
@@ -896,6 +899,7 @@ begin
       debug_reg_data       <= RegBus_Din;
       debug_gpu_vram_addr  <= GPU_addr;
       debug_gpu_vram_valid <= GPU_vram_fetch_valid;
+      debug_gpu_vram_role  <= GPU_vram_fetch_role;
    end generate;
 
    gdebug_off : if is_simu /= '1' generate
@@ -909,6 +913,7 @@ begin
       debug_reg_data       <= (others => '0');
       debug_gpu_vram_addr  <= (others => '0');
       debug_gpu_vram_valid <= '0';
+      debug_gpu_vram_role  <= (others => '0');
    end generate;
 
    -- export

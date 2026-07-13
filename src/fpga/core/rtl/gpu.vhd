@@ -56,11 +56,21 @@ entity gpu is
       
       -- debug
       export_vtime           : out std_logic_vector(7 downto 0);
-      debug_vram_fetch_valid : out std_logic := '0'
+      debug_vram_fetch_valid : out std_logic := '0';
+      debug_vram_fetch_role  : out std_logic_vector(2 downto 0) := (others => '0')
    );
 end entity;
 
 architecture arch of gpu is
+
+   -- Simulation trace roles. Keep these encodings in sync with
+   -- sim/verilator/trace_logger.hpp.
+   constant DEBUG_VRAM_SCREEN1_MAP  : std_logic_vector(2 downto 0) := "000";
+   constant DEBUG_VRAM_SCREEN1_TILE : std_logic_vector(2 downto 0) := "001";
+   constant DEBUG_VRAM_SCREEN2_MAP  : std_logic_vector(2 downto 0) := "010";
+   constant DEBUG_VRAM_SCREEN2_TILE : std_logic_vector(2 downto 0) := "011";
+   constant DEBUG_VRAM_SPRITE_TABLE : std_logic_vector(2 downto 0) := "100";
+   constant DEBUG_VRAM_SPRITE_TILE  : std_logic_vector(2 downto 0) := "101";
 
    -- register
    signal DISP_CTRL   : std_logic_vector(REG_DISP_CTRL  .upper downto REG_DISP_CTRL  .lower);
@@ -185,6 +195,10 @@ architecture arch of gpu is
    signal RAM_valid_BG0       : std_logic;
    signal RAM_valid_BG1       : std_logic;
    signal RAM_valid_SPR       : std_logic;
+   signal debug_fetch_valid_BG0 : std_logic;
+   signal debug_fetch_valid_BG1 : std_logic;
+   signal debug_fetch_tile_BG0  : std_logic;
+   signal debug_fetch_tile_BG1  : std_logic;
    
    
    signal tileActive_BG0      : std_logic;
@@ -455,18 +469,55 @@ begin
       
          memoryArbiter <= memoryArbiter + 1;
          -- RAM_addr is a graphics VRAM request in every arbiter slot except
-         -- the two SOUND_addr slots. Register validity beside the selected
-         -- address so an external trace sees the request without phase math.
+         -- the two SOUND_addr slots. Register validity and semantic role beside
+         -- the selected address so an external trace sees an aligned request.
+         -- Role encoding is documented in sim/verilator/TRACE.md. Screen and
+         -- tile naming follows https://ws.nesdev.org/wiki/Display.
          debug_vram_fetch_valid <= '0';
+         debug_vram_fetch_role  <= (others => '0');
         
          case (to_integer(memoryArbiter)) is
-            when 0 => RAM_addr <= RAM_Address_BG0; debug_vram_fetch_valid <= is_simu;
-            when 1 => RAM_addr <= spriteDMAAddr;   debug_vram_fetch_valid <= is_simu;
-            when 2 => RAM_addr <= RAM_Address_SPR; debug_vram_fetch_valid <= is_simu;
+            when 0 =>
+               RAM_addr <= RAM_Address_BG0;
+               debug_vram_fetch_valid <= is_simu and debug_fetch_valid_BG0;
+               if debug_fetch_tile_BG0 = '1' then
+                  debug_vram_fetch_role <= DEBUG_VRAM_SCREEN1_TILE;
+               else
+                  debug_vram_fetch_role <= DEBUG_VRAM_SCREEN1_MAP;
+               end if;
+            when 1 =>
+               RAM_addr <= spriteDMAAddr;
+               debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TABLE;
+               if spriteDMAon = '1' and spriteDMAWait = 0 then
+                  debug_vram_fetch_valid <= is_simu;
+               end if;
+            when 2 =>
+               RAM_addr <= RAM_Address_SPR;
+               debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TILE;
+               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 then
+                  debug_vram_fetch_valid <= is_simu;
+               end if;
             when 3 => RAM_addr <= SOUND_addr;
-            when 4 => RAM_addr <= RAM_Address_BG1; debug_vram_fetch_valid <= is_simu;
-            when 5 => RAM_addr <= spriteDMAAddr;   debug_vram_fetch_valid <= is_simu;
-            when 6 => RAM_addr <= RAM_Address_SPR; debug_vram_fetch_valid <= is_simu;
+            when 4 =>
+               RAM_addr <= RAM_Address_BG1;
+               debug_vram_fetch_valid <= is_simu and debug_fetch_valid_BG1;
+               if debug_fetch_tile_BG1 = '1' then
+                  debug_vram_fetch_role <= DEBUG_VRAM_SCREEN2_TILE;
+               else
+                  debug_vram_fetch_role <= DEBUG_VRAM_SCREEN2_MAP;
+               end if;
+            when 5 =>
+               RAM_addr <= spriteDMAAddr;
+               debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TABLE;
+               if spriteDMAon = '1' and spriteDMAWait = 0 then
+                  debug_vram_fetch_valid <= is_simu;
+               end if;
+            when 6 =>
+               RAM_addr <= RAM_Address_SPR;
+               debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TILE;
+               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 then
+                  debug_vram_fetch_valid <= is_simu;
+               end if;
             when 7 => RAM_addr <= SOUND_addr;
             when others => null;
          end case;
@@ -636,7 +687,10 @@ begin
 
       tileActive     => tileActive_BG0,
       tilePalette    => tilePalette_BG0,      
-      tileColor      => tileColor_BG0      
+      tileColor      => tileColor_BG0,
+
+      debug_fetch_valid => debug_fetch_valid_BG0,
+      debug_fetch_tile  => debug_fetch_tile_BG0
    );
    
    igpu_bg1 : entity work.gpu_bg
@@ -670,7 +724,10 @@ begin
    
       tileActive     => tileActive_BG1,
       tilePalette    => tilePalette_BG1,      
-      tileColor      => tileColor_BG1      
+      tileColor      => tileColor_BG1,
+
+      debug_fetch_valid => debug_fetch_valid_BG1,
+      debug_fetch_tile  => debug_fetch_tile_BG1
    );
    
    isprites : entity work.sprites
@@ -817,6 +874,3 @@ begin
    
 
 end architecture;
-
-
-

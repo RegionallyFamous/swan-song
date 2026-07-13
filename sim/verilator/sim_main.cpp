@@ -54,6 +54,9 @@ static void usage(const char* argv0) {
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
       << "  --trace-events LIST     comma list: cpu,bank,vram (default: all)\n"
       << "  --trace-pc START-END    inclusive 20-bit physical CPU PC filter\n"
+      << "  --trace-vram-address R  VRAM ADDR or START-END list (inclusive)\n"
+      << "  --trace-vram-role LIST  screen1_map,screen1_tile,screen2_map,\n"
+         "                            screen2_tile,sprite_table,sprite_tile\n"
       << "  --trace-format FORMAT   csv or jsonl (overrides filename suffix)\n"
       << "  --trace-config FILE     load KEY=VALUE trace settings; later CLI"
          " options win\n"
@@ -76,7 +79,8 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_reg_addr),
                      decltype(std::declval<Top>().debug_reg_data),
                      decltype(std::declval<Top>().debug_gpu_vram_valid),
-                     decltype(std::declval<Top>().debug_gpu_vram_addr)>> {
+                     decltype(std::declval<Top>().debug_gpu_vram_addr),
+                     decltype(std::declval<Top>().debug_gpu_vram_role)>> {
   static constexpr bool available = true;
 
   void capture(const Top& top, swansong::trace::Logger& logger, uint64_t cycle) {
@@ -90,7 +94,11 @@ struct DebugTapAdapter<
         top.debug_reg_addr <= 0xc3) {
       logger.bank(cycle, top.debug_reg_addr, top.debug_reg_data);
     }
-    if (top.debug_gpu_vram_valid) logger.vram(cycle, top.debug_gpu_vram_addr);
+    if (top.debug_gpu_vram_valid) {
+      logger.vram(cycle, top.debug_gpu_vram_addr,
+                  swansong::trace::vram_role_from_code(
+                      top.debug_gpu_vram_role));
+    }
     previous_reg_write_ = top.debug_reg_write;
     previous_reg_addr_ = top.debug_reg_addr;
     previous_reg_data_ = top.debug_reg_data;
@@ -128,6 +136,12 @@ int main(int argc, char** argv) {
       event_trace_config.events = swansong::trace::parse_events(value("--trace-events"));
     } else if (arg == "--trace-pc") {
       event_trace_config.cpu_pc = swansong::trace::parse_pc_range(value("--trace-pc"));
+    } else if (arg == "--trace-vram-address") {
+      event_trace_config.vram_address =
+          swansong::trace::parse_address_ranges(value("--trace-vram-address"));
+    } else if (arg == "--trace-vram-role") {
+      event_trace_config.vram_roles =
+          swansong::trace::parse_vram_roles(value("--trace-vram-role"));
     } else if (arg == "--trace-format") {
       event_trace_config.format = swansong::trace::parse_format(value("--trace-format"));
     } else if (arg == "--trace-config") {
