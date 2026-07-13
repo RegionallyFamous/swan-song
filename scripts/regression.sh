@@ -32,7 +32,9 @@ python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_frame_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_interrupt_input_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_80186_quirks_test.py"
+python3 "$ROOT/sim/verilator/verify_interrupts_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
@@ -147,6 +149,39 @@ python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
 python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
   "$INPUT_OUT/run-b/events.csv" \
   "$INPUT_OUT/fixture/input_replay_probe.input"
+
+# Exercise the corrected key interrupt path independently of the visual
+# hardware fixture. The generated Color program uses an intentionally
+# unaligned B0 base, dispatches through vector 81h, and emits one exact marker
+# only after each disabled/held/repress/retention/ACK/combined-row assertion.
+# Without routed input it can emit only the initial base-mask marker.
+IRQ_INPUT_OUT="$BUILD/interrupt-input-probe"
+rm -rf "$IRQ_INPUT_OUT"
+python3 "$ROOT/sim/verilator/generate_interrupt_input_probe.py" \
+  "$IRQ_INPUT_OUT/fixture" >/dev/null
+"$SIM" \
+  --rom "$IRQ_INPUT_OUT/fixture/interrupt_input_probe.wsc" \
+  --frames 1 --max-cycles 1000000 \
+  --out "$IRQ_INPUT_OUT/no-input/frames" \
+  --event-trace "$IRQ_INPUT_OUT/no-input/events.csv" \
+  --trace-events bank >/dev/null
+for irq_input_run in a b; do
+  "$SIM" \
+    --rom "$IRQ_INPUT_OUT/fixture/interrupt_input_probe.wsc" \
+    --input-script "$IRQ_INPUT_OUT/fixture/interrupt_input_probe.input" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$IRQ_INPUT_OUT/run-$irq_input_run/frames" \
+    --event-trace "$IRQ_INPUT_OUT/run-$irq_input_run/events.csv" \
+    --trace-events bank >/dev/null
+done
+python3 "$ROOT/sim/verilator/verify_interrupt_input_probe.py" \
+  --rom "$IRQ_INPUT_OUT/fixture/interrupt_input_probe.wsc" \
+  --script "$IRQ_INPUT_OUT/fixture/interrupt_input_probe.input" \
+  --no-input-trace "$IRQ_INPUT_OUT/no-input/events.csv" \
+  --trace-a "$IRQ_INPUT_OUT/run-a/events.csv" \
+  --frame-a "$IRQ_INPUT_OUT/run-a/frames/frame-0.rgb" \
+  --trace-b "$IRQ_INPUT_OUT/run-b/events.csv" \
+  --frame-b "$IRQ_INPUT_OUT/run-b/frames/frame-0.rgb"
 
 # The opt-in manifest v2 binds each raw RGB artifact to the exact trace cycle
 # containing its final visible-pixel write. Two repeated captures must report
@@ -608,6 +643,33 @@ python3 "$ROOT/sim/verilator/verify_80186_quirks.py" \
   --trace-b "$QUIRKS_OUT/b/events.csv" \
   --frame0-b "$QUIRKS_OUT/b/frames/frame-0.rgb" \
   --frame1-b "$QUIRKS_OUT/b/frames/frame-1.rgb"
+
+# Run the pinned real-hardware-authored SoC interrupt fixture twice. It checks
+# eight UART-send-ready level cases and five vector/status cases, including
+# acknowledgement, enable-mask retention, base alignment, and priority. The
+# dedicated verifier binds the exact open source/ROM/font, all 13 PASS cells,
+# the terminal loop, complete background history, and final pixels.
+INTERRUPTS_FIXTURE="$ROOT/testroms/ws-test-suite/interrupts"
+INTERRUPTS_OUT="$BUILD/interrupts-fixture"
+rm -rf "$INTERRUPTS_OUT"
+for interrupts_run in a b; do
+  "$SIM" --rom "$INTERRUPTS_FIXTURE/interrupts.ws" \
+    --frames 6 --max-cycles 4000000 \
+    --out "$INTERRUPTS_OUT/$interrupts_run/frames" \
+    --event-trace "$INTERRUPTS_OUT/$interrupts_run/events.csv" \
+    --trace-events cpu,bg_cell >/dev/null
+  cmp \
+    "$INTERRUPTS_OUT/$interrupts_run/frames/frame-4.rgb" \
+    "$INTERRUPTS_OUT/$interrupts_run/frames/frame-5.rgb"
+done
+python3 "$ROOT/sim/verilator/verify_interrupts_fixture.py" \
+  --fixture "$INTERRUPTS_FIXTURE" \
+  --trace-a "$INTERRUPTS_OUT/a/events.csv" \
+  --frame0-a "$INTERRUPTS_OUT/a/frames/frame-0.rgb" \
+  --final-a "$INTERRUPTS_OUT/a/frames/frame-5.rgb" \
+  --trace-b "$INTERRUPTS_OUT/b/events.csv" \
+  --frame0-b "$INTERRUPTS_OUT/b/frames/frame-0.rgb" \
+  --final-b "$INTERRUPTS_OUT/b/frames/frame-5.rgb"
 
 # Wonderful's open WSC fixture distinguishes the valid 2bpp Color extended
 # screen/tile/sprite ranges from their 16-KiB aliases. Verify the visible PASS
