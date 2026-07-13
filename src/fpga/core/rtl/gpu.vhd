@@ -895,6 +895,12 @@ begin
             
                if (output_spr = '1' and (tilePrio_SPR = '1' or output_bg1 = '0')) then
                   Color_addr <= tilePalette_SPR & tileColor_SPR;
+               -- An earlier low-priority sprite hidden by Screen 2 must not
+               -- suppress a later high-priority sprite. This mirrors the
+               -- grayscale path and pinned ares 449b93716fb162632de2fd43bf2eba2064fa43f2,
+               -- ares/ws/ppu/sprite.cpp lines 39-63; full URL in UPSTREAMS.md.
+               elsif (output_spr2 = '1') then
+                  Color_addr <= tilePalette_SPR2 & tileColor_SPR2;
                elsif (output_bg1 = '1') then
                   Color_addr <=  tilePalette_BG1 & tileColor_BG1;
                elsif (output_bg0 = '1') then

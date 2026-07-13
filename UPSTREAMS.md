@@ -109,6 +109,26 @@ and [palette layout](https://ws.nesdev.org/w/index.php?title=Display/Palette&old
 plus the current [ROM-header](https://ws.nesdev.org/wiki/ROM_header) page. No
 external source or WSdev content is copied into the generated images.
 
+The Color sprite-priority regression also generates a self-contained 128 KiB
+cartridge under `build/`; its raw 80186 program, transparent/solid tiles,
+palettes, descriptors, marker, footer, and checksum are repository-authored.
+The priority contract was reviewed first against the current `gpu.vhd` and
+`sprites.vhd`; then pinned ares [sprite selection and
+attributes](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/sprite.cpp#L39-L63)
+and [composition](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/dac.cpp#L1-L33);
+then Mednafen 1.32.1+dfsg-3's pinned [sprite
+composition](https://sources.debian.org/src/mednafen/1.32.1%2Bdfsg-3/src/wswan/gfx.cpp/#L784-L904);
+then WSdev's pinned [sprite attributes and list
+order](https://ws.nesdev.org/w/index.php?title=Display/Sprites&oldid=507) and
+[layer order](https://ws.nesdev.org/w/index.php?title=Display&oldid=555); then
+the pinned MIT ws-test-suite [sprite scanline/list-order hardware
+test](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/display/sprite_scanline_limit/main.c#L8-L82).
+That open hardware test corroborates ordinary list ordering and the 32-sprite
+limit; it does not exercise the critical Color fallback, for which no directly
+applicable reported real-hardware result was found. Acceptance is therefore
+limited to translated RTL against the pinned reference contract. No external
+code, ROM, firmware, graphics, or palette data is copied into the probe.
+
 The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked

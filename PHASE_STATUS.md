@@ -7,7 +7,7 @@
 | History-preserving Pocket fork | Complete | current branch is based at Pocket `1.0.1` / `073213a2` and retains its ancestry |
 | Upstream pins and license audit | Provenance complete; release clearance open | `UPSTREAMS.md`; MiSTer program notice is GPL v2-or-later and is version-compatible with GPL-v3-or-later RTL, but Pocket omitted that notice and the tree lacks a GPL v3 license copy |
 | Architecture and port boundary | Complete | `ARCHITECTURE.md`, `PORTING.md` |
-| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's WSC extended-range fixture, the native Shift-JIS/Misaki glyph fixture, and paired build-generated, non-checked-in planar/packed 4bpp probes via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; Pocket wrappers and SDRAM controller are outside this harness |
+| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's WSC extended-range fixture, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, and a build-generated Color sprite-priority probe via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
 | Structured event trace | V5 runtime verified in Verilator | simulation-gated CPU, bank-register, completion-aligned display word/collision, completed CPU/GDMA/SDMA memory, and atomic Screen 1/2 background-cell taps; v5 CSV/JSONL with v1-v5 CSV fixtures; translated open-ROM regression plus focused atomic decode/grouping/writer-snapshot tests pass; `sim/verilator/TRACE.md` |
@@ -109,6 +109,14 @@ The open WSC extended-range fixture exposed a second console-logic error:
 sprite table at `0x5600` down to `0x1600`. The corrected Color-mode decode now
 renders PASS and traces the exact extended table words, matching WSdev, ares,
 and Mesen behavior.
+
+The generated Color sprite-priority probe exposed a third console-logic error:
+the Color mixer lacked the grayscale path's high-priority fallback. An earlier
+low-priority sprite hidden by opaque Screen 2 therefore suppressed a later
+high-priority sprite. The corrected ladder renders four exact blue/green/green/
+red control panels and binds both OAM snapshots, all sprite-tile reads, the
+ROM-to-IRAM GDMA chain, CPU setup writes, and the stable final frame. This is
+verified in translated RTL only; it is not an on-device claim.
 
 The boot-overlay probe exposed a simulator initialization error: the model had
 not observed its initial low clock level before the first BIOS-programming

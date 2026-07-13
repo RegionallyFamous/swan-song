@@ -18,6 +18,7 @@ python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
+python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
@@ -283,6 +284,31 @@ for variant in planar packed; do
 done
 python3 "$ROOT/sim/verilator/verify_4bpp_probe.py" --root "$BPP4_OUT"
 python3 "$ROOT/sim/verilator/verify_4bpp_probe_test.py" --root "$BPP4_OUT"
+
+# Prove the Color compositor does not let an earlier low-priority sprite that
+# is hidden by opaque Screen 2 suppress a later high-priority sprite. Three
+# adjacent controls independently lock low/high Screen 2 priority and normal
+# sprite-list order. The build-only ROM and every diagnostic tile are authored
+# here; its full trace binds the descriptor words and ROM-to-IRAM GDMA chain.
+COLOR_SPRITE_OUT="$BUILD/color-sprite-priority-probe"
+rm -rf "$COLOR_SPRITE_OUT"
+python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe.py" \
+  --output-dir "$COLOR_SPRITE_OUT/roms" >/dev/null
+"$SIM" \
+  --rom "$COLOR_SPRITE_OUT/roms/wsc_color_sprite_priority_probe.wsc" \
+  --frames 2 --max-cycles 1500000 --out "$COLOR_SPRITE_OUT/frames" \
+  --event-trace "$COLOR_SPRITE_OUT/events.csv" \
+  --trace-events mem,vram >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$COLOR_SPRITE_OUT/events.csv" \
+  --allowed mem,vram --require mem,vram \
+  --require-fetch-values --reject-fetch-collisions \
+  --require-mem-initiators cpu,gdma \
+  --require-origin-statuses exact,unattributed,not_applicable
+python3 "$ROOT/sim/verilator/verify_color_sprite_priority_probe.py" \
+  --root "$COLOR_SPRITE_OUT"
+python3 "$ROOT/sim/verilator/verify_color_sprite_priority_probe_test.py" \
+  --root "$COLOR_SPRITE_OUT"
 
 # Run a native Wonderful-built Shift-JIS renderer over six licensed Misaki
 # glyphs. This binds Japanese character identity to exact ROM offsets, GDMA

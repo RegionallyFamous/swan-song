@@ -16,13 +16,21 @@
   row, and every final RGB pixel. All 25,111 display reads match the
   reset-complete writer scoreboard.
 - Paired build-generated, non-checked-in WSC probes exercise both documented
-  Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a distinct 32-byte
-  ROM payload into tile 1, displays normal/H/V/HV placements, and proves 32
+  Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a
+  distinct 32-byte ROM payload into tile 1, displays normal/H/V/HV placements,
+  and proves 32
   ordered GDMA events, 64 selected atomic rows with four exact ROM-sourced
   bytes apiece, four provenance-bearing glyph epochs, and a pixel-exact final
   frame. Both encodings normalize to identical glyph fingerprints and RGB;
   their stable `frame-1.rgb` SHA-256 is
   `7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d`.
+- A build-generated Color probe locks four targeted sprite-priority cases with
+  8×8 panels: low sprite behind opaque Screen 2, the formerly broken
+  earlier-low/later-high fallback, high sprite above Screen 2, and ordinary
+  sprite-list order without Screen 2. Its strict two-frame gate proves 24
+  descriptor words, 96 sprite-tile reads, 64 exact GDMA words, 18 final CPU
+  writes, zero display collisions, and a stable `frame-1.rgb` SHA-256 of
+  `eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3a4b5ef4`.
 - The title-agnostic glyph reporter converts atomic-cell provenance into a
   complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
   it retains 592 placement/provenance epochs while surfacing seven distinct
@@ -187,6 +195,11 @@ generated ROM hashes and footer checksums, complete v5 manifests, all 16 GDMA
 read/write pairs, all four provenance lanes on 64 selected atomic rows, the
 normal and flipped reporter epochs, and the stable 224×144 RGB output. It also
 requires planar and packed captures to render byte-identically.
+The Color sprite-priority probe is likewise repository-authored and generated
+only under `build/`. Its verifier binds the ROM, complete v5 trace, exact OAM
+snapshots, packed tile reads, ROM-to-IRAM GDMA chain, CPU descriptor/map/palette
+writes, four complete color panels, black borders, and the stable frame. The
+mutation suite explicitly rejects the previous opaque-Screen-2 result.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
 memory/display capture and requires every fetched word to be exact: no value
 mismatch, mixed-port collision, partial word, or unobserved byte is accepted.
