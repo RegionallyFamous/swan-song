@@ -8,6 +8,10 @@ use work.pBus_savestates.all;
 use work.pReg_savestates.all;
 
 entity cpu is
+   generic
+   (
+      is_simu : std_logic := '0'
+   );
    port
    (
       clk               : in  std_logic;
@@ -39,6 +43,14 @@ entity cpu is
             
       cpu_done          : out std_logic := '0'; 
       cpu_export        : out cpu_export_type;
+
+      -- Simulation provenance. These signals describe the owner of the
+      -- currently asserted memory request; SwanTop removes them from
+      -- production builds through its simulation-only debug outputs.
+      debug_bus_fetch          : out std_logic := '0';
+      debug_bus_origin_exact   : out std_logic := '0';
+      debug_instruction_id     : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_instruction_pc     : out std_logic_vector(19 downto 0) := (others => '0');
          
       -- register 
       RegBus_Din        : out std_logic_vector(BUS_buswidth-1 downto 0) := (others => '0');
@@ -386,6 +398,10 @@ architecture arch of cpu is
    signal testcmd          : unsigned(31 downto 0);
    signal testpcsum        : unsigned(63 downto 0);
 
+   signal bus_is_prefetch  : std_logic := '0';
+   signal instruction_id   : unsigned(31 downto 0) := (others => '0');
+   signal instruction_pc   : unsigned(19 downto 0) := (others => '0');
+
 
 begin
 
@@ -393,6 +409,11 @@ begin
    cpu_halt       <= halt;
    cpu_irqrequest <= irqrequest;
    cpu_prefix     <= '1' when PrefixIP > 0 else '0';
+
+   debug_bus_fetch        <= bus_is_prefetch when is_simu = '1' else '0';
+   debug_bus_origin_exact <= '0' when is_simu /= '1' or bus_is_prefetch = '1' or opcode = OP_IRQ else '1';
+   debug_instruction_id   <= std_logic_vector(instruction_id) when is_simu = '1' else (others => '0');
+   debug_instruction_pc   <= std_logic_vector(instruction_pc) when is_simu = '1' else (others => '0');
    
    canSpeedup <= '1';
    
@@ -500,6 +521,7 @@ begin
          
          bus_read         <= '0';
          bus_write        <= '0';
+         bus_is_prefetch  <= '0';
          
          if (ce_4x = '1') then
             clearPrefetch    <= '0';
@@ -571,6 +593,9 @@ begin
             
             testcmd         <= (others => '0');
             testpcsum       <= (others => '0');
+
+            instruction_id <= (others => '0');
+            instruction_pc <= (others => '0');
             
             RegBus_wren     <= '0';
             RegBus_rden     <= '0';
@@ -638,6 +663,15 @@ begin
                         elsif (prefetchCount > 3 + consumePrefetch) then
                            testpcsum  <= testpcsum + regs.reg_ip;
                            testcmd    <= testcmd + 1;
+
+                           -- PrefixIP is non-zero after the first prefix byte,
+                           -- so a prefixed instruction keeps the address and
+                           -- identity of the beginning of the prefix chain.
+                           if (is_simu = '1' and repeat = '0' and PrefixIP = 0) then
+                              instruction_id <= instruction_id + 1;
+                              instruction_pc <= (resize(regs.reg_cs, 20) sll 4) +
+                                                resize(regs.reg_ip, 20);
+                           end if;
                            
                            if (repeat = '0') then
                               if (consumePrefetch = 1) then
@@ -2812,6 +2846,9 @@ begin
                      prefetchState <= PREFETCH_WAIT;
                      bus_addr <= prefetchAddr;
                      bus_read <= '1';
+                     if (is_simu = '1') then
+                        bus_is_prefetch <= '1';
+                     end if;
                      if (prefetchAddr(0) = '1') then
                         prefetchAddr  <= PrefetchAddr + 1;
                         prefetch1byte <= '1';
@@ -2900,9 +2937,6 @@ begin
    cpu_export.opcodebyte_last  <= opcodebyte;        
 
 end architecture;
-
-
-
 
 
 

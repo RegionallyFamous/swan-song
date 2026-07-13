@@ -32,7 +32,13 @@ entity memorymux is
       cpu_be               : in  std_logic_vector(1 downto 0) := "00";
       cpu_addr             : in  unsigned(19 downto 0);
       cpu_datawrite        : in  std_logic_vector(15 downto 0);
-      cpu_dataread         : out std_logic_vector(15 downto 0); 
+      cpu_dataread         : out std_logic_vector(15 downto 0);
+
+      -- Resolved request mapping for simulation provenance. Offset is the
+      -- exact masked byte offset, including address bit 0.
+      debug_mem_space        : out std_logic_vector(3 downto 0) := (others => '0');
+      debug_mem_offset       : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_mem_offset_valid : out std_logic := '0';
       
       GPU_addr             : in  std_logic_vector(15 downto 0);
       GPU_dataread         : out std_logic_vector(15 downto 0);   
@@ -360,12 +366,32 @@ begin
       EXTRAM_write     <= '0';
       EXTRAM_datawrite <= cpu_datawrite;
       EXTRAM_be        <= "00";
+
+      -- Keep these encodings in sync with sim/verilator/trace_logger.hpp.
+      -- 0 unknown, 1 IRAM, 2 SRAM, 3 ROM0, 4 ROM1, 5 linear ROM,
+      -- 6 boot ROM, 7 unmapped mono IRAM, 8 absent SRAM.
+      debug_mem_space        <= x"0";
+      debug_mem_offset       <= (others => '0');
+      debug_mem_offset_valid <= '0';
+
+      if (BiosAccess = '1') then
+         debug_mem_space        <= x"6";
+         debug_mem_offset_valid <= '1';
+         if (isColor) then
+            debug_mem_offset <= (23 downto 13 => '0') & std_logic_vector(cpu_addr(12 downto 0));
+         else
+            debug_mem_offset <= (23 downto 12 => '0') & std_logic_vector(cpu_addr(11 downto 0));
+         end if;
+      end if;
       
       RAM_dataWriteEnable <= "00";
       
       if (BiosAccess = '0') then
          case (cpu_addr(19 downto 16)) is
             when x"0" => 
+               debug_mem_space        <= x"1";
+               debug_mem_offset       <= x"00" & std_logic_vector(cpu_addr(15 downto 0));
+               debug_mem_offset_valid <= '1';
                if (cpu_addr(0) = '0') then
                   RAM_dataWriteEnable <= cpu_be and (cpu_write & cpu_write);
                else
@@ -374,13 +400,21 @@ begin
                MemAccessTypeNew    <= RAMACC;
                if (isColor = '0' and cpu_addr(15 downto 14) /= "00") then
                   MemAccessTypeNew <= UNMAPPED;
+                  RAM_dataWriteEnable <= "00";
+                  debug_mem_space        <= x"7";
+                  debug_mem_offset       <= (others => '0');
+                  debug_mem_offset_valid <= '0';
                end if;
                
             when x"1" => 
                if (sramMask = x"000000") then
                   MemAccessTypeNew <= ZERO;
+                  debug_mem_space <= x"8";
                else
                   EXTRAM_addr      <= '1' & ((BANK_SRAM & std_logic_vector(cpu_addr(15 downto 0))) and sramMask);
+                  debug_mem_space        <= x"2";
+                  debug_mem_offset       <= (BANK_SRAM & std_logic_vector(cpu_addr(15 downto 0))) and sramMask;
+                  debug_mem_offset_valid <= '1';
                   EXTRAM_read      <= CPU_read;
                   EXTRAM_write     <= CPU_write;
                   EXTRAM_be        <= cpu_be;
@@ -394,16 +428,25 @@ begin
                
             when x"2" =>
                EXTRAM_addr      <= '0' & ((BANK_ROM0 & std_logic_vector(cpu_addr(15 downto 0))) and rommask);
+               debug_mem_space        <= x"3";
+               debug_mem_offset       <= (BANK_ROM0 & std_logic_vector(cpu_addr(15 downto 0))) and rommask;
+               debug_mem_offset_valid <= '1';
                EXTRAM_read      <= CPU_read;
                EXTRAM_write     <= '0';
                
             when x"3" =>
                EXTRAM_addr      <= '0' & ((BANK_ROM1 & std_logic_vector(cpu_addr(15 downto 0))) and rommask);
+               debug_mem_space        <= x"4";
+               debug_mem_offset       <= (BANK_ROM1 & std_logic_vector(cpu_addr(15 downto 0))) and rommask;
+               debug_mem_offset_valid <= '1';
                EXTRAM_read      <= CPU_read;
                EXTRAM_write     <= '0';
                
             when others =>
                EXTRAM_addr      <= '0' & ((BANK_ROM2(3 downto 0) & std_logic_vector(cpu_addr)) and rommask);
+               debug_mem_space        <= x"5";
+               debug_mem_offset       <= (BANK_ROM2(3 downto 0) & std_logic_vector(cpu_addr)) and rommask;
+               debug_mem_offset_valid <= '1';
                EXTRAM_read      <= CPU_read;
                EXTRAM_write     <= '0';
          end case;
@@ -533,8 +576,5 @@ begin
    
 
 end architecture;
-
-
-
 
 

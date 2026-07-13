@@ -52,11 +52,19 @@ static void usage(const char* argv0) {
       << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
-      << "  --trace-events LIST     comma list: cpu,bank,vram (default: all)\n"
+      << "  --trace-events LIST     comma list: cpu,bank,vram,mem (default: all)\n"
       << "  --trace-pc START-END    inclusive 20-bit physical CPU PC filter\n"
       << "  --trace-vram-address R  VRAM ADDR or START-END list (inclusive)\n"
       << "  --trace-vram-role LIST  screen1_map,screen1_tile,screen2_map,\n"
          "                            screen2_tile,sprite_table,sprite_tile\n"
+      << "  --trace-mem-initiator L cpu,gdma,sdma\n"
+      << "  --trace-mem-access L    read,write\n"
+      << "  --trace-mem-address R   20-bit address/range list\n"
+      << "  --trace-mem-space L     iram,cart_sram,cart_rom0,cart_rom1,\n"
+         "                            cart_rom_linear,boot_rom,unmapped,absent_sram\n"
+      << "  --trace-mem-offset R    resolved 24-bit byte offset/range list\n"
+      << "  --trace-mem-origin L    exact,unattributed,not_applicable\n"
+      << "  --trace-origin-pc R     exact memory-owner PC range\n"
       << "  --trace-format FORMAT   csv or jsonl (overrides filename suffix)\n"
       << "  --trace-config FILE     load KEY=VALUE trace settings; later CLI"
          " options win\n"
@@ -80,7 +88,19 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_reg_data),
                      decltype(std::declval<Top>().debug_gpu_vram_valid),
                      decltype(std::declval<Top>().debug_gpu_vram_addr),
-                     decltype(std::declval<Top>().debug_gpu_vram_role)>> {
+                     decltype(std::declval<Top>().debug_gpu_vram_role),
+                     decltype(std::declval<Top>().debug_mem_valid),
+                     decltype(std::declval<Top>().debug_mem_write),
+                     decltype(std::declval<Top>().debug_mem_initiator),
+                     decltype(std::declval<Top>().debug_mem_address),
+                     decltype(std::declval<Top>().debug_mem_value),
+                     decltype(std::declval<Top>().debug_mem_byte_enable),
+                     decltype(std::declval<Top>().debug_mem_space),
+                     decltype(std::declval<Top>().debug_mem_offset),
+                     decltype(std::declval<Top>().debug_mem_offset_valid),
+                     decltype(std::declval<Top>().debug_mem_instruction_id),
+                     decltype(std::declval<Top>().debug_mem_origin_pc),
+                     decltype(std::declval<Top>().debug_mem_origin_status)>> {
   static constexpr bool available = true;
 
   void capture(const Top& top, swansong::trace::Logger& logger, uint64_t cycle) {
@@ -98,6 +118,27 @@ struct DebugTapAdapter<
       logger.vram(cycle, top.debug_gpu_vram_addr,
                   swansong::trace::vram_role_from_code(
                       top.debug_gpu_vram_role));
+    }
+    if (top.debug_mem_valid) {
+      const auto origin_status = swansong::trace::origin_status_from_code(
+          top.debug_mem_origin_status);
+      std::optional<uint32_t> mapped_offset;
+      std::optional<uint32_t> instruction_id;
+      std::optional<uint32_t> origin_pc;
+      if (top.debug_mem_offset_valid) mapped_offset = top.debug_mem_offset;
+      if (origin_status == swansong::trace::OriginStatus::Exact) {
+        instruction_id = top.debug_mem_instruction_id;
+        origin_pc = top.debug_mem_origin_pc;
+      }
+      logger.mem(
+          cycle,
+          swansong::trace::mem_initiator_from_code(top.debug_mem_initiator),
+          top.debug_mem_write ? swansong::trace::MemAccess::Write
+                              : swansong::trace::MemAccess::Read,
+          top.debug_mem_address, top.debug_mem_value,
+          top.debug_mem_byte_enable,
+          swansong::trace::mem_space_from_code(top.debug_mem_space),
+          mapped_offset, instruction_id, origin_pc, origin_status);
     }
     previous_reg_write_ = top.debug_reg_write;
     previous_reg_addr_ = top.debug_reg_addr;
@@ -142,6 +183,27 @@ int main(int argc, char** argv) {
     } else if (arg == "--trace-vram-role") {
       event_trace_config.vram_roles =
           swansong::trace::parse_vram_roles(value("--trace-vram-role"));
+    } else if (arg == "--trace-mem-initiator") {
+      event_trace_config.mem_initiators =
+          swansong::trace::parse_mem_initiators(value("--trace-mem-initiator"));
+    } else if (arg == "--trace-mem-access") {
+      event_trace_config.mem_accesses =
+          swansong::trace::parse_mem_accesses(value("--trace-mem-access"));
+    } else if (arg == "--trace-mem-address") {
+      event_trace_config.mem_address = swansong::trace::parse_mem_ranges(
+          value("--trace-mem-address"), 0xfffff, "memory address");
+    } else if (arg == "--trace-mem-space") {
+      event_trace_config.mem_spaces =
+          swansong::trace::parse_mem_spaces(value("--trace-mem-space"));
+    } else if (arg == "--trace-mem-offset") {
+      event_trace_config.mem_offset = swansong::trace::parse_mem_ranges(
+          value("--trace-mem-offset"), 0xffffff, "memory offset");
+    } else if (arg == "--trace-mem-origin") {
+      event_trace_config.origin_statuses =
+          swansong::trace::parse_origin_statuses(value("--trace-mem-origin"));
+    } else if (arg == "--trace-origin-pc") {
+      event_trace_config.origin_pc =
+          swansong::trace::parse_pc_range(value("--trace-origin-pc"));
     } else if (arg == "--trace-format") {
       event_trace_config.format = swansong::trace::parse_format(value("--trace-format"));
     } else if (arg == "--trace-config") {

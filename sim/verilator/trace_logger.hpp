@@ -17,7 +17,7 @@
 
 namespace swansong::trace {
 
-enum class EventType : uint8_t { Cpu = 1, Bank = 2, Vram = 4 };
+enum class EventType : uint8_t { Cpu = 1, Bank = 2, Vram = 4, Mem = 8 };
 enum class Format { Auto, Csv, Jsonl };
 enum class VramRole : uint8_t {
   Screen1Map = 0,
@@ -27,6 +27,29 @@ enum class VramRole : uint8_t {
   SpriteTable = 4,
   SpriteTile = 5,
 };
+
+enum class MemInitiator : uint8_t { Cpu = 0, Gdma = 1, Sdma = 2 };
+enum class MemAccess : uint8_t { Read = 0, Write = 1 };
+enum class MemSpace : uint8_t {
+  Iram = 1,
+  CartSram = 2,
+  CartRom0 = 3,
+  CartRom1 = 4,
+  CartRomLinear = 5,
+  BootRom = 6,
+  Unmapped = 7,
+  AbsentSram = 8,
+};
+enum class OriginStatus : uint8_t {
+  Exact = 1,
+  Unattributed = 2,
+  NotApplicable = 3,
+};
+
+constexpr uint8_t kAllMemInitiators = 0x07;
+constexpr uint8_t kAllMemAccesses = 0x03;
+constexpr uint16_t kAllMemSpaces = 0x01fe;
+constexpr uint8_t kAllOriginStatuses = 0x0e;
 
 constexpr uint8_t kAllVramRoles = (1u << 6) - 1;
 
@@ -46,14 +69,31 @@ struct AddressRange {
   }
 };
 
+struct MemRange {
+  uint32_t first;
+  uint32_t last;
+
+  bool contains(uint32_t address) const {
+    return address >= first && address <= last;
+  }
+};
+
 struct Config {
   std::filesystem::path output;
   uint8_t events = static_cast<uint8_t>(EventType::Cpu) |
                    static_cast<uint8_t>(EventType::Bank) |
-                   static_cast<uint8_t>(EventType::Vram);
+                   static_cast<uint8_t>(EventType::Vram) |
+                   static_cast<uint8_t>(EventType::Mem);
   std::optional<PcRange> cpu_pc;
   std::vector<AddressRange> vram_address;
   uint8_t vram_roles = kAllVramRoles;
+  uint8_t mem_initiators = kAllMemInitiators;
+  uint8_t mem_accesses = kAllMemAccesses;
+  uint16_t mem_spaces = kAllMemSpaces;
+  uint8_t origin_statuses = kAllOriginStatuses;
+  std::vector<MemRange> mem_address;
+  std::vector<MemRange> mem_offset;
+  std::optional<PcRange> origin_pc;
   Format format = Format::Auto;
 
   bool enabled() const { return !output.empty(); }
@@ -68,6 +108,26 @@ struct Config {
            std::any_of(vram_address.begin(), vram_address.end(),
                        [address](const AddressRange& range) {
                          return range.contains(address);
+                       });
+  }
+  bool includes(MemInitiator value) const {
+    return (mem_initiators & (1u << static_cast<uint8_t>(value))) != 0;
+  }
+  bool includes(MemAccess value) const {
+    return (mem_accesses & (1u << static_cast<uint8_t>(value))) != 0;
+  }
+  bool includes(MemSpace value) const {
+    return (mem_spaces & (1u << static_cast<uint8_t>(value))) != 0;
+  }
+  bool includes(OriginStatus value) const {
+    return (origin_statuses & (1u << static_cast<uint8_t>(value))) != 0;
+  }
+  static bool includes_range(const std::vector<MemRange>& ranges,
+                             uint32_t value) {
+    return ranges.empty() ||
+           std::any_of(ranges.begin(), ranges.end(),
+                       [value](const MemRange& range) {
+                         return range.contains(value);
                        });
   }
 };
@@ -207,6 +267,159 @@ inline uint8_t parse_vram_roles(const std::string& text) {
   return result;
 }
 
+inline std::vector<MemRange> parse_mem_ranges(const std::string& text,
+                                              uint32_t maximum,
+                                              const char* description) {
+  std::vector<MemRange> ranges;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = trim(token);
+    if (token.empty()) {
+      throw std::runtime_error(std::string(description) +
+                               " range list contains an empty item: " + text);
+    }
+    const size_t separator = token.find('-');
+    uint32_t first;
+    uint32_t last;
+    if (separator == std::string::npos) {
+      first = last = parse_number(token, maximum, description);
+    } else {
+      if (separator == 0 || separator + 1 == token.size() ||
+          token.find('-', separator + 1) != std::string::npos) {
+        throw std::runtime_error(std::string(description) +
+                                 " range must be ADDR or START-END: " + token);
+      }
+      first = parse_number(token.substr(0, separator), maximum, description);
+      last = parse_number(token.substr(separator + 1), maximum, description);
+      if (first > last) {
+        throw std::runtime_error(std::string(description) +
+                                 " range start exceeds end: " + token);
+      }
+    }
+    ranges.push_back({first, last});
+  }
+  if (ranges.empty() || (!text.empty() && text.back() == ',')) {
+    throw std::runtime_error(std::string(description) +
+                             " range list must not be empty: " + text);
+  }
+  return ranges;
+}
+
+template <typename Enum>
+inline uint32_t enum_bit(Enum value) {
+  return 1u << static_cast<uint8_t>(value);
+}
+
+inline uint8_t parse_mem_initiators(const std::string& text) {
+  uint8_t result = 0;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = lower(trim(token));
+    if (token == "all") result |= kAllMemInitiators;
+    else if (token == "cpu") result |= enum_bit(MemInitiator::Cpu);
+    else if (token == "gdma") result |= enum_bit(MemInitiator::Gdma);
+    else if (token == "sdma") result |= enum_bit(MemInitiator::Sdma);
+    else throw std::runtime_error("unknown memory initiator: " + token);
+  }
+  if (result == 0 || (!text.empty() && text.back() == ','))
+    throw std::runtime_error("memory initiator list must not be empty: " + text);
+  return result;
+}
+
+inline uint8_t parse_mem_accesses(const std::string& text) {
+  uint8_t result = 0;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = lower(trim(token));
+    if (token == "all") result |= kAllMemAccesses;
+    else if (token == "read") result |= enum_bit(MemAccess::Read);
+    else if (token == "write") result |= enum_bit(MemAccess::Write);
+    else throw std::runtime_error("unknown memory access: " + token);
+  }
+  if (result == 0 || (!text.empty() && text.back() == ','))
+    throw std::runtime_error("memory access list must not be empty: " + text);
+  return result;
+}
+
+inline const char* mem_space_name(MemSpace value) {
+  switch (value) {
+    case MemSpace::Iram: return "iram";
+    case MemSpace::CartSram: return "cart_sram";
+    case MemSpace::CartRom0: return "cart_rom0";
+    case MemSpace::CartRom1: return "cart_rom1";
+    case MemSpace::CartRomLinear: return "cart_rom_linear";
+    case MemSpace::BootRom: return "boot_rom";
+    case MemSpace::Unmapped: return "unmapped";
+    case MemSpace::AbsentSram: return "absent_sram";
+  }
+  return "unknown";
+}
+
+inline MemInitiator mem_initiator_from_code(uint8_t code) {
+  if (code > static_cast<uint8_t>(MemInitiator::Sdma))
+    throw std::runtime_error("invalid memory initiator code: " +
+                             std::to_string(code));
+  return static_cast<MemInitiator>(code);
+}
+
+inline MemSpace mem_space_from_code(uint8_t code) {
+  if (code < static_cast<uint8_t>(MemSpace::Iram) ||
+      code > static_cast<uint8_t>(MemSpace::AbsentSram))
+    throw std::runtime_error("invalid memory space code: " +
+                             std::to_string(code));
+  return static_cast<MemSpace>(code);
+}
+
+inline OriginStatus origin_status_from_code(uint8_t code) {
+  if (code < static_cast<uint8_t>(OriginStatus::Exact) ||
+      code > static_cast<uint8_t>(OriginStatus::NotApplicable))
+    throw std::runtime_error("invalid origin status code: " +
+                             std::to_string(code));
+  return static_cast<OriginStatus>(code);
+}
+
+inline uint16_t parse_mem_spaces(const std::string& text) {
+  uint16_t result = 0;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = lower(trim(token));
+    if (token == "all") result |= kAllMemSpaces;
+    else if (token == "iram") result |= enum_bit(MemSpace::Iram);
+    else if (token == "cart_sram") result |= enum_bit(MemSpace::CartSram);
+    else if (token == "cart_rom0") result |= enum_bit(MemSpace::CartRom0);
+    else if (token == "cart_rom1") result |= enum_bit(MemSpace::CartRom1);
+    else if (token == "cart_rom_linear") result |= enum_bit(MemSpace::CartRomLinear);
+    else if (token == "boot_rom") result |= enum_bit(MemSpace::BootRom);
+    else if (token == "unmapped") result |= enum_bit(MemSpace::Unmapped);
+    else if (token == "absent_sram") result |= enum_bit(MemSpace::AbsentSram);
+    else throw std::runtime_error("unknown memory space: " + token);
+  }
+  if (result == 0 || (!text.empty() && text.back() == ','))
+    throw std::runtime_error("memory space list must not be empty: " + text);
+  return result;
+}
+
+inline uint8_t parse_origin_statuses(const std::string& text) {
+  uint8_t result = 0;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = lower(trim(token));
+    if (token == "all") result |= kAllOriginStatuses;
+    else if (token == "exact") result |= enum_bit(OriginStatus::Exact);
+    else if (token == "unattributed") result |= enum_bit(OriginStatus::Unattributed);
+    else if (token == "not_applicable") result |= enum_bit(OriginStatus::NotApplicable);
+    else throw std::runtime_error("unknown origin status: " + token);
+  }
+  if (result == 0 || (!text.empty() && text.back() == ','))
+    throw std::runtime_error("origin status list must not be empty: " + text);
+  return result;
+}
+
 inline uint8_t parse_events(const std::string& text) {
   uint8_t result = 0;
   std::istringstream stream(text);
@@ -216,13 +429,16 @@ inline uint8_t parse_events(const std::string& text) {
     if (token == "all") {
       result |= static_cast<uint8_t>(EventType::Cpu) |
                 static_cast<uint8_t>(EventType::Bank) |
-                static_cast<uint8_t>(EventType::Vram);
+                static_cast<uint8_t>(EventType::Vram) |
+                static_cast<uint8_t>(EventType::Mem);
     } else if (token == "cpu") {
       result |= static_cast<uint8_t>(EventType::Cpu);
     } else if (token == "bank") {
       result |= static_cast<uint8_t>(EventType::Bank);
     } else if (token == "vram") {
       result |= static_cast<uint8_t>(EventType::Vram);
+    } else if (token == "mem") {
+      result |= static_cast<uint8_t>(EventType::Mem);
     } else {
       throw std::runtime_error("unknown trace event type: " + token);
     }
@@ -262,6 +478,13 @@ inline void parse_config(std::istream& input, Config& config,
       else if (key == "cpu_pc") config.cpu_pc = parse_pc_range(value);
       else if (key == "vram_address") config.vram_address = parse_address_ranges(value);
       else if (key == "vram_role") config.vram_roles = parse_vram_roles(value);
+      else if (key == "mem_initiator") config.mem_initiators = parse_mem_initiators(value);
+      else if (key == "mem_access") config.mem_accesses = parse_mem_accesses(value);
+      else if (key == "mem_address") config.mem_address = parse_mem_ranges(value, 0xfffff, "memory address");
+      else if (key == "mem_space") config.mem_spaces = parse_mem_spaces(value);
+      else if (key == "mem_offset") config.mem_offset = parse_mem_ranges(value, 0xffffff, "memory offset");
+      else if (key == "mem_origin") config.origin_statuses = parse_origin_statuses(value);
+      else if (key == "origin_pc") config.origin_pc = parse_pc_range(value);
       else if (key == "format") config.format = parse_format(value);
       else throw std::runtime_error("unknown key: " + key);
     } catch (const std::exception& error) {
@@ -293,6 +516,14 @@ struct Event {
   std::optional<uint32_t> address;
   std::optional<uint32_t> value;
   std::optional<VramRole> role;
+  std::optional<MemInitiator> initiator = std::nullopt;
+  std::optional<MemAccess> access = std::nullopt;
+  std::optional<uint32_t> byte_enable = std::nullopt;
+  std::optional<MemSpace> space = std::nullopt;
+  std::optional<uint32_t> mapped_offset = std::nullopt;
+  std::optional<uint32_t> instruction_id = std::nullopt;
+  std::optional<uint32_t> origin_pc = std::nullopt;
+  std::optional<OriginStatus> origin_status = std::nullopt;
 };
 
 inline const char* event_name(EventType type) {
@@ -300,6 +531,29 @@ inline const char* event_name(EventType type) {
     case EventType::Cpu: return "cpu";
     case EventType::Bank: return "bank";
     case EventType::Vram: return "vram";
+    case EventType::Mem: return "mem";
+  }
+  return "unknown";
+}
+
+inline const char* initiator_name(MemInitiator value) {
+  switch (value) {
+    case MemInitiator::Cpu: return "cpu";
+    case MemInitiator::Gdma: return "gdma";
+    case MemInitiator::Sdma: return "sdma";
+  }
+  return "unknown";
+}
+
+inline const char* access_name(MemAccess value) {
+  return value == MemAccess::Write ? "write" : "read";
+}
+
+inline const char* origin_status_name(OriginStatus value) {
+  switch (value) {
+    case OriginStatus::Exact: return "exact";
+    case OriginStatus::Unattributed: return "unattributed";
+    case OriginStatus::NotApplicable: return "not_applicable";
   }
   return "unknown";
 }
@@ -308,7 +562,9 @@ class Writer {
  public:
   Writer(std::ostream& output, Format format) : output_(output), format_(format) {
     if (format_ == Format::Csv) {
-      output_ << "cycle,event,physical_pc,cs,ip,address,value,role\n";
+      output_ << "cycle,event,physical_pc,cs,ip,address,value,role,"
+                  "initiator,access,byte_enable,space,mapped_offset,"
+                  "instruction_id,origin_pc,origin_status\n";
     }
   }
 
@@ -344,6 +600,22 @@ class Writer {
     csv_optional(output_, event.value);
     output_ << ',';
     if (event.role) output_ << vram_role_name(*event.role);
+    output_ << ',';
+    if (event.initiator) output_ << initiator_name(*event.initiator);
+    output_ << ',';
+    if (event.access) output_ << access_name(*event.access);
+    output_ << ',';
+    csv_optional(output_, event.byte_enable);
+    output_ << ',';
+    if (event.space) output_ << mem_space_name(*event.space);
+    output_ << ',';
+    csv_optional(output_, event.mapped_offset);
+    output_ << ',';
+    csv_optional(output_, event.instruction_id);
+    output_ << ',';
+    csv_optional(output_, event.origin_pc);
+    output_ << ',';
+    if (event.origin_status) output_ << origin_status_name(*event.origin_status);
     output_ << '\n';
   }
 
@@ -357,6 +629,23 @@ class Writer {
     json_optional(output_, "value", event.value);
     output_ << ",\"role\":";
     if (event.role) output_ << '\"' << vram_role_name(*event.role) << '\"';
+    else output_ << "null";
+    output_ << ",\"initiator\":";
+    if (event.initiator) output_ << '\"' << initiator_name(*event.initiator) << '\"';
+    else output_ << "null";
+    output_ << ",\"access\":";
+    if (event.access) output_ << '\"' << access_name(*event.access) << '\"';
+    else output_ << "null";
+    json_optional(output_, "byte_enable", event.byte_enable);
+    output_ << ",\"space\":";
+    if (event.space) output_ << '\"' << mem_space_name(*event.space) << '\"';
+    else output_ << "null";
+    json_optional(output_, "mapped_offset", event.mapped_offset);
+    json_optional(output_, "instruction_id", event.instruction_id);
+    json_optional(output_, "origin_pc", event.origin_pc);
+    output_ << ",\"origin_status\":";
+    if (event.origin_status)
+      output_ << '\"' << origin_status_name(*event.origin_status) << '\"';
     else output_ << "null";
     output_ << "}\n";
   }
@@ -395,6 +684,37 @@ class Logger {
     if (!config_.includes(role) || !config_.includes_vram_address(address)) return;
     writer_->write({cycle, EventType::Vram, std::nullopt, std::nullopt,
                     std::nullopt, address, std::nullopt, role});
+  }
+
+  void mem(uint64_t cycle, MemInitiator initiator, MemAccess access,
+           uint32_t address, uint16_t value, uint8_t byte_enable,
+           MemSpace space, std::optional<uint32_t> mapped_offset,
+           std::optional<uint32_t> instruction_id,
+           std::optional<uint32_t> origin_pc, OriginStatus origin_status) {
+    const bool cpu = initiator == MemInitiator::Cpu;
+    const bool complete_origin = instruction_id.has_value() && origin_pc.has_value();
+    if ((origin_status == OriginStatus::Exact && (!cpu || !complete_origin)) ||
+        (origin_status == OriginStatus::Unattributed &&
+         (!cpu || instruction_id || origin_pc)) ||
+        (origin_status == OriginStatus::NotApplicable &&
+         (cpu || instruction_id || origin_pc))) {
+      throw std::runtime_error("invalid memory origin attribution");
+    }
+    if (!config_.includes(EventType::Mem) || !config_.includes(initiator) ||
+        !config_.includes(access) || !config_.includes(space) ||
+        !config_.includes(origin_status) ||
+        !Config::includes_range(config_.mem_address, address) ||
+        (mapped_offset &&
+         !Config::includes_range(config_.mem_offset, *mapped_offset)) ||
+        (!mapped_offset && !config_.mem_offset.empty()) ||
+        (config_.origin_pc &&
+         (!origin_pc || !config_.origin_pc->contains(*origin_pc)))) {
+      return;
+    }
+    writer_->write({cycle, EventType::Mem, std::nullopt, std::nullopt,
+                    std::nullopt, address, value, std::nullopt,
+                    initiator, access, byte_enable, space, mapped_offset,
+                    instruction_id, origin_pc, origin_status});
   }
 
  private:

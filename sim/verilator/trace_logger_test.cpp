@@ -12,6 +12,10 @@ using swansong::trace::Config;
 using swansong::trace::Event;
 using swansong::trace::EventType;
 using swansong::trace::Format;
+using swansong::trace::MemAccess;
+using swansong::trace::MemInitiator;
+using swansong::trace::MemSpace;
+using swansong::trace::OriginStatus;
 using swansong::trace::VramRole;
 using swansong::trace::Writer;
 
@@ -61,6 +65,22 @@ int main() {
   expect_failure([] { swansong::trace::parse_vram_roles("screen1_map,"); });
   expect_failure([] { swansong::trace::vram_role_from_code(6); });
 
+  assert(swansong::trace::parse_mem_initiators("CPU, gdma") == 0x03);
+  assert(swansong::trace::parse_mem_accesses("write") == 0x02);
+  assert(swansong::trace::parse_mem_spaces("iram,cart_rom_linear") ==
+         ((1u << 1) | (1u << 5)));
+  assert(swansong::trace::parse_origin_statuses("exact,not_applicable") ==
+         ((1u << 1) | (1u << 3)));
+  const auto mem_ranges = swansong::trace::parse_mem_ranges(
+      "0x100-0x1ff,0xf0000", 0xfffff, "memory address");
+  assert(mem_ranges.size() == 2 && mem_ranges[0].contains(0x180));
+  expect_failure([] { swansong::trace::parse_mem_initiators("cpu,dma"); });
+  expect_failure([] { swansong::trace::parse_mem_spaces("rom"); });
+  expect_failure([] {
+    swansong::trace::parse_mem_ranges("0x100000", 0xfffff,
+                                      "memory address");
+  });
+
   Config config;
   std::istringstream config_text(
       "# Translation trace\n"
@@ -69,7 +89,14 @@ int main() {
       "events = cpu, vram\n"
       "cpu_pc = 0x80000-0x8ffff\n"
       "vram_address = 0x2000-0x2fff,0x4000\n"
-      "vram_role = screen1_map, screen1_tile\n");
+      "vram_role = screen1_map, screen1_tile\n"
+      "mem_initiator = cpu,gdma\n"
+      "mem_access = write\n"
+      "mem_address = 0x4000-0x4fff\n"
+      "mem_space = iram\n"
+      "mem_offset = 0x4000-0x4fff\n"
+      "mem_origin = exact\n"
+      "origin_pc = 0xf0000-0xfffff\n");
   swansong::trace::parse_config(config_text, config, "inline");
   assert(config.output == "build/sim/game.jsonl");
   assert(config.format == Format::Jsonl);
@@ -81,6 +108,14 @@ int main() {
   assert(config.includes(VramRole::Screen1Map));
   assert(config.includes(VramRole::Screen1Tile));
   assert(!config.includes(VramRole::Screen2Map));
+  assert(config.includes(MemInitiator::Cpu));
+  assert(config.includes(MemInitiator::Gdma));
+  assert(!config.includes(MemInitiator::Sdma));
+  assert(config.includes(MemAccess::Write));
+  assert(!config.includes(MemAccess::Read));
+  assert(config.includes(MemSpace::Iram));
+  assert(config.mem_address.size() == 1 && config.mem_offset.size() == 1);
+  assert(config.origin_pc && config.origin_pc->first == 0xf0000);
   expect_failure([] {
     Config bad;
     std::istringstream text("bogus=yes\n");
@@ -96,11 +131,18 @@ int main() {
   csv_writer.write({9, EventType::Vram, std::nullopt, std::nullopt,
                     std::nullopt, 0x4321, std::nullopt,
                     VramRole::Screen2Tile});
+  csv_writer.write({10, EventType::Mem, std::nullopt, std::nullopt,
+                    std::nullopt, 0x4000, 0x1234, std::nullopt,
+                    MemInitiator::Gdma, MemAccess::Write, 3,
+                    MemSpace::Iram, 0x4000, std::nullopt, std::nullopt,
+                    OriginStatus::NotApplicable});
   assert(csv.str() ==
-         "cycle,event,physical_pc,cs,ip,address,value,role\n"
-         "7,cpu,703710,43981,302,,,\n"
-         "8,bank,,,,194,52,\n"
-         "9,vram,,,,17185,,screen2_tile\n");
+         "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
+         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status\n"
+         "7,cpu,703710,43981,302,,,,,,,,,,,\n"
+         "8,bank,,,,194,52,,,,,,,,,\n"
+         "9,vram,,,,17185,,screen2_tile,,,,,,,,\n"
+         "10,mem,,,,16384,4660,,gdma,write,3,iram,16384,,,not_applicable\n");
 
   std::ostringstream jsonl;
   Writer jsonl_writer(jsonl, Format::Jsonl);
@@ -110,7 +152,24 @@ int main() {
   assert(jsonl.str() ==
          "{\"cycle\":9,\"event\":\"vram\",\"physical_pc\":null,"
          "\"cs\":null,\"ip\":null,\"address\":17185,\"value\":null,"
-         "\"role\":\"sprite_tile\"}\n");
+         "\"role\":\"sprite_tile\",\"initiator\":null,\"access\":null,"
+         "\"byte_enable\":null,\"space\":null,\"mapped_offset\":null,"
+         "\"instruction_id\":null,\"origin_pc\":null,"
+         "\"origin_status\":null}\n");
+
+  std::ostringstream mem_jsonl;
+  Writer mem_jsonl_writer(mem_jsonl, Format::Jsonl);
+  mem_jsonl_writer.write(
+      {10, EventType::Mem, std::nullopt, std::nullopt, std::nullopt,
+       0x4000, 0x1234, std::nullopt, MemInitiator::Cpu, MemAccess::Write,
+       3, MemSpace::Iram, 0x4000, 7, 0xf0010, OriginStatus::Exact});
+  assert(mem_jsonl.str() ==
+         "{\"cycle\":10,\"event\":\"mem\",\"physical_pc\":null,"
+         "\"cs\":null,\"ip\":null,\"address\":16384,\"value\":4660,"
+         "\"role\":null,\"initiator\":\"cpu\",\"access\":\"write\","
+         "\"byte_enable\":3,\"space\":\"iram\",\"mapped_offset\":16384,"
+         "\"instruction_id\":7,\"origin_pc\":983056,"
+         "\"origin_status\":\"exact\"}\n");
 
   const std::filesystem::path filtered_path =
       std::filesystem::temp_directory_path() / "swansong-trace-filter-test.csv";
@@ -133,9 +192,57 @@ int main() {
   const std::string filtered_text((std::istreambuf_iterator<char>(filtered_input)),
                                   std::istreambuf_iterator<char>());
   assert(filtered_text ==
-         "cycle,event,physical_pc,cs,ip,address,value,role\n"
-         "1,cpu,74565,4660,5,,,\n"
-         "4,vram,,,,8192,,screen1_tile\n"
-         "5,vram,,,,12287,,screen1_tile\n");
+         "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
+         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status\n"
+         "1,cpu,74565,4660,5,,,,,,,,,,,\n"
+         "4,vram,,,,8192,,screen1_tile,,,,,,,,\n"
+         "5,vram,,,,12287,,screen1_tile,,,,,,,,\n");
   std::filesystem::remove(filtered_path);
+
+  const std::filesystem::path mem_filtered_path =
+      std::filesystem::temp_directory_path() / "swansong-mem-filter-test.csv";
+  Config mem_filtered;
+  mem_filtered.output = mem_filtered_path;
+  mem_filtered.events = static_cast<uint8_t>(EventType::Mem);
+  mem_filtered.mem_initiators =
+      swansong::trace::parse_mem_initiators("cpu");
+  mem_filtered.mem_accesses = swansong::trace::parse_mem_accesses("write");
+  mem_filtered.mem_spaces = swansong::trace::parse_mem_spaces("iram");
+  mem_filtered.origin_statuses =
+      swansong::trace::parse_origin_statuses("exact");
+  mem_filtered.mem_address = swansong::trace::parse_mem_ranges(
+      "0x4000-0x4fff", 0xfffff, "memory address");
+  mem_filtered.mem_offset = swansong::trace::parse_mem_ranges(
+      "0x4000-0x4fff", 0xffffff, "memory offset");
+  mem_filtered.origin_pc = swansong::trace::parse_pc_range("0xf0000-0xfffff");
+  {
+    swansong::trace::Logger logger(mem_filtered);
+    expect_failure([&logger] {
+      logger.mem(0, MemInitiator::Cpu, MemAccess::Write, 0x4000, 0, 3,
+                 MemSpace::Iram, 0x4000, std::nullopt, std::nullopt,
+                 OriginStatus::Exact);
+    });
+    expect_failure([&logger] {
+      logger.mem(0, MemInitiator::Gdma, MemAccess::Read, 0xf0100, 0, 3,
+                 MemSpace::CartRomLinear, 0x100, 1, 0xf0000,
+                 OriginStatus::NotApplicable);
+    });
+    logger.mem(1, MemInitiator::Cpu, MemAccess::Read, 0x4000, 1, 3,
+               MemSpace::Iram, 0x4000, 7, 0xf0010, OriginStatus::Exact);
+    logger.mem(2, MemInitiator::Gdma, MemAccess::Write, 0x4000, 2, 3,
+               MemSpace::Iram, 0x4000, std::nullopt, std::nullopt,
+               OriginStatus::NotApplicable);
+    logger.mem(3, MemInitiator::Cpu, MemAccess::Write, 0x4000, 0x1234, 3,
+               MemSpace::Iram, 0x4000, 7, 0xf0010, OriginStatus::Exact);
+  }
+  std::ifstream mem_filtered_input(mem_filtered_path);
+  const std::string mem_filtered_text(
+      (std::istreambuf_iterator<char>(mem_filtered_input)),
+      std::istreambuf_iterator<char>());
+  assert(mem_filtered_text.find(
+             "3,mem,,,,16384,4660,,cpu,write,3,iram,16384,7,983056,exact\n") !=
+         std::string::npos);
+  assert(mem_filtered_text.find("1,mem") == std::string::npos);
+  assert(mem_filtered_text.find("2,mem") == std::string::npos);
+  std::filesystem::remove(mem_filtered_path);
 }

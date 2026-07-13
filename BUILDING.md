@@ -7,11 +7,12 @@
 - The open MiSTer sprite-priority and window test ROMs produce deterministic
   224×144 PNG frame hashes in repeated runs.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
-  C++ unit test. The regression also validates CPU and VRAM events from the
+  C++ unit test. The regression also validates CPU, display-RAM, and completed
+  memory events from the
   translated model, including `CS:IP` conversion, inclusive PC/address filters,
-  aligned addresses, and all six screen-map/tile and sprite-table/tile roles.
-  It also generates a build-only ROM that verifies writes to all four C0-C3
-  bank registers.
+  exact CPU memory origins, resolved mapper offsets, aligned addresses, and all
+  six screen-map/tile and sprite-table/tile roles. It also generates build-only
+  ROMs that verify all C0-C3 bank writes and an exact GDMA ROM-to-IRAM chain.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
@@ -52,7 +53,7 @@ harness never searches for or downloads firmware.
 ### Structured event traces
 
 The VCD option captures the whole translated design. For a smaller,
-machine-readable stream, select one or more of the `cpu`, `bank`, and `vram`
+machine-readable stream, select one or more of the `cpu`, `bank`, `vram`, and `mem`
 event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
 generic for this simulator build; the production default leaves it disabled.
 
@@ -73,7 +74,7 @@ mixed trace:
   --rom /path/to/legally-obtained-title.wsc \
   --frames 10 \
   --event-trace build/sim/text-renderer.jsonl \
-  --trace-events cpu,bank,vram \
+  --trace-events cpu,bank,vram,mem \
   --trace-pc 0x80000-0x8ffff \
   --trace-vram-role screen1_tile \
   --trace-vram-address 0x2000-0x5fff
@@ -82,8 +83,9 @@ mixed trace:
 Use `--trace-format csv|jsonl` to override suffix-based format selection. For a
 repeatable investigation, copy `sim/verilator/trace.example.conf`, then pass
 `--trace-config FILE`. Later command-line options override config-file values.
-The config accepts `output`, `format`, `events`, `cpu_pc`, `vram_address`, and
-`vram_role`. Full field semantics and filtering behavior are in
+The config accepts the CPU/display filters plus memory initiator, access,
+address, mapped-space/offset, and instruction-origin filters. Full field
+semantics and filtering behavior are in
 `sim/verilator/TRACE.md`.
 
 Run the parser/serializer unit test independently of GHDL and Verilator:
@@ -98,10 +100,11 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 
 This unit test proves config parsing, filtering primitives, and serialization.
 `make regression` separately runs `verify_trace.py` against an end-to-end ROM
-capture to check the CSV schema, event-specific fields, monotonic cycles,
+capture to check all three CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
-The same regression generates (but does not check in) a minimal open bank-write
-probe and requires serialized events for C0, C1, C2, and C3.
+The same regression generates (but does not check in) minimal open bank-write
+and WSC GDMA probes. The latter requires two known ROM words to appear in the
+ordered completed read/write events at their resolved ROM and IRAM offsets.
 
 Generated VHDL-to-Verilog files, binaries, traces, raw RGB frames, and PNGs live
 under `build/` and are ignored by Git.

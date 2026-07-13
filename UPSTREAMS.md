@@ -63,3 +63,9 @@ The checked-in `testroms/` tree is byte-identical to the pinned MiSTer
 license headers or declarations; their only repository-level license material
 is MiSTer's top-level GPL v2 text, so their intended grant is not independently
 stated. The directory contains no commercial game ROM.
+
+The regression's bank and provenance probes are generated under `build/` and
+are never checked in. They contribute new minimal 80186 programs and copy only
+the final 16-byte reset-vector/header footer from the open `spritepriority.ws`
+carrier above; the provenance probe changes the footer's color flag so the
+color-only GDMA block can be exercised.

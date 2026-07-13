@@ -12,6 +12,7 @@ mkdir -p "$BUILD"
   -o "$BUILD/trace_logger_test"
 "$BUILD/trace_logger_test"
 echo "PASS structured trace parser and writer"
+python3 "$ROOT/sim/verilator/verify_trace_test.py"
 
 # Always rebuild the VHDL translation and simulator. Otherwise a local source
 # edit can be checked against a stale VSwanTop binary left in build/sim.
@@ -20,14 +21,17 @@ rm -rf "$BUILD/bootstrap"
   --rom "$ROOT/testroms/spritepriority/spritepriority.ws" \
   --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
   --event-trace "$BUILD/bootstrap/events.csv" \
-  --trace-events cpu,vram --trace-pc 0xf0000-0xfffff \
+  --trace-events cpu,vram,mem --trace-pc 0xf0000-0xfffff \
   --trace-vram-role all \
-  --trace-vram-address 0x0000-0xbfff >/dev/null
+  --trace-vram-address 0x0000-0xbfff \
+  --trace-mem-initiator cpu --trace-mem-origin exact \
+  --trace-origin-pc 0xf0000-0xfffff >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bootstrap/events.csv" \
-  --allowed cpu,vram --require cpu,vram --pc-range 0xf0000-0xfffff \
+  --allowed cpu,vram,mem --require cpu,vram,mem --pc-range 0xf0000-0xfffff \
   --vram-role all --require-vram-roles all \
-  --vram-address 0x0000-0xbfff
+  --vram-address 0x0000-0xbfff \
+  --mem-initiator cpu --mem-origin exact --origin-pc 0xf0000-0xfffff
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see
@@ -45,6 +49,25 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bank-probe/events.csv" \
   --allowed bank --require bank \
   --require-bank-addresses 0xc0,0xc1,0xc2,0xc3
+
+# Generate an open WSC probe that copies two known words from mapped ROM into
+# IRAM. The exact completed GDMA read/write sequence proves resolved-offset and
+# value capture without relying on a commercial game.
+rm -rf "$BUILD/provenance-probe"
+python3 "$ROOT/sim/verilator/generate_provenance_probe.py" \
+  "$ROOT/testroms/spritepriority/spritepriority.ws" \
+  "$BUILD/provenance-probe/probe.wsc" >/dev/null
+"$SIM" \
+  --rom "$BUILD/provenance-probe/probe.wsc" \
+  --frames 1 --max-cycles 1000000 --out "$BUILD/provenance-probe/frames" \
+  --event-trace "$BUILD/provenance-probe/events.csv" \
+  --trace-events mem --trace-mem-initiator gdma >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$BUILD/provenance-probe/events.csv" \
+  --allowed mem --require mem --mem-initiator gdma \
+  --mem-origin not_applicable
+python3 "$ROOT/sim/verilator/verify_provenance_probe.py" \
+  "$BUILD/provenance-probe/events.csv"
 
 check_case() {
   local name="$1" expected="$2" output="$3"

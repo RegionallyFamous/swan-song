@@ -112,7 +112,19 @@ entity SwanTop is
       debug_reg_data             : out std_logic_vector(7 downto 0) := (others => '0');
       debug_gpu_vram_addr        : out std_logic_vector(15 downto 0) := (others => '0');
       debug_gpu_vram_valid       : out std_logic := '0';
-      debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0')
+      debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0');
+      debug_mem_valid            : out std_logic := '0';
+      debug_mem_write            : out std_logic := '0';
+      debug_mem_initiator        : out std_logic_vector(1 downto 0) := (others => '0');
+      debug_mem_address          : out std_logic_vector(19 downto 0) := (others => '0');
+      debug_mem_value            : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_mem_byte_enable      : out std_logic_vector(1 downto 0) := (others => '0');
+      debug_mem_space            : out std_logic_vector(3 downto 0) := (others => '0');
+      debug_mem_offset           : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_mem_offset_valid     : out std_logic := '0';
+      debug_mem_instruction_id   : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_mem_origin_pc        : out std_logic_vector(19 downto 0) := (others => '0');
+      debug_mem_origin_status    : out std_logic_vector(1 downto 0) := (others => '0')
    );
 end entity;
 
@@ -167,6 +179,36 @@ architecture arch of SwanTop is
    signal bus_addr               : unsigned(19 downto 0);
    signal bus_datawrite          : std_logic_vector(15 downto 0);
    signal bus_dataread           : std_logic_vector(15 downto 0);
+
+   signal mux_debug_mem_space        : std_logic_vector(3 downto 0);
+   signal mux_debug_mem_offset       : std_logic_vector(23 downto 0);
+   signal mux_debug_mem_offset_valid : std_logic;
+
+   signal mem_stage1_valid        : std_logic := '0';
+   signal mem_stage1_write        : std_logic := '0';
+   signal mem_stage1_initiator    : std_logic_vector(1 downto 0) := (others => '0');
+   signal mem_stage1_address      : std_logic_vector(19 downto 0) := (others => '0');
+   signal mem_stage1_write_value  : std_logic_vector(15 downto 0) := (others => '0');
+   signal mem_stage1_be           : std_logic_vector(1 downto 0) := (others => '0');
+   signal mem_stage1_space        : std_logic_vector(3 downto 0) := (others => '0');
+   signal mem_stage1_offset       : std_logic_vector(23 downto 0) := (others => '0');
+   signal mem_stage1_offset_valid : std_logic := '0';
+   signal mem_stage1_instruction  : std_logic_vector(31 downto 0) := (others => '0');
+   signal mem_stage1_origin_pc    : std_logic_vector(19 downto 0) := (others => '0');
+   signal mem_stage1_origin       : std_logic_vector(1 downto 0) := (others => '0');
+
+   signal mem_stage2_valid        : std_logic := '0';
+   signal mem_stage2_write        : std_logic := '0';
+   signal mem_stage2_initiator    : std_logic_vector(1 downto 0) := (others => '0');
+   signal mem_stage2_address      : std_logic_vector(19 downto 0) := (others => '0');
+   signal mem_stage2_value        : std_logic_vector(15 downto 0) := (others => '0');
+   signal mem_stage2_be           : std_logic_vector(1 downto 0) := (others => '0');
+   signal mem_stage2_space        : std_logic_vector(3 downto 0) := (others => '0');
+   signal mem_stage2_offset       : std_logic_vector(23 downto 0) := (others => '0');
+   signal mem_stage2_offset_valid : std_logic := '0';
+   signal mem_stage2_instruction  : std_logic_vector(31 downto 0) := (others => '0');
+   signal mem_stage2_origin_pc    : std_logic_vector(19 downto 0) := (others => '0');
+   signal mem_stage2_origin       : std_logic_vector(1 downto 0) := (others => '0');
    
    -- CPU
    signal cpu_idle               : std_logic;
@@ -181,6 +223,10 @@ architecture arch of SwanTop is
    signal cpu_bus_addr           : unsigned(19 downto 0);
    signal cpu_bus_datawrite      : std_logic_vector(15 downto 0);
    signal cpu_bus_dataread       : std_logic_vector(15 downto 0);
+   signal cpu_debug_bus_fetch        : std_logic;
+   signal cpu_debug_origin_exact     : std_logic;
+   signal cpu_debug_instruction_id   : std_logic_vector(31 downto 0);
+   signal cpu_debug_instruction_pc   : std_logic_vector(19 downto 0);
 
    -- dma
    signal dma_active             : std_logic;
@@ -447,6 +493,73 @@ begin
    bus_be        <= dma_bus_be        when (dma_active = '1' or sdma_active = '1') else cpu_bus_be;       
    bus_addr      <= dma_bus_addr      when (dma_active = '1' or sdma_active = '1') else cpu_bus_addr;     
    bus_datawrite <= dma_bus_datawrite when (dma_active = '1' or sdma_active = '1') else cpu_bus_datawrite;
+
+   -- Completed memory-transaction observer. CPU and DMA requests are
+   -- one-clock pulses. Stage 1 captures the request and its resolved mapping;
+   -- stage 2 samples read data at the same latency used by the CPU pipelines.
+   process (clk)
+   begin
+      if rising_edge(clk) then
+         if (reset = '1' or is_simu /= '1') then
+            mem_stage1_valid <= '0';
+            mem_stage2_valid <= '0';
+         else
+            mem_stage1_valid <= bus_read or bus_write;
+            mem_stage2_valid <= mem_stage1_valid;
+
+            if (bus_read = '1' or bus_write = '1') then
+               mem_stage1_write        <= bus_write;
+               mem_stage1_address      <= std_logic_vector(bus_addr);
+               mem_stage1_write_value  <= bus_datawrite;
+               mem_stage1_be           <= bus_be;
+               mem_stage1_space        <= mux_debug_mem_space;
+               mem_stage1_offset       <= mux_debug_mem_offset;
+               mem_stage1_offset_valid <= mux_debug_mem_offset_valid;
+
+               if (dma_active = '1') then
+                  mem_stage1_initiator   <= "01"; -- GDMA
+                  mem_stage1_instruction <= (others => '0');
+                  mem_stage1_origin_pc   <= (others => '0');
+                  mem_stage1_origin      <= "11"; -- not applicable
+               elsif (sdma_active = '1') then
+                  mem_stage1_initiator   <= "10"; -- SDMA
+                  mem_stage1_instruction <= (others => '0');
+                  mem_stage1_origin_pc   <= (others => '0');
+                  mem_stage1_origin      <= "11"; -- not applicable
+               else
+                  mem_stage1_initiator   <= "00"; -- CPU
+                  if (cpu_debug_bus_fetch = '1' or cpu_debug_origin_exact = '0') then
+                     mem_stage1_instruction <= (others => '0');
+                     mem_stage1_origin_pc   <= (others => '0');
+                     mem_stage1_origin      <= "10"; -- unattributed
+                  else
+                     mem_stage1_instruction <= cpu_debug_instruction_id;
+                     mem_stage1_origin_pc   <= cpu_debug_instruction_pc;
+                     mem_stage1_origin      <= "01"; -- exact
+                  end if;
+               end if;
+            end if;
+
+            if (mem_stage1_valid = '1') then
+               mem_stage2_write        <= mem_stage1_write;
+               mem_stage2_initiator    <= mem_stage1_initiator;
+               mem_stage2_address      <= mem_stage1_address;
+               mem_stage2_be           <= mem_stage1_be;
+               mem_stage2_space        <= mem_stage1_space;
+               mem_stage2_offset       <= mem_stage1_offset;
+               mem_stage2_offset_valid <= mem_stage1_offset_valid;
+               mem_stage2_instruction  <= mem_stage1_instruction;
+               mem_stage2_origin_pc    <= mem_stage1_origin_pc;
+               mem_stage2_origin       <= mem_stage1_origin;
+               if (mem_stage1_write = '1') then
+                  mem_stage2_value <= mem_stage1_write_value;
+               else
+                  mem_stage2_value <= bus_dataread;
+               end if;
+            end if;
+         end if;
+      end if;
+   end process;
    
    cpu_bus_dataread  <= bus_dataread;
    dma_bus_dataread  <= bus_dataread;
@@ -476,7 +589,11 @@ begin
       cpu_be               => bus_be,          
       cpu_addr             => bus_addr,     
       cpu_datawrite        => bus_datawrite,
-      cpu_dataread         => bus_dataread, 
+      cpu_dataread         => bus_dataread,
+
+      debug_mem_space        => mux_debug_mem_space,
+      debug_mem_offset       => mux_debug_mem_offset,
+      debug_mem_offset_valid => mux_debug_mem_offset_valid,
 
       GPU_addr             => GPU_addr,    
       GPU_dataread         => GPU_dataread,   
@@ -520,6 +637,10 @@ begin
    
    -- cpu
    icpu : entity work.cpu
+   generic map
+   (
+      is_simu => is_simu
+   )
    port map
    (
       clk               => clk,  
@@ -552,6 +673,11 @@ begin
             
       cpu_done          => cpu_done,         
       cpu_export        => cpu_export,
+
+      debug_bus_fetch        => cpu_debug_bus_fetch,
+      debug_bus_origin_exact => cpu_debug_origin_exact,
+      debug_instruction_id   => cpu_debug_instruction_id,
+      debug_instruction_pc   => cpu_debug_instruction_pc,
 
       RegBus_Din        => CPU_RegBus_Din, 
       RegBus_Adr        => CPU_RegBus_Adr, 
@@ -900,6 +1026,18 @@ begin
       debug_gpu_vram_addr  <= GPU_addr;
       debug_gpu_vram_valid <= GPU_vram_fetch_valid;
       debug_gpu_vram_role  <= GPU_vram_fetch_role;
+      debug_mem_valid          <= mem_stage2_valid;
+      debug_mem_write          <= mem_stage2_write;
+      debug_mem_initiator      <= mem_stage2_initiator;
+      debug_mem_address        <= mem_stage2_address;
+      debug_mem_value          <= mem_stage2_value;
+      debug_mem_byte_enable    <= mem_stage2_be;
+      debug_mem_space          <= mem_stage2_space;
+      debug_mem_offset         <= mem_stage2_offset;
+      debug_mem_offset_valid   <= mem_stage2_offset_valid;
+      debug_mem_instruction_id <= mem_stage2_instruction;
+      debug_mem_origin_pc      <= mem_stage2_origin_pc;
+      debug_mem_origin_status  <= mem_stage2_origin;
    end generate;
 
    gdebug_off : if is_simu /= '1' generate
@@ -914,6 +1052,18 @@ begin
       debug_gpu_vram_addr  <= (others => '0');
       debug_gpu_vram_valid <= '0';
       debug_gpu_vram_role  <= (others => '0');
+      debug_mem_valid          <= '0';
+      debug_mem_write          <= '0';
+      debug_mem_initiator      <= (others => '0');
+      debug_mem_address        <= (others => '0');
+      debug_mem_value          <= (others => '0');
+      debug_mem_byte_enable    <= (others => '0');
+      debug_mem_space          <= (others => '0');
+      debug_mem_offset         <= (others => '0');
+      debug_mem_offset_valid   <= '0';
+      debug_mem_instruction_id <= (others => '0');
+      debug_mem_origin_pc      <= (others => '0');
+      debug_mem_origin_status  <= (others => '0');
    end generate;
 
    -- export
