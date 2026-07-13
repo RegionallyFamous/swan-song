@@ -237,9 +237,10 @@ toolchain sources, and the exact simulation boundary are in
 [`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md).
 
 WonderWitch `.fx` programs are not ordinary cartridge ROMs: they assume a
-FreyaBIOS/FreyaOS environment, filesystem, and flash-cartridge behavior. This
-core does not currently expose `.fx`, emulate WonderWitch flash writes, bundle
-firmware, or claim full WonderWitch compatibility.
+FreyaBIOS/FreyaOS environment, filesystem, and flash-cartridge behavior. The
+Bandai 2003 `CEh` byte window is now present as a volatile mapper foundation,
+but this core does not expose `.fx`, implement MBM29 command semantics or flash
+persistence, bundle firmware, or claim full WonderWitch compatibility.
 
 ## Features
 

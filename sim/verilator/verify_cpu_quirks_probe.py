@@ -38,6 +38,7 @@ MEM_SPACES = {
     "boot_rom",
     "unmapped",
     "absent_sram",
+    "cart_flash",
 }
 CPU_FIELDS = {"cycle", "event", "physical_pc", "cs", "ip"}
 MEM_FIELDS = {

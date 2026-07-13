@@ -64,8 +64,8 @@ Not yet verified or implemented:
 - direct selection of a standalone `.fx` from APF;
 - writable Freya/Athena filesystem persistence;
 - Bandai 2003 high mapper bytes beyond the current 16 MiB APF limit;
-- WonderWitch port `CEh`, MBM29DL400TC flash command state, or erase/program
-  persistence; and
+- MBM29DL400TC flash command state or erase/program persistence (`CEh` bit 0
+  and its volatile byte-wide ROM window are now mapper-tested separately); and
 - serial/XMODEM development workflows on Pocket's link port.
 
 Those are separate targets. In particular, the successful read-only `mkrom`

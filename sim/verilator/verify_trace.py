@@ -75,9 +75,10 @@ MEM_SPACES = {
     "boot_rom",
     "unmapped",
     "absent_sram",
+    "cart_flash",
 }
 ORIGIN_STATUSES = {"exact", "unattributed", "not_applicable"}
-BANK_ADDRESSES = {0xC0, 0xC1, 0xC2, 0xC3, 0xCF, 0xD0, 0xD2, 0xD4}
+BANK_ADDRESSES = {0xC0, 0xC1, 0xC2, 0xC3, 0xCE, 0xCF, 0xD0, 0xD2, 0xD4}
 
 
 def number(value: str, field: str, line: int, maximum: int) -> int:
@@ -446,6 +447,7 @@ def verify(
                     "unmapped": 0x0,
                     "cart_sram": 0x1,
                     "absent_sram": 0x1,
+                    "cart_flash": 0x1,
                     "cart_rom0": 0x2,
                     "cart_rom1": 0x3,
                 }.get(space)

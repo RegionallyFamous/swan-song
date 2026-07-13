@@ -132,6 +132,10 @@ int main() {
   assert(swansong::trace::parse_mem_accesses("write") == 0x02);
   assert(swansong::trace::parse_mem_spaces("iram,cart_rom_linear") ==
          ((1u << 1) | (1u << 5)));
+  assert(swansong::trace::parse_mem_spaces("cart_flash") == (1u << 9));
+  assert(swansong::trace::mem_space_from_code(9) == MemSpace::CartFlash);
+  assert(std::string(swansong::trace::mem_space_name(MemSpace::CartFlash)) ==
+         "cart_flash");
   assert(swansong::trace::parse_origin_statuses("exact,not_applicable") ==
          ((1u << 1) | (1u << 3)));
   const auto mem_ranges = swansong::trace::parse_mem_ranges(
@@ -460,10 +464,11 @@ int main() {
       logger.bank(11, 0xc0, 0xaa, 0, 0xf0000, OriginStatus::Exact);
     });
     expect_failure([&logger] {
-      logger.bank(11, 0xce, 0xaa, 99, 0xf0000, OriginStatus::Exact);
+      logger.bank(11, 0xcd, 0xaa, 99, 0xf0000, OriginStatus::Exact);
     });
     logger.bank(12, 0xc0, 0xaa, 99, 0xf0000, OriginStatus::Exact);
     logger.bank(13, 0xd0, 0x03, 100, 0xf001d, OriginStatus::Exact);
+    logger.bank(14, 0xce, 0x01, 101, 0xf0020, OriginStatus::Exact);
   }
   std::ifstream bank_input(bank_path);
   const std::string bank_text((std::istreambuf_iterator<char>(bank_input)),
@@ -473,6 +478,9 @@ int main() {
          std::string::npos);
   assert(bank_text.find(
              "13,bank,,,,208,3,,,,,,,100,983069,exact,,") !=
+         std::string::npos);
+  assert(bank_text.find(
+             "14,bank,,,,206,1,,,,,,,101,983072,exact,,") !=
          std::string::npos);
   assert(bank_text.find("11,bank") == std::string::npos);
   std::filesystem::remove(bank_path);

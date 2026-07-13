@@ -117,8 +117,9 @@ is explicit:
 
 - APF launches the generated `.ws`; it does not expose standalone `.fx` files
   or a host-managed Freya filesystem;
-- the inherited mapper has no implementation of WonderWitch's MBM29DL400TC
-  flash command state or the Bandai 2003 port-`CEh` write window documented by
+- the exact Bandai 2003 selector implements port `CEh` bit 0 and its byte-wide
+  volatile ROM/flash window, but not the MBM29DL400TC unlock/program/erase
+  command state or APF persistence documented by
   [WSdev](https://ws.nesdev.org/wiki/WonderWitch/Flash); and
 - the generated image has not been run on Pocket hardware, and writable
   WonderWitch software remains unverified.
@@ -132,7 +133,8 @@ The mapper audit is intentionally narrower than an emulator feature list:
 | Bandai 2003 RTC | Implemented | Deterministic RTC/save regressions; Pocket timing remains hardware-gated |
 | Bandai 2003 CF/D0/D2/D4 low aliases | Implemented for canonical footer RTC/2003 selector `01h` | Black-box VHDL readback plus resolved ROM/RAM offsets |
 | Bandai 2003 D1/D3/D5 high bank bytes | Not implemented | Requires widening the core's 24-bit ROM path and APF limit |
-| Bandai 2003 CE self-flash and MBM29DL400 commands | Not implemented | Required before a writable WonderWitch cartridge claim |
+| Bandai 2003 CE self-flash window | Volatile routing implemented for canonical selector `01h` | Black-box reset/readback, mapper rejection, ROM/SRAM masks, even/odd byte lanes, ordinary ROM write protection, and `cart_flash` trace labeling |
+| MBM29DL400 command state and persistence | Not implemented | Unlock/program/erase semantics plus a title-bound APF backing file are required before a writable WonderWitch cartridge claim |
 | Bandai 2003 GPO | Not implemented | No current Pocket-facing cartridge peripheral use case |
 | KARNAK / PocketChallenge v2 timer, ADPCM, IRQ, boot mode | Not implemented | Separate machine/peripheral target, not a `.pc2` filename alias |
 
@@ -150,10 +152,11 @@ and [WonderWitch detector](https://github.com/ares-emulator/ares/blob/449b93716f
 
 The first responsible milestone is complete: a pinned AthenaOS package, a
 deterministic filesystem containing an open `.fx`, and bound boot, launch,
-BIOS-call, CPU, and visible-output evidence. The next milestone is deliberately
-separate: implement and verify port `CEh` plus MBM29DL400 program/erase state,
-bind filesystem persistence in simulation, and then run both read-only and
-writable cases on Pocket before expanding the compatibility claim.
+BIOS-call, CPU, and visible-output evidence. The mapper-facing `CEh` routing
+milestone is also complete, but deliberately does not treat raw SDRAM writes as
+a real flash chip. The next milestone is MBM29DL400 unlock/program/erase state,
+followed by title-bound filesystem persistence in simulation and both read-only
+and writable Pocket cases before expanding the compatibility claim.
 
 ## Research pins
 

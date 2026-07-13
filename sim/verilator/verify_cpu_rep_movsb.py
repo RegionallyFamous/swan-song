@@ -32,6 +32,7 @@ MEM_SPACES = {
     "boot_rom",
     "unmapped",
     "absent_sram",
+    "cart_flash",
 }
 MEM_FIELDS = {
     "cycle",

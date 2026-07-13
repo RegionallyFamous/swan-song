@@ -101,12 +101,13 @@ architecture arch of memorymux is
    signal BANK_ROM1        : std_logic_vector(REG_BANK_ROM1.upper downto REG_BANK_ROM1.lower);
    signal mapper_2003_selected : std_logic;
    signal mapper_RegBus_Adr : std_logic_vector(BUS_busadr-1 downto 0);
+   signal flash_enable     : std_logic := '0';
    
    signal HW_FLAGS_read    : std_logic_vector(REG_HW_FLAGS.upper downto REG_HW_FLAGS.lower);
    signal HW_FLAGS_written : std_logic;
    signal HW_FLAGS_set     : std_logic;
    
-   type t_reg_wired_or is array(0 to 6) of std_logic_vector(7 downto 0);
+   type t_reg_wired_or is array(0 to 7) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
   
    -- masks from header
@@ -180,6 +181,28 @@ begin
    iREG_BANK_ROM1   : entity work.eReg generic map ( REG_BANK_ROM1   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 3), BANK_ROM1    , BANK_ROM1);
                                                                                                                                                      
    iREG_HW_FLAGS    : entity work.eReg generic map ( REG_HW_FLAGS    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 4), HW_FLAGS_read, open, HW_FLAGS_written); 
+
+   -- Bandai 2003 self-flash control, port CEh. Only bit 0 exists: zero keeps
+   -- the 10000h-1FFFFh window on SRAM, while one exposes the ROM/flash path.
+   -- The mapper selector is exact so Bandai 2001 and unknown footer values do
+   -- not gain this register. RegBus_rst is also asserted while restoring the
+   -- register image, allowing this bit to participate in the existing
+   -- register savestate walk without adding a separate state interface.
+   process (clk)
+   begin
+      if rising_edge(clk) then
+         if (RegBus_rst = '1' or mapper_2003_selected = '0') then
+            flash_enable <= '0';
+         elsif (RegBus_wren = '1' and RegBus_Adr = x"CE") then
+            flash_enable <= RegBus_Din(0);
+         end if;
+      end if;
+   end process;
+
+   reg_wired_or(7) <= x"01" when mapper_2003_selected = '1' and
+                                  RegBus_Adr = x"CE" and
+                                  flash_enable = '1'
+                      else x"00";
 
    process (reg_wired_or)
       variable wired_or : std_logic_vector(7 downto 0);
@@ -403,7 +426,7 @@ begin
 
       -- Keep these encodings in sync with sim/verilator/trace_logger.hpp.
       -- 0 unknown, 1 IRAM, 2 SRAM, 3 ROM0, 4 ROM1, 5 linear ROM,
-      -- 6 boot ROM, 7 unmapped mono IRAM, 8 absent SRAM.
+      -- 6 boot ROM, 7 unmapped mono IRAM, 8 absent SRAM, 9 flash window.
       debug_mem_space        <= x"0";
       debug_mem_offset       <= (others => '0');
       debug_mem_offset_valid <= '0';
@@ -441,7 +464,27 @@ begin
                end if;
                
             when x"1" => 
-               if (sramMask = x"000000") then
+               if (mapper_2003_selected = '1' and flash_enable = '1') then
+                  -- CEh selects the ROM/flash device while retaining the SRAM
+                  -- bank register and 64 KiB CPU window. The existing SDRAM
+                  -- channel is the volatile backing for this first slice;
+                  -- MBM29DL400 command decoding and APF persistence belong to
+                  -- the flash controller layered above this routing contract.
+                  EXTRAM_addr      <= '0' & ((BANK_SRAM & std_logic_vector(cpu_addr(15 downto 0))) and rommask);
+                  debug_mem_space        <= x"9";
+                  debug_mem_offset       <= (BANK_SRAM & std_logic_vector(cpu_addr(15 downto 0))) and rommask;
+                  debug_mem_offset_valid <= '1';
+                  EXTRAM_read      <= CPU_read;
+                  EXTRAM_write     <= CPU_write;
+                  EXTRAM_be        <= cpu_be;
+                  if (cpu_addr(0) = '1') then
+                     -- SDRAM is word-wide, but the Bandai 2003 flash window is
+                     -- byte-addressed. Move an odd byte request/data item onto
+                     -- the upper lane of the containing SDRAM word.
+                     EXTRAM_be        <= cpu_be(0) & '0';
+                     EXTRAM_datawrite <= cpu_datawrite(7 downto 0) & x"00";
+                  end if;
+               elsif (sramMask = x"000000") then
                   MemAccessTypeNew <= ZERO;
                   debug_mem_space <= x"8";
                else

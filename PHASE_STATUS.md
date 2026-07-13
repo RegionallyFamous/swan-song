@@ -173,8 +173,13 @@ raster are bound by [`WONDERWITCH_VALIDATION.md`](WONDERWITCH_VALIDATION.md)
 and its opt-in validator. No firmware or composite ROM is checked in.
 
 This is a narrow read-only `mkrom` compatibility result, not a complete
-WonderWitch claim. Direct APF `.fx` selection, writable Freya/Athena filesystem
-persistence, MBM29DL400TC flash state, Bandai 2003 port `CEh`, high mapper bytes
+WonderWitch claim. The exact Bandai 2003 selector now implements `CEh` bit 0
+and routes the byte-wide `10000h-1ffffh` window through the selected flash/ROM
+bank in volatile SDRAM; black-box VHDL covers reset, readback, masks, even/odd
+lanes, SRAM fallback, and ordinary ROM write protection. The new `cart_flash`
+trace label keeps those events distinct from cartridge SRAM. MBM29DL400TC
+unlock/program/erase semantics and APF persistence are still absent, so direct
+APF `.fx` selection, a writable Freya/Athena filesystem, high mapper bytes
 beyond the current 16 MiB APF path, serial/XMODEM, Quartus fit, and Pocket/Dock
 execution remain open. The ordinary regression mutation-binds the source; the
 external Wonderful/Athena dependency is exercised by

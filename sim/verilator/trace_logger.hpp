@@ -46,6 +46,7 @@ enum class MemSpace : uint8_t {
   BootRom = 6,
   Unmapped = 7,
   AbsentSram = 8,
+  CartFlash = 9,
 };
 enum class OriginStatus : uint8_t {
   Exact = 1,
@@ -55,13 +56,13 @@ enum class OriginStatus : uint8_t {
 
 constexpr uint8_t kAllMemInitiators = 0x07;
 constexpr uint8_t kAllMemAccesses = 0x03;
-constexpr uint16_t kAllMemSpaces = 0x01fe;
+constexpr uint16_t kAllMemSpaces = 0x03fe;
 constexpr uint8_t kAllOriginStatuses = 0x0e;
 
 constexpr uint8_t kAllVramRoles = (1u << 6) - 1;
 
 constexpr bool is_mapper_bank_port(uint8_t address) {
-  return (address >= 0xc0 && address <= 0xc3) || address == 0xcf ||
+  return (address >= 0xc0 && address <= 0xc3) || address == 0xce || address == 0xcf ||
          address == 0xd0 || address == 0xd2 || address == 0xd4;
 }
 
@@ -394,6 +395,7 @@ inline const char* mem_space_name(MemSpace value) {
     case MemSpace::BootRom: return "boot_rom";
     case MemSpace::Unmapped: return "unmapped";
     case MemSpace::AbsentSram: return "absent_sram";
+    case MemSpace::CartFlash: return "cart_flash";
   }
   return "unknown";
 }
@@ -407,7 +409,7 @@ inline MemInitiator mem_initiator_from_code(uint8_t code) {
 
 inline MemSpace mem_space_from_code(uint8_t code) {
   if (code < static_cast<uint8_t>(MemSpace::Iram) ||
-      code > static_cast<uint8_t>(MemSpace::AbsentSram))
+      code > static_cast<uint8_t>(MemSpace::CartFlash))
     throw std::runtime_error("invalid memory space code: " +
                              std::to_string(code));
   return static_cast<MemSpace>(code);
@@ -436,6 +438,7 @@ inline uint16_t parse_mem_spaces(const std::string& text) {
     else if (token == "boot_rom") result |= enum_bit(MemSpace::BootRom);
     else if (token == "unmapped") result |= enum_bit(MemSpace::Unmapped);
     else if (token == "absent_sram") result |= enum_bit(MemSpace::AbsentSram);
+    else if (token == "cart_flash") result |= enum_bit(MemSpace::CartFlash);
     else throw std::runtime_error("unknown memory space: " + token);
   }
   if (result == 0 || (!text.empty() && text.back() == ','))

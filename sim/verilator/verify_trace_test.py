@@ -161,8 +161,10 @@ def main() -> None:
         }
         alias_bank = dict(bank)
         alias_bank.update({"cycle": 7, "address": 0xD0, "value": 0x03})
+        flash_bank = dict(bank)
+        flash_bank.update({"cycle": 8, "address": 0xCE, "value": 0x01})
         v5_bank = root / "v5-bank.csv"
-        write_v5(v5_bank, [bank, alias_bank])
+        write_v5(v5_bank, [bank, alias_bank, flash_bank])
         run(
             v5_bank,
             "--allowed",
@@ -170,11 +172,11 @@ def main() -> None:
             "--require",
             "bank",
             "--require-bank-addresses",
-            "0xc0,0xd0",
+            "0xc0,0xce,0xd0",
         )
         invalid_bank_port = root / "v5-invalid-bank-port.csv"
         invalid_port_row = dict(bank)
-        invalid_port_row["address"] = 0xCE
+        invalid_port_row["address"] = 0xCD
         write_v5(invalid_bank_port, [invalid_port_row])
         run(invalid_bank_port, "--allowed", "bank", succeeds=False)
         invalid_bank_cases: dict[str, tuple[str, object]] = {
@@ -206,6 +208,31 @@ def main() -> None:
         v5_cpu_read = root / "v5-cpu-read.csv"
         write_v5(v5_cpu_read, [cpu_read])
         run(v5_cpu_read, "--allowed", "mem", "--require", "mem")
+
+        flash_write = dict(cpu_read)
+        flash_write.update({
+            "cycle": 8,
+            "address": 0x10020,
+            "value": 0xA5,
+            "access": "write",
+            "byte_enable": 1,
+            "space": "cart_flash",
+            "mapped_offset": 0x30020,
+            "instruction_id": 43,
+            "origin_pc": 0xF0020,
+            "origin_status": "exact",
+        })
+        v5_flash_write = root / "v5-flash-write.csv"
+        write_v5(v5_flash_write, [flash_write])
+        run(
+            v5_flash_write,
+            "--allowed",
+            "mem",
+            "--require",
+            "mem",
+            "--mem-space",
+            "cart_flash",
+        )
 
         stale_cpu_read = root / "v5-stale-cpu-read-mask.csv"
         stale_row = dict(cpu_read)

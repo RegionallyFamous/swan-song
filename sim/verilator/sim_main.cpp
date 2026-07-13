@@ -412,7 +412,7 @@ static void usage(const char* argv0) {
       << "  --trace-mem-initiator L cpu,gdma,sdma\n"
       << "  --trace-mem-access L    read,write\n"
       << "  --trace-mem-address R   20-bit address/range list\n"
-      << "  --trace-mem-space L     iram,cart_sram,cart_rom0,cart_rom1,\n"
+      << "  --trace-mem-space L     iram,cart_sram,cart_flash,cart_rom0,cart_rom1,\n"
          "                            cart_rom_linear,boot_rom,unmapped,absent_sram\n"
       << "  --trace-mem-offset R    resolved 24-bit byte offset/range list\n"
       << "  --trace-mem-origin L    exact,unattributed,not_applicable\n"

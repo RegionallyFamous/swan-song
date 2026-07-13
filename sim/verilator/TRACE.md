@@ -259,13 +259,13 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `event` | `cpu`, `bank`, `vram`, `mem`, `bg_cell`, or `sprite_row` |
 | `physical_pc` | 20-bit CPU physical PC sampled at instruction completion |
 | `cs`, `ip` | logical CPU location sampled at instruction completion |
-| `address` | raw C0-C3 or accepted Bandai-2003 CF/D0/D2/D4 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
+| `address` | raw C0-C3 or accepted Bandai-2003 CE/CF/D0/D2/D4 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
 | `value` | bank-register byte, or raw completed 16-bit memory-bus value; use `byte_enable` only for writes and DMA transfers |
 | `role` | display fetch role; empty/null for other events |
 | `initiator` | `cpu`, `gdma`, or `sdma` for `mem` |
 | `access` | completed `read` or `write` for `mem` |
 | `byte_enable` | raw two-bit bus lane mask, 0-3; CPU reads use 0 because the CPU does not drive a read mask, and inherited SDMA reports 3 despite advancing one byte, so this field is not a general operand/sample-width encoding |
-| `space` | `iram`, `cart_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, `unmapped`, or `absent_sram` |
+| `space` | `iram`, `cart_sram`, `cart_flash`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, `unmapped`, or `absent_sram` |
 | `mapped_offset` | exact resolved byte offset within the backing space, including address bit 0; cartridge offsets include the active mask; null for unmapped/absent SRAM |
 | `instruction_id` | monotonic CPU instruction-chain identity for exact CPU-owned `mem` and `bank` events; required to be nonzero on v5 `bank` |
 | `origin_pc` | first byte of the owning instruction, including its first prefix, for exact CPU-owned `mem` and `bank` events |
@@ -289,8 +289,9 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 
 `cpu` is sampled on the instruction-complete pulse. `bank` reports one event
 for each accepted CPU commit to common cartridge bank registers C0-C3. When
-the canonical footer RTC/2003 selector byte is `01`, it also reports Bandai 2003 aliases CF,
-D0, D2, and D4 while preserving the raw port identity. Each v5 bank event
+the canonical footer RTC/2003 selector byte is `01`, it also reports Bandai
+2003 self-flash control CE and aliases CF/D0/D2/D4 while preserving the raw
+port identity. Each v5 bank event
 carries the exact owning instruction ID and first-byte physical PC; the
 harness does not infer ownership. A held, identical
 address/data/instruction tuple collapses to one transaction. A changed byte
@@ -418,6 +419,11 @@ distinct from the core's mono unmapped range. These rules match the [WSdev
 memory map](https://ws.nesdev.org/wiki/Memory_map), [WSdev mapper
 registers](https://ws.nesdev.org/wiki/Mapper), and pinned Mesen [address-to-ROM
 conversion](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L440-L456).
+
+`cart_flash` identifies Bandai 2003's byte-wide CE-selected mapping of ROM
+through the `0x10000-0x1ffff` window. It has a resolved ROM offset and remains
+distinct from ordinary `cart_sram`; the current observer label does not by
+itself claim MBM29 command decoding or persistence.
 
 The screen roles distinguish tile-map attribute reads from tile bitmap reads.
 `sprite_table` identifies sprite-table DMA reads into the core's internal
