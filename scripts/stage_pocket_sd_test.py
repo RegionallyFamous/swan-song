@@ -128,7 +128,7 @@ class StagePocketSDTest(unittest.TestCase):
         unrelated.write_bytes(b"keep")
         replacement_plan = self.plan()
         self.assertIn(
-            pathlib.PurePosixPath("Cores/agg23.WonderSwan/info.txt"),
+            pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong/info.txt"),
             replacement_plan.replaced_files,
         )
         apply_staging(replacement_plan)
@@ -235,7 +235,7 @@ class StagePocketSDTest(unittest.TestCase):
 
         foreign_dist = self.root / "foreign-dist"
         shutil.copytree(ROOT / "dist", foreign_dist)
-        core_path = foreign_dist / "Cores/agg23.WonderSwan/core.json"
+        core_path = foreign_dist / "Cores/RegionallyFamous.SwanSong/core.json"
         core = json.loads(core_path.read_text(encoding="utf-8"))
         core["core"]["metadata"]["url"] = "https://example.invalid/foreign"
         core_path.write_text(json.dumps(core), encoding="utf-8")
@@ -284,7 +284,9 @@ class StagePocketSDTest(unittest.TestCase):
             apply_staging(plan)
         self.assertEqual(list(volume_stage.iterdir()), [])
         apply_staging(plan, allow_volume=True)
-        self.assertTrue((volume_stage / "Cores/agg23.WonderSwan/core.json").is_file())
+        self.assertTrue(
+            (volume_stage / "Cores/RegionallyFamous.SwanSong/core.json").is_file()
+        )
 
     def test_cli_defaults_to_read_only_and_prints_next_steps(self) -> None:
         stdout = io.StringIO()

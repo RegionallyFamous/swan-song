@@ -1,9 +1,11 @@
 # Swan Song Pocket core icon
 
 Swan Song includes an original, generic pixel-swan mark at
-`dist/Cores/agg23.WonderSwan/icon.bin`. It does not reproduce Bandai's
-WonderSwan wordmark, console trade dress, or third-party artwork. The existing
-platform image remains separately credited in `README.md`.
+`dist/Cores/RegionallyFamous.SwanSong/icon.bin`. It represents the
+Regionally Famous-maintained Swan Song APF identity; it does not reproduce
+Bandai's WonderSwan wordmark, console trade dress, or third-party artwork. The
+existing platform image remains separately credited to spiritualized1997 in
+`README.md`.
 
 The live [Analogue packaging documentation](https://www.analogue.co/developer/docs/packaging-a-core),
 accessed 2026-07-13, defines the core-author icon contract:

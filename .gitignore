@@ -2,7 +2,7 @@
 *.rev
 *.zip
 dist/**/*.bin
-!dist/Cores/agg23.WonderSwan/icon.bin
+!dist/Cores/RegionallyFamous.SwanSong/icon.bin
 src/**/*.bin
 src/sim/work/
 src/sim/*.hex

@@ -11,8 +11,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please note that the issue tracker is intended for bug reports.
-        Make sure to [search for existing issues](https://github.com/agg23/openfpga-wonderswan/issues) before filing a new one!
+        Search [existing Swan Song issues](https://github.com/RegionallyFamous/swan-song/issues) before asking a new question.
 
   - type: textarea
     id: question

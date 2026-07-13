@@ -756,21 +756,23 @@ must additionally use `--release` and `--build-evidence`:
 
 The output name must exactly match the author, shortname, version, and date in
 `core.json`. Release mode also reads the checked-in
-[`release-policy.json`](release-policy.json), which pins the reviewed public
-inventory commit, publisher identity and repository URL, plus every published
-version/date pair. It refuses an unauthorized publisher, identity or URL drift,
-an existing tuple, a candidate Semantic Version that is not strictly newer than
-the public latest, and a date that is not strictly later than the public latest.
-A successful release sidecar binds the policy file by
-size and SHA-256. The checked-in policy deliberately has `authorized: false`:
-do not merely flip it. Release ownership must first be resolved as either an
-authorized upstream continuation or a separately authored core, after which
-the core folder, metadata, policy, and new version/date must agree in one
-reviewed change.
+[`release-policy.json`](release-policy.json). Its V2 schema keeps the reviewed
+`agg23.WonderSwan` inventory commit and 1.0.0/1.0.1 releases in an explicit
+predecessor record, while the independent `RegionallyFamous.SwanSong` history
+starts empty. Publisher identity and repository authorization are approved,
+but distribution-and-licensing authorization remains false. Release mode
+refuses either authorization failure, identity or URL drift, an existing Swan
+Song tuple, and—once Swan Song has published releases—a candidate Semantic
+Version or date that is not strictly later than Swan Song's own latest values.
+It does not require the first Swan Song version to exceed agg23's 1.0.1. A
+successful release sidecar binds the policy file by size and SHA-256. Do not
+flip `distribution_and_licensing_authorized` without the required licensing,
+build, and hardware review; the core metadata, policy, evidence, and archive
+name must agree in one reviewed release change.
 
 The evidence file is strict JSON with one `release_evidence` object. It records
 magic `SWAN_SONG_RELEASE_EVIDENCE_V1`, the full lowercase 40-hex source commit,
-`source_date_epoch`, a Quartus version beginning `21.1.1`, and raw-RBF
+`source_date_epoch`, the exact Quartus Lite version `21.1.1 Build 850`, and raw-RBF
 `filename`/`size`/`sha256`. Its `build_id` entry names the sibling generated
 `build_id.mif` with exact size and SHA-256; the packager also decodes its `0E0`,
 `0E1`, and `0E2` words and source comments to prove they match the declared UTC

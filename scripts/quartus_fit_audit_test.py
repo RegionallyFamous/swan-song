@@ -194,6 +194,24 @@ class QuartusFitAuditTest(unittest.TestCase):
         with self.assertRaisesRegex(audit.AuditError, "21.1.1 Build 850"):
             audit.audit(self.root)
         self.fixture.write("toolchain-version.txt", tool)
+        flow = (self.root / "output_files/ap_core.flow.rpt").read_bytes()
+        self.fixture.write(
+            "output_files/ap_core.flow.rpt",
+            flow.replace(b"06/23/2021", b"06/24/2021"),
+        )
+        with self.assertRaisesRegex(audit.AuditError, "version lines disagree"):
+            audit.audit(self.root)
+        self.fixture.write("output_files/ap_core.flow.rpt", flow)
+        self.fixture.write(
+            "output_files/ap_core.flow.rpt",
+            flow.replace(
+                b"SJ Lite Edition",
+                b"SJ Lite Edition Version 22.1 Build 1",
+            ),
+        )
+        with self.assertRaisesRegex(audit.AuditError, "21.1.1 Build 850"):
+            audit.audit(self.root)
+        self.fixture.write("output_files/ap_core.flow.rpt", flow)
         fit = (self.root / "output_files/ap_core.fit.rpt").read_bytes()
         self.fixture.write("output_files/ap_core.fit.rpt", fit.replace(b"; Total PLLs ;", b"; Unknown PLLs ;"))
         with self.assertRaisesRegex(audit.AuditError, "fit plls"):

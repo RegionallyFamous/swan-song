@@ -125,7 +125,7 @@ def main() -> None:
         "status": ROOT / "PHASE_STATUS.md",
     }
     sources = {name: path.read_text(encoding="utf-8") for name, path in paths.items()}
-    interact_path = ROOT / "dist/Cores/agg23.WonderSwan/interact.json"
+    interact_path = ROOT / "dist/Cores/RegionallyFamous.SwanSong/interact.json"
     interact = json.loads(interact_path.read_text(encoding="utf-8"))
     verify_contract(interact, sources)
 

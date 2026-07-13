@@ -10,7 +10,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
-CORE_DIR = DIST / "Cores/agg23.WonderSwan"
+CORE_DIR = DIST / "Cores/RegionallyFamous.SwanSong"
 AUDIT = ROOT / "POCKET_LAUNCHER_LIBRARY.md"
 
 

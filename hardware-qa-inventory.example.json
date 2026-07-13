@@ -24,9 +24,9 @@
       "device_id_path": "private/dock-device-id.txt"
     },
     "core": {
-      "core_json_path": "sd/Cores/agg23.WonderSwan/core.json",
+      "core_json_path": "sd/Cores/RegionallyFamous.SwanSong/core.json",
       "raw_rbf_path": "build/output_files/ap_core.rbf",
-      "installed_bitstream_path": "sd/Cores/agg23.WonderSwan/wonderswan.rev"
+      "installed_bitstream_path": "sd/Cores/RegionallyFamous.SwanSong/wonderswan.rev"
     },
     "bios": [
       {"id": "bw", "path": "private/bw.rom"},

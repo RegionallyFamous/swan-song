@@ -1,21 +1,32 @@
 {
   "release_policy": {
-    "magic": "SWAN_SONG_RELEASE_POLICY_V1",
-    "inventory_commit": "dfc9af340d4b2104bdc771831f7e08aa4df4e20f",
+    "magic": "SWAN_SONG_RELEASE_POLICY_V2",
     "publisher": {
-      "authorized": false,
-      "core_id": "agg23.WonderSwan",
-      "repository_url": "https://github.com/agg23/openfpga-wonderswan"
+      "core_id": "RegionallyFamous.SwanSong",
+      "repository_url": "https://github.com/RegionallyFamous/swan-song"
     },
-    "published_releases": [
-      {
-        "version": "1.0.0",
-        "date_release": "2023-01-15"
+    "authorization": {
+      "identity_authorized": true,
+      "distribution_and_licensing_authorized": false
+    },
+    "predecessor": {
+      "core_id": "agg23.WonderSwan",
+      "repository_url": "https://github.com/agg23/openfpga-wonderswan",
+      "inventory": {
+        "repository_url": "https://github.com/openfpga-cores-inventory/analogue-pocket",
+        "commit": "dfc9af340d4b2104bdc771831f7e08aa4df4e20f"
       },
-      {
-        "version": "1.0.1",
-        "date_release": "2023-05-06"
-      }
-    ]
+      "published_releases": [
+        {
+          "version": "1.0.0",
+          "date_release": "2023-01-15"
+        },
+        {
+          "version": "1.0.1",
+          "date_release": "2023-05-06"
+        }
+      ]
+    },
+    "published_releases": []
   }
 }

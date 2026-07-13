@@ -6,6 +6,11 @@ reproducible build, an executable Verilator regression harness, and a documented
 boundary between console logic and Pocket integration. Hardware equivalence has
 not yet been confirmed; see [PHASE_STATUS.md](PHASE_STATUS.md).
 
+Swan Song is maintained by **Regionally Famous** and uses the independent APF
+identity `RegionallyFamous.SwanSong`; any verified release will be published
+under that identity. This identity does not erase the people whose work made
+the project possible.
+
 Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md),
 [PHASE_STATUS.md](PHASE_STATUS.md), the
 [Pocket launcher/Library audit](POCKET_LAUNCHER_LIBRARY.md), and the
@@ -51,13 +56,16 @@ repository does not provide or download BIOS or game data.
 The updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven) are excellent for published openFPGA cores. The current Swan Song development branch is not yet a verified updater release; using an updater today may install or restore upstream WonderSwan 1.0.1 instead. Use this route only after a Swan Song release is explicitly listed.
 
 Release packaging is deliberately locked by [`release-policy.json`](release-policy.json).
-It records the public `agg23.WonderSwan` 1.0.0/1.0.1 inventory history and
-keeps publisher authorization false until an upstream continuation or an
-independently authored core identity is explicitly approved. Development ZIPs
-remain available for host-side work, but release packaging remains disabled
-until that decision is authorized. An authorized release must still use a
-strictly newer Semantic Version and later date, with publisher and repository
-metadata that exactly match the reviewed policy.
+Its V2 schema records public `agg23.WonderSwan` 1.0.0/1.0.1 only as predecessor
+history, separately approves `RegionallyFamous.SwanSong` as the publisher
+identity, and leaves Swan Song's own published-release list empty. The checked
+policy keeps distribution-and-licensing authorization false. Development ZIPs
+use the explicit `0.1.0-dev.1` development identity, but public release remains
+blocked on license clearance, an accepted Quartus 21.1.1 fit/timing evidence
+set, and physical Pocket/Dock evidence. The first Swan Song release does not
+have to exceed agg23's 1.0.1; after Swan Song publishes a release, later
+candidates must use a strictly newer Semantic Version and later date within
+Swan Song's own history, with metadata matching the reviewed policy.
 
 ### Manual mode
 When a verified Swan Song release is available, download its APF ZIP from the
@@ -72,6 +80,46 @@ Developers testing a package from the current checkout should use the
 read-only-first [Mac SD staging workflow](POCKET_SD_STAGING.md), which validates
 the ZIP, its provenance sidecar, both BIOS sizes, and the destination before any
 write.
+
+### Side-by-side with `agg23.WonderSwan`
+
+The new APF ID installs at `/Cores/RegionallyFamous.SwanSong`, so it can remain
+beside the historical `/Cores/agg23.WonderSwan` installation. Do not rename one
+core folder into the other: Pocket derives core-owned paths from this identity.
+The platform-common cartridge and BIOS assets remain under
+`/Assets/wonderswan/common`. Cartridge Save slot 11 is cloned from the selected
+slot-0 asset, so its mirrored `/Saves/wonderswan/common/...` file is shared by
+both cores; back it up before alternating cores because either core may flush
+the same save.
+
+Core-owned data does not follow automatically. If you have prior Swan Song
+development data under the historical namespace, close the core, back up the
+SD card, and use the read-only-first
+[core-ID migration helper](CORE_ID_MIGRATION.md). It **copies rather than
+moves** only the validated data you intend to retain:
+
+- fixed console EEPROMs from `/Saves/wonderswan/agg23.WonderSwan/` to
+  `/Saves/wonderswan/RegionallyFamous.SwanSong/`, preserving exact 128-byte
+  `mono.eeprom` and 2,048-byte `color.eeprom` sizes;
+- persistent settings from `/Settings/agg23.WonderSwan/` to
+  `/Settings/RegionallyFamous.SwanSong/`; and
+- personal presets from `/Presets/agg23.WonderSwan/` to
+  `/Presets/RegionallyFamous.SwanSong/`.
+
+The plan is exercised on macOS-mounted exFAT and filters AppleDouble metadata.
+The tested macOS 26.5.2 exFAT filesystem cannot perform the helper's required
+atomic no-replace publication, so `--apply` fails safely there; the migration
+guide records the tested boundary and VM/physical-SD requirement.
+
+Do not overwrite an existing destination; launch and verify the copied data
+before considering removal of the source. Do **not** copy or rename
+`/Memories/Beta/agg23.WonderSwan`: Memories are core-ID scoped, Swan Song still
+advertises them as unsupported, and no cross-ID state-format migration is
+defined. The path split follows Analogue's current
+[SD directory](https://www.analogue.co/developer/docs/directories-and-sd-folder-structure),
+[`data.json`](https://www.analogue.co/developer/docs/core-definition-files/data-json),
+and [`interact.json`](https://www.analogue.co/developer/docs/core-definition-files/interact-json)
+contracts.
 
 ## Usage
 
@@ -117,8 +165,8 @@ Pocket's **Reset all to defaults** action.
 
 The console's own EEPROM is persistent too. Swan Song uses the fixed,
 core-specific files
-`/Saves/wonderswan/agg23.WonderSwan/mono.eeprom` (128 bytes) and
-`/Saves/wonderswan/agg23.WonderSwan/color.eeprom` (2,048 bytes). Both are
+`/Saves/wonderswan/RegionallyFamous.SwanSong/mono.eeprom` (128 bytes) and
+`/Saves/wonderswan/RegionallyFamous.SwanSong/color.eeprom` (2,048 bytes). Both are
 loaded before the original BIOS runs, kept completely separate from
 per-cartridge Save slot 11, and flushed by APF when the core shuts down or a
 title change performs its full restart. A missing file starts from the core's

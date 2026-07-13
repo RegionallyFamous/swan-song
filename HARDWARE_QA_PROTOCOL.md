@@ -8,6 +8,12 @@ attestation. It cannot mechanically prove that the tester used the stated
 hardware, performed the procedure, interpreted a capture correctly, or told
 the truth. Physical acceptance remains a human review decision.
 
+Swan Song is maintained by Regionally Famous and the inventory must identify
+the installed core as `RegionallyFamous.SwanSong`. Robert Peip's WonderSwan
+system core, Adam Gastineau's Pocket port, and spiritualized1997's platform art
+remain credited in `README.md`; the independent APF ID is not a claim to their
+work.
+
 The protocol was researched on 2026-07-13 against Pocket firmware 2.6.0. The
 official release publishes version, date, and MD5 and adds openFPGA Recent:
 [firmware 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0).
@@ -134,8 +140,9 @@ Use the generated check names as the worksheet. For a completed case:
    in a different build, and start a new run ID and manifest.
 
 For `console_eeprom_lifecycle`, begin with both fixed files absent at
-`/Saves/wonderswan/agg23.WonderSwan/mono.eeprom` and `color.eeprom`. Use one
-`.ws` and one `.wsc` title plus the operator's original 4 KiB/8 KiB BIOS dumps.
+`/Saves/wonderswan/RegionallyFamous.SwanSong/mono.eeprom` and
+`color.eeprom`. Use one `.ws` and one `.wsc` title plus the operator's original
+4 KiB/8 KiB BIOS dumps.
 Make a visible setup edit through each original BIOS, then capture both exact
 files after factory creation, setup edit, quit/relaunch, model switch, title
 switch, ordinary reset, and full Pocket power cycle. The 14 `save` artifact
@@ -255,8 +262,18 @@ build-evidence manifest. It does not consume or hash this hardware-QA manifest.
 This protocol deliberately does not modify that package code, set either gate,
 authorize the publisher, alter release metadata, or create an archive.
 
+The separate `RegionallyFamous.SwanSong` namespace may coexist with
+`agg23.WonderSwan`. Common cartridge saves remain in the platform-mirrored
+`/Saves/wonderswan/common/...` tree and therefore require a backup, not a
+namespace copy. If testing copied fixed EEPROM/settings/presets, preserve the
+historical source tree and record the copy plus before/after hashes in the QA
+log. Never transplant `/Memories/Beta/agg23.WonderSwan`; Memories are disabled
+and no cross-ID format migration exists.
+
 A release reviewer may set those booleans only after this verifier succeeds for
 the exact core/RBF under review and the private evidence has been inspected.
 Until package evidence is explicitly extended to bind the hardware manifest's
 SHA-256, preserve both records together and do not treat a boolean alone as the
-underlying physical evidence.
+underlying physical evidence. Publication also remains blocked until the
+separate licensing authorization and accepted Quartus fit/TimeQuest evidence
+are complete.

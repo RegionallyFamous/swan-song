@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CORE_DIR = ROOT / "dist/Cores/agg23.WonderSwan"
+CORE_DIR = ROOT / "dist/Cores/RegionallyFamous.SwanSong"
 
 SOURCE_PATHS = {
     "bridge": "src/fpga/core/core_bridge_cmd.v",
@@ -554,6 +554,16 @@ class PocketFirstClassContractTest(unittest.TestCase):
         core = load("core.json")["core"]
         self.assertEqual(core["magic"], "APF_VER_1")
         self.assertEqual(core["metadata"]["platform_ids"], ["wonderswan"])
+        self.assertEqual(core["metadata"]["author"], "RegionallyFamous")
+        self.assertEqual(core["metadata"]["shortname"], "SwanSong")
+        self.assertEqual(
+            core["metadata"]["url"],
+            "https://github.com/RegionallyFamous/swan-song",
+        )
+        self.assertEqual(
+            core["metadata"]["description"],
+            "Swan Song for WonderSwan and WonderSwan Color",
+        )
 
         # Framework 2.3 fixes Reset to Defaults for the persisted file-browser
         # history used by the cartridge and BIOS data slots.
@@ -588,7 +598,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(
             lines[:3],
             [
-                "Swan Song for Analogue Pocket",
+                "Swan Song by Regionally Famous",
                 "System core by Robert Peip",
                 "Pocket port by agg23",
             ],

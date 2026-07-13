@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_DIR = ROOT / "dist/Cores/agg23.WonderSwan"
+CORE_DIR = ROOT / "dist/Cores/RegionallyFamous.SwanSong"
 
 EXPECTED_MAPPINGS = [
     (0, "Horz A/Vert X3", "pad_btn_a"),

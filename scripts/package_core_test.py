@@ -23,7 +23,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSEMBLY = ROOT / "src/support/chip32.asm"
 ENCODED_IMAGE = ROOT / "src/support/chip32.bin.hex"
 RELEASE_POLICY = ROOT / "release-policy.json"
-CORE_DIRECTORY = pathlib.PurePosixPath("Cores/agg23.WonderSwan")
+CORE_ID = "RegionallyFamous.SwanSong"
+CORE_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / CORE_ID
 
 
 class PackageCoreTest(unittest.TestCase):
@@ -72,9 +74,16 @@ class PackageCoreTest(unittest.TestCase):
         self.release_policy.write_text(json.dumps(definition), encoding="utf-8")
 
     def authorize_release_policy(self) -> None:
+        def authorize(definition) -> None:
+            authorization = definition["release_policy"]["authorization"]
+            authorization["distribution_and_licensing_authorized"] = True
+
+        self.mutate_release_policy(authorize)
+
+    def set_published_releases(self, releases: list[dict[str, str]]) -> None:
         self.mutate_release_policy(
-            lambda definition: definition["release_policy"]["publisher"].__setitem__(
-                "authorized", True
+            lambda definition: definition["release_policy"].__setitem__(
+                "published_releases", releases
             )
         )
 
@@ -110,7 +119,11 @@ class PackageCoreTest(unittest.TestCase):
         reports = {}
         for kind in ("flow", "fit", "sta"):
             filename = f"ap_core.{kind}.rpt"
-            contents = f"Quartus Prime Version 21.1.1\nsynthetic {kind} report\n".encode()
+            contents = (
+                "; Quartus Prime Version ; "
+                "Version 21.1.1 Build 850 06/23/2021 SJ Lite Edition ;\n"
+                f"synthetic {kind} report\n"
+            ).encode()
             (evidence_directory / filename).write_bytes(contents)
             reports[kind] = {
                 "filename": filename,
@@ -154,6 +167,26 @@ class PackageCoreTest(unittest.TestCase):
         path = evidence_directory / "release-evidence.json"
         path.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
         return path
+
+    @staticmethod
+    def rewrite_evidence_artifact(
+        evidence: pathlib.Path,
+        category: str,
+        contents: bytes,
+        *,
+        report_kind: str | None = None,
+    ) -> None:
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        release_evidence = document["release_evidence"]
+        entry = (
+            release_evidence["reports"][report_kind]
+            if category == "reports" and report_kind is not None
+            else release_evidence[category]
+        )
+        (evidence.parent / entry["filename"]).write_bytes(contents)
+        entry["size"] = len(contents)
+        entry["sha256"] = hashlib.sha256(contents).hexdigest()
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
 
     def test_chip32_identity_and_deterministic_complete_package(self) -> None:
         chip32 = chip32_image(ASSEMBLY, ENCODED_IMAGE)
@@ -572,6 +605,51 @@ class PackageCoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only printable ASCII and LF"):
             self.package(output)
 
+    def test_shipped_json_rejects_duplicate_members_and_nonstandard_constants(
+        self,
+    ) -> None:
+        output = self.root / "strict-json.zip"
+        path = self.core_json_path()
+        cases = (
+            (
+                "duplicate",
+                '"author": "RegionallyFamous",',
+                '"author": "Wrong", "author": "RegionallyFamous",',
+                "duplicate object member 'author'",
+            ),
+            (
+                "nan",
+                '"shortname": "SwanSong"',
+                '"shortname": NaN',
+                "non-standard JSON constant 'NaN'",
+            ),
+            (
+                "infinity",
+                '"shortname": "SwanSong"',
+                '"shortname": Infinity',
+                "non-standard JSON constant 'Infinity'",
+            ),
+            (
+                "negative-infinity",
+                '"shortname": "SwanSong"',
+                '"shortname": -Infinity',
+                "non-standard JSON constant '-Infinity'",
+            ),
+        )
+        for name, original, replacement, message in cases:
+            with self.subTest(name=name):
+                self.reset_dist()
+                path = self.core_json_path()
+                contents = path.read_text(encoding="utf-8")
+                self.assertIn(original, contents)
+                path.write_text(
+                    contents.replace(original, replacement, 1), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    self.package(output)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
+
     def test_graphical_asset_dimensions_and_pixel_format(self) -> None:
         output = self.root / "assets.zip"
         checked_icon = self.dist / CORE_DIRECTORY / "icon.bin"
@@ -625,34 +703,94 @@ class PackageCoreTest(unittest.TestCase):
         self.assertEqual(output.read_bytes(), expected_package)
         self.assertEqual(self.provenance_path(output).read_bytes(), expected_provenance)
 
-    def test_release_rejects_unauthorized_publisher_before_public_tuple(self) -> None:
-        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+    def test_checked_policy_separates_identity_predecessor_and_distribution(self) -> None:
+        policy = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))["release_policy"]
+        self.assertEqual(policy["magic"], "SWAN_SONG_RELEASE_POLICY_V2")
+        self.assertEqual(
+            policy["publisher"],
+            {"core_id": CORE_ID, "repository_url": CORE_REPOSITORY},
+        )
+        self.assertEqual(
+            policy["authorization"],
+            {
+                "identity_authorized": True,
+                "distribution_and_licensing_authorized": False,
+            },
+        )
+        self.assertEqual(policy["published_releases"], [])
+        self.assertEqual(policy["predecessor"]["core_id"], "agg23.WonderSwan")
+        self.assertEqual(
+            policy["predecessor"]["repository_url"],
+            "https://github.com/agg23/openfpga-wonderswan",
+        )
+        self.assertEqual(
+            policy["predecessor"]["inventory"],
+            {
+                "repository_url": (
+                    "https://github.com/openfpga-cores-inventory/analogue-pocket"
+                ),
+                "commit": "dfc9af340d4b2104bdc771831f7e08aa4df4e20f",
+            },
+        )
+        self.assertEqual(
+            policy["predecessor"]["published_releases"],
+            [
+                {"version": "1.0.0", "date_release": "2023-01-15"},
+                {"version": "1.0.1", "date_release": "2023-05-06"},
+            ],
+        )
+
+    def test_release_rejects_unapproved_distribution_and_licensing(self) -> None:
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
         output.write_bytes(b"stale package")
         self.provenance_path(output).write_bytes(b"stale provenance")
-        with self.assertRaisesRegex(ValueError, "publisher is not authorized"):
+        with self.assertRaisesRegex(
+            ValueError, "distribution and licensing are not authorized"
+        ):
             self.package(output, build_evidence=self.build_evidence(), release=True)
         self.assertFalse(output.exists())
         self.assertFalse(self.provenance_path(output).exists())
 
-    def test_release_rejects_published_tuple_and_reused_version(self) -> None:
+    def test_predecessor_history_does_not_become_swan_song_history(self) -> None:
         self.authorize_release_policy()
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+        self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertTrue(output.is_file())
+
+        provenance = json.loads(
+            self.provenance_path(output).read_text(encoding="utf-8")
+        )["package_provenance"]["release_policy"]
+        self.assertEqual(provenance["published_release_count"], 0)
+        self.assertIsNone(provenance["latest_published_version"])
+        self.assertEqual(provenance["predecessor"]["core_id"], "agg23.WonderSwan")
+        self.assertEqual(
+            provenance["predecessor"]["latest_published_version"], "1.0.1"
+        )
+
+    def test_release_rejects_published_swan_song_tuple_and_reused_version(self) -> None:
+        self.authorize_release_policy()
+        self.set_published_releases(
+            [
+                {"version": "0.1.0-dev.1", "date_release": "2026-07-13"},
+            ]
+        )
         evidence = self.build_evidence()
 
-        tuple_output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        tuple_output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
         with self.assertRaisesRegex(ValueError, "release tuple is already published"):
             self.package(tuple_output, build_evidence=evidence, release=True)
         self.assertFalse(tuple_output.exists())
         self.assertFalse(self.provenance_path(tuple_output).exists())
 
-        self.set_release_metadata("1.0.1", "2026-07-13")
-        version_output = self.root / "agg23.WonderSwan_1.0.1_2026-07-13.zip"
+        self.set_release_metadata("0.1.0-dev.1", "2026-07-14")
+        version_output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-14.zip"
         with self.assertRaisesRegex(ValueError, "release version is already published"):
             self.package(version_output, build_evidence=evidence, release=True)
         self.assertFalse(version_output.exists())
         self.assertFalse(self.provenance_path(version_output).exists())
 
-        self.set_release_metadata("0.9.0", "2026-07-13")
-        older_output = self.root / "agg23.WonderSwan_0.9.0_2026-07-13.zip"
+        self.set_release_metadata("0.1.0-dev.0", "2026-07-14")
+        older_output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.0_2026-07-14.zip"
         with self.assertRaisesRegex(
             ValueError, "release version must be newer than latest published Semantic Version"
         ):
@@ -660,9 +798,10 @@ class PackageCoreTest(unittest.TestCase):
         self.assertFalse(older_output.exists())
         self.assertFalse(self.provenance_path(older_output).exists())
 
-        self.set_release_metadata("1.0.1+repacked", "2026-07-13")
+        self.set_release_metadata("0.1.0-dev.1+repacked", "2026-07-14")
         repacked_output = (
-            self.root / "agg23.WonderSwan_1.0.1+repacked_2026-07-13.zip"
+            self.root
+            / "RegionallyFamous.SwanSong_0.1.0-dev.1+repacked_2026-07-14.zip"
         )
         with self.assertRaisesRegex(
             ValueError, "release version must be newer than latest published Semantic Version"
@@ -673,13 +812,16 @@ class PackageCoreTest(unittest.TestCase):
 
     def test_release_rejects_non_monotonic_date(self) -> None:
         evidence = self.build_evidence()
-        for release_date in ("2023-05-05", "2023-05-06"):
+        for release_date in ("2026-07-11", "2026-07-12"):
             with self.subTest(release_date=release_date):
                 self.reset_dist()
                 shutil.copy2(RELEASE_POLICY, self.release_policy)
                 self.authorize_release_policy()
+                self.set_published_releases(
+                    [{"version": "1.0.0", "date_release": "2026-07-12"}]
+                )
                 self.set_release_metadata("2.0.0", release_date)
-                output = self.root / f"agg23.WonderSwan_2.0.0_{release_date}.zip"
+                output = self.root / f"RegionallyFamous.SwanSong_2.0.0_{release_date}.zip"
                 output.write_bytes(b"stale package")
                 self.provenance_path(output).write_bytes(b"stale provenance")
                 with self.assertRaisesRegex(
@@ -696,7 +838,7 @@ class PackageCoreTest(unittest.TestCase):
                 "url", "https://github.com/example/swan-song"
             )
         )
-        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
         with self.assertRaisesRegex(ValueError, "release repository URL .* does not match"):
             self.package(output, build_evidence=self.build_evidence(), release=True)
         self.assertFalse(output.exists())
@@ -709,10 +851,22 @@ class PackageCoreTest(unittest.TestCase):
                 "core_id", "example.WonderSwan"
             )
         )
-        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
         with self.assertRaisesRegex(
             ValueError, "release publisher identity .* does not match"
         ):
+            self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_unapproved_identity_separately(self) -> None:
+        self.mutate_release_policy(
+            lambda definition: definition["release_policy"]["authorization"].__setitem__(
+                "identity_authorized", False
+            )
+        )
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+        with self.assertRaisesRegex(ValueError, "publisher identity is not authorized"):
             self.package(output, build_evidence=self.build_evidence(), release=True)
         self.assertFalse(output.exists())
         self.assertFalse(self.provenance_path(output).exists())
@@ -730,47 +884,124 @@ class PackageCoreTest(unittest.TestCase):
                 )
             )
 
-        def bad_commit() -> None:
+        def legacy_magic() -> None:
             self.mutate_release_policy(
                 lambda definition: definition["release_policy"].__setitem__(
-                    "inventory_commit", "ABC"
+                    "magic", "SWAN_SONG_RELEASE_POLICY_V1"
                 )
+            )
+
+        def legacy_publisher_authorized() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"]["publisher"].__setitem__(
+                    "authorized", True
+                )
+            )
+
+        def bad_commit() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"]["predecessor"][
+                    "inventory"
+                ].__setitem__("commit", "ABC")
+            )
+
+        def duplicate_authorization_false_then_true() -> None:
+            contents = self.release_policy.read_text(encoding="utf-8")
+            original = '"distribution_and_licensing_authorized": false'
+            self.assertIn(original, contents)
+            self.release_policy.write_text(
+                contents.replace(
+                    original,
+                    (
+                        '"distribution_and_licensing_authorized": false, '
+                        '"distribution_and_licensing_authorized": true'
+                    ),
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+        def nonstandard_constant() -> None:
+            contents = self.release_policy.read_text(encoding="utf-8")
+            original = '"distribution_and_licensing_authorized": false'
+            self.assertIn(original, contents)
+            self.release_policy.write_text(
+                contents.replace(
+                    original,
+                    '"distribution_and_licensing_authorized": NaN',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+        def nonstandard_infinity() -> None:
+            contents = self.release_policy.read_text(encoding="utf-8")
+            original = '"distribution_and_licensing_authorized": false'
+            self.assertIn(original, contents)
+            self.release_policy.write_text(
+                contents.replace(
+                    original,
+                    '"distribution_and_licensing_authorized": Infinity',
+                    1,
+                ),
+                encoding="utf-8",
             )
 
         def bad_date() -> None:
             self.mutate_release_policy(
-                lambda definition: definition["release_policy"][
+                lambda definition: definition["release_policy"]["predecessor"][
                     "published_releases"
                 ][0].__setitem__("date_release", "2023-02-30")
             )
 
         def duplicate_version() -> None:
             self.mutate_release_policy(
-                lambda definition: definition["release_policy"][
+                lambda definition: definition["release_policy"]["predecessor"][
                     "published_releases"
                 ].append({"version": "1.0.1", "date_release": "2024-01-01"})
             )
 
         def malformed_version() -> None:
             self.mutate_release_policy(
-                lambda definition: definition["release_policy"][
+                lambda definition: definition["release_policy"]["predecessor"][
                     "published_releases"
                 ][0].__setitem__("version", "release-one")
             )
 
         def duplicate_version_precedence() -> None:
             self.mutate_release_policy(
-                lambda definition: definition["release_policy"][
+                lambda definition: definition["release_policy"]["predecessor"][
                     "published_releases"
                 ].append(
                     {"version": "1.0.1+repacked", "date_release": "2024-01-01"}
                 )
             )
 
-        def empty_releases() -> None:
+        def empty_predecessor_releases() -> None:
             self.mutate_release_policy(
-                lambda definition: definition["release_policy"].__setitem__(
+                lambda definition: definition["release_policy"]["predecessor"].__setitem__(
                     "published_releases", []
+                )
+            )
+
+        def same_predecessor_identity() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"]["predecessor"].__setitem__(
+                    "core_id", CORE_ID
+                )
+            )
+
+        def bad_identity_authorization() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"]["authorization"].__setitem__(
+                    "identity_authorized", 1
+                )
+            )
+
+        def bad_distribution_authorization() -> None:
+            self.mutate_release_policy(
+                lambda definition: definition["release_policy"]["authorization"].__setitem__(
+                    "distribution_and_licensing_authorized", "yes"
                 )
             )
 
@@ -784,16 +1015,56 @@ class PackageCoreTest(unittest.TestCase):
         cases = (
             ("malformed", malformed, "invalid release policy"),
             ("unknown", unknown_member, "unknown unreviewed"),
+            ("legacy-magic", legacy_magic, "must be SWAN_SONG_RELEASE_POLICY_V2"),
+            (
+                "duplicate-authorization-false-true",
+                duplicate_authorization_false_then_true,
+                "duplicate object member 'distribution_and_licensing_authorized'",
+            ),
+            (
+                "nonstandard-constant",
+                nonstandard_constant,
+                "non-standard JSON constant 'NaN'",
+            ),
+            (
+                "nonstandard-infinity",
+                nonstandard_infinity,
+                "non-standard JSON constant 'Infinity'",
+            ),
+            (
+                "legacy-authorized",
+                legacy_publisher_authorized,
+                "unknown authorized",
+            ),
             ("commit", bad_commit, "lowercase 40-hex commit"),
             ("date", bad_date, "must be YYYY-MM-DD"),
-            ("duplicate", duplicate_version, "published version is duplicated"),
+            ("duplicate", duplicate_version, "version is duplicated"),
             ("version", malformed_version, "must be a Semantic Version"),
             (
                 "precedence",
                 duplicate_version_precedence,
                 "Semantic Version precedence is duplicated",
             ),
-            ("empty", empty_releases, "published_releases must not be empty"),
+            (
+                "empty-predecessor",
+                empty_predecessor_releases,
+                "predecessor.published_releases must not be empty",
+            ),
+            (
+                "same-predecessor",
+                same_predecessor_identity,
+                "predecessor must use a distinct core identity",
+            ),
+            (
+                "identity-authorization",
+                bad_identity_authorization,
+                "identity_authorized must be boolean",
+            ),
+            (
+                "distribution-authorization",
+                bad_distribution_authorization,
+                "distribution_and_licensing_authorized must be boolean",
+            ),
             ("missing", missing, "does not exist or is not a regular file"),
             ("symlink", symlink, "must not be a symlink"),
         )
@@ -803,7 +1074,10 @@ class PackageCoreTest(unittest.TestCase):
                     self.release_policy.unlink()
                 shutil.copy2(RELEASE_POLICY, self.release_policy)
                 mutation()
-                output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+                output = (
+                    self.root
+                    / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+                )
                 output.write_bytes(b"stale package")
                 self.provenance_path(output).write_bytes(b"stale provenance")
                 with self.assertRaisesRegex(ValueError, message):
@@ -812,7 +1086,7 @@ class PackageCoreTest(unittest.TestCase):
                 self.assertFalse(self.provenance_path(output).exists())
 
     def test_release_requires_evidence_before_policy(self) -> None:
-        output = self.root / "agg23.WonderSwan_1.0.1_2023-05-06.zip"
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
         with self.assertRaisesRegex(ValueError, "requires --build-evidence"):
             self.package(output, release=True)
         self.assertFalse(output.exists())
@@ -844,7 +1118,7 @@ class PackageCoreTest(unittest.TestCase):
 
         self.authorize_release_policy()
         self.set_release_metadata("2.0.0", "2026-07-13")
-        release_output = self.root / "agg23.WonderSwan_2.0.0_2026-07-13.zip"
+        release_output = self.root / "RegionallyFamous.SwanSong_2.0.0_2026-07-13.zip"
         self.package(release_output, build_evidence=evidence, release=True)
         release_provenance = json.loads(
             self.provenance_path(release_output).read_text(encoding="utf-8")
@@ -855,12 +1129,32 @@ class PackageCoreTest(unittest.TestCase):
             verified_policy["manifest_sha256"],
             hashlib.sha256(self.release_policy.read_bytes()).hexdigest(),
         )
-        self.assertEqual(
-            verified_policy["inventory_commit"],
-            "dfc9af340d4b2104bdc771831f7e08aa4df4e20f",
+        self.assertEqual(verified_policy["magic"], "SWAN_SONG_RELEASE_POLICY_V2")
+        self.assertEqual(verified_policy["core_id"], CORE_ID)
+        self.assertEqual(verified_policy["repository_url"], CORE_REPOSITORY)
+        self.assertTrue(verified_policy["identity_authorized"])
+        self.assertTrue(
+            verified_policy["distribution_and_licensing_authorized"]
         )
-        self.assertEqual(verified_policy["core_id"], "agg23.WonderSwan")
-        self.assertEqual(verified_policy["latest_published_version"], "1.0.1")
+        self.assertEqual(verified_policy["published_release_count"], 0)
+        self.assertIsNone(verified_policy["latest_published_version"])
+        self.assertIsNone(verified_policy["latest_published_date"])
+        self.assertEqual(
+            verified_policy["predecessor"],
+            {
+                "core_id": "agg23.WonderSwan",
+                "repository_url": "https://github.com/agg23/openfpga-wonderswan",
+                "inventory": {
+                    "repository_url": (
+                        "https://github.com/openfpga-cores-inventory/analogue-pocket"
+                    ),
+                    "commit": "dfc9af340d4b2104bdc771831f7e08aa4df4e20f",
+                },
+                "published_release_count": 2,
+                "latest_published_version": "1.0.1",
+                "latest_published_date": "2023-05-06",
+            },
+        )
 
         with self.assertRaisesRegex(ValueError, "requires --build-evidence"):
             self.package(release_output, release=True)
@@ -911,8 +1205,109 @@ class PackageCoreTest(unittest.TestCase):
         definition = json.loads(evidence.read_text(encoding="utf-8"))
         definition["release_evidence"]["quartus_version"] = "22.1"
         evidence.write_text(json.dumps(definition), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "must identify Quartus 21.1.1"):
+        with self.assertRaisesRegex(
+            ValueError, "must identify exact Quartus 21.1.1 Build 850"
+        ):
             self.package(output, build_evidence=evidence)
+
+    def test_release_evidence_requires_exact_quartus_version_and_report_agreement(
+        self,
+    ) -> None:
+        output = self.root / "bad-quartus-evidence.zip"
+        for version in (
+            "21.1.10 Build 850",
+            "21.1.1 Build 8500",
+            "21.1.1 Build 850 unreviewed",
+        ):
+            with self.subTest(version=version):
+                evidence = self.build_evidence()
+                document = json.loads(evidence.read_text(encoding="utf-8"))
+                document["release_evidence"]["quartus_version"] = version
+                evidence.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaisesRegex(
+                    ValueError, "exact Quartus 21.1.1 Build 850"
+                ):
+                    self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        fit_report = (evidence.parent / "ap_core.fit.rpt").read_bytes().replace(
+            b"06/23/2021", b"06/24/2021"
+        )
+        self.rewrite_evidence_artifact(
+            evidence, "reports", fit_report, report_kind="fit"
+        )
+        with self.assertRaisesRegex(ValueError, "version lines disagree"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        fit_report = (evidence.parent / "ap_core.fit.rpt").read_bytes().replace(
+            b"Build 850", b"Build 8500"
+        )
+        self.rewrite_evidence_artifact(
+            evidence, "reports", fit_report, report_kind="fit"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "exact Quartus 21.1.1 Build 850"
+        ):
+            self.package(output, build_evidence=evidence)
+
+    def test_release_evidence_binds_rbf_filename_and_unique_mif_words(self) -> None:
+        output = self.root / "bad-source-binding.zip"
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        document["release_evidence"]["rbf"]["filename"] = "other.rbf"
+        evidence.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "RBF filename does not match --rbf"):
+            self.package(output, build_evidence=evidence)
+
+        for duplicate in (
+            ("0E0", b"E0 : 20231114;\n"),
+            ("0E2", b"00e2 : 22222222;\n"),
+        ):
+            address, assignment = duplicate
+            with self.subTest(duplicate=assignment):
+                evidence = self.build_evidence()
+                build_id = (evidence.parent / "build_id.mif").read_bytes() + assignment
+                self.rewrite_evidence_artifact(evidence, "build_id", build_id)
+                with self.assertRaisesRegex(
+                    ValueError, rf"exactly once; {address} appears"
+                ):
+                    self.package(output, build_evidence=evidence)
+
+    def test_release_evidence_rejects_ambiguous_or_nonstandard_json(self) -> None:
+        output = self.root / "strict-evidence.zip"
+        cases = (
+            (
+                "duplicate-false-true",
+                '"pocket_hardware": true',
+                '"pocket_hardware": false, "pocket_hardware": true',
+                "duplicate object member 'pocket_hardware'",
+            ),
+            (
+                "nan",
+                '"source_date_epoch": 1700000000',
+                '"source_date_epoch": NaN',
+                "non-standard JSON constant 'NaN'",
+            ),
+            (
+                "infinity",
+                '"source_date_epoch": 1700000000',
+                '"source_date_epoch": Infinity',
+                "non-standard JSON constant 'Infinity'",
+            ),
+        )
+        for name, original, replacement, message in cases:
+            with self.subTest(name=name):
+                evidence = self.build_evidence()
+                contents = evidence.read_text(encoding="utf-8")
+                self.assertIn(original, contents)
+                evidence.write_text(
+                    contents.replace(original, replacement, 1), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    self.package(output, build_evidence=evidence)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
 
 
 if __name__ == "__main__":

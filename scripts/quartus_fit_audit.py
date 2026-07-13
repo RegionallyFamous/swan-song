@@ -18,7 +18,10 @@ import quartus_container_provenance as container_provenance
 
 
 MAGIC = "SWAN_SONG_QUARTUS_AUDIT_V1"
-VERSION_RE = re.compile(r"\bVersion 21\.1\.1 Build 850\b")
+VERSION_RE = re.compile(
+    r"^Version 21[.]1[.]1 Build 850 "
+    r"[0-9]{2}/[0-9]{2}/[0-9]{4} [A-Za-z0-9]+ Lite Edition$"
+)
 EXPECTED = {
     "revision": "ap_core",
     "top_level": "apf_top",
@@ -111,9 +114,17 @@ def scalar(lines: Sequence[str], aliases: Iterable[str], label: str) -> str:
     return unique[0]
 
 
-def validate_version(value: str, label: str) -> None:
-    if not VERSION_RE.search(value) or "Lite Edition" not in value:
+def validate_version(value: str, label: str) -> str:
+    versions = sorted(
+        {
+            " ".join(line.split())
+            for line in value.splitlines()
+            if VERSION_RE.fullmatch(" ".join(line.split())) is not None
+        }
+    )
+    if len(versions) != 1:
         raise AuditError(f"{label}: expected Quartus 21.1.1 Build 850 Lite Edition")
+    return versions[0]
 
 
 def validate_report(text: str, kind: str, status_aliases: Sequence[str]) -> Dict[str, str]:
@@ -122,7 +133,7 @@ def validate_report(text: str, kind: str, status_aliases: Sequence[str]) -> Dict
     if re.match(r"^Successful(?:\s|$|-)", status) is None:
         raise AuditError(f"{kind} status is not successful: {status}")
     version = scalar(lines, ("Quartus Prime Version", "Quartus Version"), f"{kind} version")
-    validate_version(version, f"{kind} version")
+    version = validate_version(version, f"{kind} version")
     identity = {
         "revision": scalar(lines, ("Revision Name",), f"{kind} revision"),
         "top_level": scalar(
@@ -354,7 +365,9 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
         if relative != "output_files/ap_core.rbf"
     }
 
-    validate_version(texts["toolchain-version.txt"], "toolchain-version.txt")
+    toolchain_version = validate_version(
+        texts["toolchain-version.txt"], "toolchain-version.txt"
+    )
     metadata = parse_metadata(texts["build-metadata.txt"])
     try:
         validated_container = container_provenance.validate_provenance(
@@ -371,6 +384,8 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     report_identity = None
     for kind, (relative, status_aliases) in REPORTS.items():
         parsed = validate_report(texts[relative], kind, status_aliases)
+        if parsed["version"] != toolchain_version:
+            raise AuditError("toolchain and report Quartus version lines disagree")
         identity = {key: parsed[key] for key in EXPECTED}
         if report_identity is not None and identity != report_identity:
             raise AuditError("report identities disagree")

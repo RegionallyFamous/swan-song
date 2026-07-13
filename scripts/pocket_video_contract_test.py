@@ -10,7 +10,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CORE = ROOT / "dist/Cores/agg23.WonderSwan"
+CORE = ROOT / "dist/Cores/RegionallyFamous.SwanSong"
 
 
 def read(relative: str) -> str:

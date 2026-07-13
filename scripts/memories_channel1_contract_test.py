@@ -21,7 +21,9 @@ def main() -> None:
     qsf = (ROOT / "src/fpga/ap_core.qsf").read_text(encoding="utf-8")
     regression = (ROOT / "scripts/regression.sh").read_text(encoding="utf-8")
     core_json = json.loads(
-        (ROOT / "dist/Cores/agg23.WonderSwan/core.json").read_text(encoding="utf-8")
+        (ROOT / "dist/Cores/RegionallyFamous.SwanSong/core.json").read_text(
+            encoding="utf-8"
+        )
     )
 
     require(

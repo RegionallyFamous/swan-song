@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 
-DEFAULT_CORE_ID = "agg23.WonderSwan"
+DEFAULT_CORE_ID = "RegionallyFamous.SwanSong"
 DEFAULT_DEFINITIONS = (
     pathlib.Path(__file__).resolve().parents[1]
     / "dist"

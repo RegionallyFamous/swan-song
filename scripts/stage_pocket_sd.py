@@ -27,9 +27,9 @@ from package_validator import ValidatedDistribution, validate_distribution
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CURRENT_DIST = ROOT / "dist"
 DEFAULT_VOLUMES_ROOT = pathlib.Path("/Volumes")
-EXPECTED_CORE_ID = "agg23.WonderSwan"
+EXPECTED_CORE_ID = "RegionallyFamous.SwanSong"
 EXPECTED_PLATFORM_ID = "wonderswan"
-EXPECTED_REPOSITORY = "https://github.com/agg23/openfpga-wonderswan"
+EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / EXPECTED_CORE_ID
 CORE_JSON = CORE_DIRECTORY / "core.json"
 DATA_JSON = CORE_DIRECTORY / "data.json"

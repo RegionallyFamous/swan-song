@@ -427,8 +427,8 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         installed_name = definition["cores"][0]["filename"]
     except (KeyError, IndexError, TypeError) as error:
         raise ValueError("inventory core.json lacks required core identity") from error
-    if core_id != "agg23.WonderSwan":
-        raise ValueError("hardware QA core ID must be agg23.WonderSwan")
+    if core_id != "RegionallyFamous.SwanSong":
+        raise ValueError("hardware QA core ID must be RegionallyFamous.SwanSong")
     if installed_path.name != installed_name:
         raise ValueError("installed bitstream filename does not match core.json")
     raw_bytes = raw_rbf_path.read_bytes()

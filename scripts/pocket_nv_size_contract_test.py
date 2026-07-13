@@ -14,7 +14,7 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parent.parent
 WONDERSWAN = Path("src/fpga/core/wonderswan.sv")
 CORE_TOP = Path("src/fpga/core/core_top.v")
-DATA_JSON = Path("dist/Cores/agg23.WonderSwan/data.json")
+DATA_JSON = Path("dist/Cores/RegionallyFamous.SwanSong/data.json")
 QSF = Path("src/fpga/ap_core.qsf")
 SAVE_INIT = Path("src/fpga/core/pocket_save_init.sv")
 RTC_SAVE_LOADER = Path("src/fpga/core/apf_rtc_save_loader.sv")

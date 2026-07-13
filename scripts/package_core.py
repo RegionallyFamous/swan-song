@@ -12,7 +12,12 @@ import tempfile
 import zipfile
 
 from build_chip32 import chip32_image
-from package_validator import ValidatedDistribution, validate_distribution
+from package_validator import (
+    StrictJsonError,
+    ValidatedDistribution,
+    strict_json_loads,
+    validate_distribution,
+)
 from reverse_rbf import REVERSE
 
 
@@ -22,6 +27,14 @@ SEMVER_PATTERN = re.compile(
     r"(0|[1-9][0-9]*)"
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
+RELEASE_QUARTUS_VERSION = "21.1.1 Build 850"
+QUARTUS_REPORT_VERSION_PATTERN = re.compile(
+    r"^(?:Version )?21[.]1[.]1 Build 850"
+    r"(?: [0-9]{2}/[0-9]{2}/[0-9]{4} [A-Za-z0-9]+ Lite Edition)?$"
+)
+MIF_ASSIGNMENT_PATTERN = re.compile(
+    r"^\s*([0-9A-Fa-f]+)\s*:\s*([0-9A-Fa-f]+)\s*;\s*(?:--.*)?$"
 )
 
 
@@ -76,7 +89,76 @@ def evidence_sha256(value: object, description: str) -> str:
     return value
 
 
-def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, object]:
+def quartus_report_version(report_bytes: bytes, description: str) -> str:
+    try:
+        report_text = report_bytes.decode("utf-8")
+    except UnicodeError as error:
+        raise ValueError(f"{description} is not UTF-8") from error
+
+    versions: list[str] = []
+    for line in report_text.splitlines():
+        stripped = line.strip()
+        if ";" in stripped:
+            fields = [field.strip() for field in stripped.strip(";").split(";")]
+            if len(fields) == 2 and fields[0].casefold() in {
+                "quartus prime version",
+                "quartus version",
+            }:
+                versions.append(" ".join(fields[1].split()))
+                continue
+        flat = re.fullmatch(
+            r"\s*(?:Quartus Prime Version|Quartus Version)\s+"
+            r"((?:Version\s+)?21[.][^\r\n]*)\s*",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if flat is not None:
+            versions.append(" ".join(flat.group(1).split()))
+
+    unique_versions = sorted(set(versions))
+    if len(unique_versions) != 1:
+        raise ValueError(
+            f"{description} must contain one unambiguous Quartus version line"
+        )
+    version = unique_versions[0]
+    if QUARTUS_REPORT_VERSION_PATTERN.fullmatch(version) is None:
+        raise ValueError(
+            f"{description} must identify exact Quartus {RELEASE_QUARTUS_VERSION}"
+        )
+    return version
+
+
+def parse_build_id_words(build_id_text: str) -> dict[str, str]:
+    required_addresses = {0x0E0: "0E0", 0x0E1: "0E1", 0x0E2: "0E2"}
+    assignments: dict[str, list[tuple[int, str]]] = {
+        label: [] for label in required_addresses.values()
+    }
+    for line_number, line in enumerate(build_id_text.splitlines(), 1):
+        match = MIF_ASSIGNMENT_PATTERN.fullmatch(line)
+        if match is None:
+            continue
+        address = int(match.group(1), 16)
+        if address in required_addresses:
+            assignments[required_addresses[address]].append(
+                (line_number, match.group(2).lower())
+            )
+
+    parsed: dict[str, str] = {}
+    for address in sorted(assignments):
+        observed = assignments[address]
+        if len(observed) != 1:
+            locations = ", ".join(str(line) for line, _ in observed) or "none"
+            raise ValueError(
+                "build evidence build ID must assign each source identity word "
+                f"exactly once; {address} appears at lines {locations}"
+            )
+        parsed[address] = observed[0][1]
+    return parsed
+
+
+def validate_build_evidence(
+    path: pathlib.Path, rbf_bytes: bytes, rbf_filename: str
+) -> dict[str, object]:
     """Validate a reviewable release attestation and every file it hashes.
 
     Report parsing is deliberately not presented as a substitute for TimeQuest
@@ -92,8 +174,8 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
     path = path.resolve()
     evidence_bytes = path.read_bytes()
     try:
-        document = json.loads(evidence_bytes.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError) as error:
+        document = strict_json_loads(evidence_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
         raise ValueError(f"invalid build evidence {path}: {error}") from error
     top = exact_members(document, "build evidence", {"release_evidence"})
     evidence = exact_members(
@@ -125,13 +207,19 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
     if source_date_epoch > 253_402_300_799:
         raise ValueError("build evidence source_date_epoch is later than 9999-12-31")
     quartus_version = evidence["quartus_version"]
-    if not isinstance(quartus_version, str) or not quartus_version.startswith("21.1.1"):
-        raise ValueError("build evidence must identify Quartus 21.1.1")
+    if quartus_version != RELEASE_QUARTUS_VERSION:
+        raise ValueError(
+            f"build evidence must identify exact Quartus {RELEASE_QUARTUS_VERSION}"
+        )
 
     rbf = exact_members(
         evidence["rbf"], "build evidence.rbf", {"filename", "size", "sha256"}
     )
-    package_filename(rbf["filename"], "build evidence RBF filename")
+    evidence_rbf_filename = package_filename(
+        rbf["filename"], "build evidence RBF filename"
+    )
+    if evidence_rbf_filename != rbf_filename:
+        raise ValueError("build evidence RBF filename does not match --rbf")
     if evidence_integer(rbf["size"], "build evidence RBF size") != len(rbf_bytes):
         raise ValueError("build evidence RBF size does not match --rbf")
     if evidence_sha256(rbf["sha256"], "build evidence RBF SHA-256") != sha256_bytes(rbf_bytes):
@@ -168,9 +256,6 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
     required_build_id_lines = {
         f"-- Reproducible source commit: {source_commit}",
         f"-- SOURCE_DATE_EPOCH: {source_date_epoch}",
-        f"0E0 : {source_time:%Y%m%d};",
-        f"0E1 : 00{source_time:%H%M%S};",
-        f"0E2 : {source_commit[:8]};",
     }
     normalized_build_id_lines = {line.strip() for line in build_id_text.splitlines()}
     missing_build_id_lines = required_build_id_lines - normalized_build_id_lines
@@ -178,6 +263,27 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
         raise ValueError(
             "build evidence build ID does not match source identity: "
             + ", ".join(sorted(missing_build_id_lines))
+        )
+    expected_build_id_words = {
+        "0E0": f"{source_time:%Y%m%d}",
+        "0E1": f"00{source_time:%H%M%S}",
+        "0E2": source_commit[:8],
+    }
+    build_id_words = parse_build_id_words(build_id_text)
+    mismatched_build_id_words = {
+        address: (build_id_words[address], expected)
+        for address, expected in expected_build_id_words.items()
+        if build_id_words[address] != expected
+    }
+    if mismatched_build_id_words:
+        details = ", ".join(
+            f"{address}={observed} (expected {expected})"
+            for address, (observed, expected) in sorted(
+                mismatched_build_id_words.items()
+            )
+        )
+        raise ValueError(
+            f"build evidence build ID does not match source identity: {details}"
         )
 
     reports = exact_members(
@@ -190,6 +296,7 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
     }
     verified_reports: dict[str, dict[str, object]] = {}
     report_names: list[str] = []
+    report_versions: dict[str, str] = {}
     for kind, suffix in expected_suffixes.items():
         report = exact_members(
             reports[kind],
@@ -215,8 +322,9 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
         )
         if digest != sha256_bytes(report_bytes):
             raise ValueError(f"build evidence {kind} report SHA-256 mismatch")
-        if b"21.1.1" not in report_bytes:
-            raise ValueError(f"build evidence {kind} report does not identify Quartus 21.1.1")
+        report_versions[kind] = quartus_report_version(
+            report_bytes, f"build evidence {kind} report"
+        )
         verified_reports[kind] = {
             "filename": filename,
             "size": len(report_bytes),
@@ -224,6 +332,8 @@ def validate_build_evidence(path: pathlib.Path, rbf_bytes: bytes) -> dict[str, o
         }
     if len(report_names) != len(set(report_names)):
         raise ValueError("build evidence report filenames must be distinct")
+    if len(set(report_versions.values())) != 1:
+        raise ValueError("build evidence report Quartus version lines disagree")
 
     gate_names = {
         "flow_success",
@@ -341,6 +451,72 @@ def compare_semver(
     return 1 if len(left_prerelease) > len(right_prerelease) else -1
 
 
+def validate_release_history(
+    value: object,
+    description: str,
+    *,
+    allow_empty: bool,
+) -> tuple[
+    list[tuple[str, str]],
+    set[str],
+    str | None,
+    tuple[int, int, int, tuple[str, ...] | None] | None,
+    str | None,
+]:
+    """Validate one identity's release history without merging namespaces."""
+
+    if not isinstance(value, list):
+        raise ValueError(f"{description} must be an array")
+    if not value and not allow_empty:
+        raise ValueError(f"{description} must not be empty")
+
+    published: list[tuple[str, str]] = []
+    published_semvers: list[
+        tuple[str, tuple[int, int, int, tuple[str, ...] | None]]
+    ] = []
+    published_semver_precedences: set[
+        tuple[int, int, int, tuple[str, ...] | None]
+    ] = set()
+    published_versions: set[str] = set()
+    for index, release_value in enumerate(value):
+        release = exact_members(
+            release_value,
+            f"{description}[{index}]",
+            {"version", "date_release"},
+        )
+        version, parsed_version = release_policy_semver(
+            release["version"], f"{description}[{index}].version"
+        )
+        release_date = release_policy_date(
+            release["date_release"], f"{description}[{index}].date_release"
+        )
+        if version in published_versions:
+            raise ValueError(f"{description} version is duplicated: {version}")
+        if parsed_version in published_semver_precedences:
+            raise ValueError(
+                f"{description} Semantic Version precedence is duplicated: {version}"
+            )
+        published_versions.add(version)
+        published_semver_precedences.add(parsed_version)
+        published.append((version, release_date))
+        published_semvers.append((version, parsed_version))
+
+    latest_version: str | None = None
+    latest_semver: tuple[int, int, int, tuple[str, ...] | None] | None = None
+    for published_version, published_semver in published_semvers:
+        if latest_semver is None or compare_semver(published_semver, latest_semver) > 0:
+            latest_version = published_version
+            latest_semver = published_semver
+
+    return (
+        published,
+        published_versions,
+        latest_version,
+        latest_semver,
+        max((date for _, date in published), default=None),
+    )
+
+
 def validate_release_policy(
     path: pathlib.Path, definition: ValidatedDistribution
 ) -> dict[str, object]:
@@ -356,36 +532,30 @@ def validate_release_policy(
     path = path.resolve()
     policy_bytes = path.read_bytes()
     try:
-        document = json.loads(policy_bytes.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError) as error:
+        document = strict_json_loads(policy_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
         raise ValueError(f"invalid release policy {path}: {error}") from error
 
     top = exact_members(document, "release policy", {"release_policy"})
     policy = exact_members(
         top["release_policy"],
         "release policy.release_policy",
-        {"magic", "inventory_commit", "publisher", "published_releases"},
+        {
+            "magic",
+            "publisher",
+            "authorization",
+            "predecessor",
+            "published_releases",
+        },
     )
-    if policy["magic"] != "SWAN_SONG_RELEASE_POLICY_V1":
-        raise ValueError("release policy magic must be SWAN_SONG_RELEASE_POLICY_V1")
-    inventory_commit = policy["inventory_commit"]
-    if (
-        not isinstance(inventory_commit, str)
-        or len(inventory_commit) != 40
-        or any(character not in "0123456789abcdef" for character in inventory_commit)
-    ):
-        raise ValueError(
-            "release policy inventory_commit must be a lowercase 40-hex commit"
-        )
+    if policy["magic"] != "SWAN_SONG_RELEASE_POLICY_V2":
+        raise ValueError("release policy magic must be SWAN_SONG_RELEASE_POLICY_V2")
 
     publisher = exact_members(
         policy["publisher"],
         "release policy.publisher",
-        {"authorized", "core_id", "repository_url"},
+        {"core_id", "repository_url"},
     )
-    authorized = publisher["authorized"]
-    if not isinstance(authorized, bool):
-        raise ValueError("release policy publisher.authorized must be boolean")
     approved_core_id = release_policy_text(
         publisher["core_id"], "release policy publisher.core_id", 63
     )
@@ -395,49 +565,85 @@ def validate_release_policy(
         63,
     )
 
-    releases_value = policy["published_releases"]
-    if not isinstance(releases_value, list):
-        raise ValueError("release policy published_releases must be an array")
-    if not releases_value:
-        raise ValueError("release policy published_releases must not be empty")
-    published: list[tuple[str, str]] = []
-    published_semvers: list[
-        tuple[str, tuple[int, int, int, tuple[str, ...] | None]]
-    ] = []
-    published_semver_precedences: set[
-        tuple[int, int, int, tuple[str, ...] | None]
-    ] = set()
-    published_versions: set[str] = set()
-    for index, release_value in enumerate(releases_value):
-        release = exact_members(
-            release_value,
-            f"release policy published_releases[{index}]",
-            {"version", "date_release"},
+    authorization = exact_members(
+        policy["authorization"],
+        "release policy.authorization",
+        {"identity_authorized", "distribution_and_licensing_authorized"},
+    )
+    identity_authorized = authorization["identity_authorized"]
+    distribution_authorized = authorization[
+        "distribution_and_licensing_authorized"
+    ]
+    if not isinstance(identity_authorized, bool):
+        raise ValueError(
+            "release policy authorization.identity_authorized must be boolean"
         )
-        version, parsed_version = release_policy_semver(
-            release["version"],
-            f"release policy published_releases[{index}].version",
+    if not isinstance(distribution_authorized, bool):
+        raise ValueError(
+            "release policy authorization.distribution_and_licensing_authorized "
+            "must be boolean"
         )
-        release_date = release_policy_date(
-            release["date_release"],
-            f"release policy published_releases[{index}].date_release",
-        )
-        if version in published_versions:
-            raise ValueError(
-                f"release policy published version is duplicated: {version}"
-            )
-        if parsed_version in published_semver_precedences:
-            raise ValueError(
-                "release policy published Semantic Version precedence is duplicated: "
-                f"{version}"
-            )
-        published_versions.add(version)
-        published_semver_precedences.add(parsed_version)
-        published.append((version, release_date))
-        published_semvers.append((version, parsed_version))
 
-    if not authorized:
-        raise ValueError("release publisher is not authorized by release policy")
+    predecessor = exact_members(
+        policy["predecessor"],
+        "release policy.predecessor",
+        {"core_id", "repository_url", "inventory", "published_releases"},
+    )
+    predecessor_core_id = release_policy_text(
+        predecessor["core_id"], "release policy predecessor.core_id", 63
+    )
+    predecessor_repository_url = release_policy_text(
+        predecessor["repository_url"],
+        "release policy predecessor.repository_url",
+        63,
+    )
+    if predecessor_core_id == approved_core_id:
+        raise ValueError("release policy predecessor must use a distinct core identity")
+    inventory = exact_members(
+        predecessor["inventory"],
+        "release policy.predecessor.inventory",
+        {"repository_url", "commit"},
+    )
+    inventory_repository_url = release_policy_text(
+        inventory["repository_url"],
+        "release policy predecessor.inventory.repository_url",
+        100,
+    )
+    inventory_commit = inventory["commit"]
+    if (
+        not isinstance(inventory_commit, str)
+        or len(inventory_commit) != 40
+        or any(character not in "0123456789abcdef" for character in inventory_commit)
+    ):
+        raise ValueError(
+            "release policy predecessor.inventory.commit must be a lowercase "
+            "40-hex commit"
+        )
+    (
+        predecessor_published,
+        _,
+        predecessor_latest_version,
+        _,
+        predecessor_latest_date,
+    ) = validate_release_history(
+        predecessor["published_releases"],
+        "release policy predecessor.published_releases",
+        allow_empty=False,
+    )
+    (
+        published,
+        published_versions,
+        latest_published_version,
+        latest_published_semver,
+        latest_published_date,
+    ) = validate_release_history(
+        policy["published_releases"],
+        "release policy published_releases",
+        allow_empty=True,
+    )
+
+    if not identity_authorized:
+        raise ValueError("release publisher identity is not authorized by release policy")
     if definition.core_id != approved_core_id:
         raise ValueError(
             f"release publisher identity {definition.core_id} does not match "
@@ -448,6 +654,11 @@ def validate_release_policy(
             f"release repository URL {definition.repository_url} does not match "
             f"approved policy {approved_repository_url}"
         )
+    if not distribution_authorized:
+        raise ValueError(
+            "release distribution and licensing are not authorized by release policy"
+        )
+
     candidate_version, candidate_semver = release_policy_semver(
         definition.version, "release metadata version"
     )
@@ -461,15 +672,6 @@ def validate_release_policy(
             f"release version is already published for {definition.core_id}: "
             f"{definition.version}"
         )
-    latest_published_version: str | None = None
-    latest_published_semver: tuple[int, int, int, tuple[str, ...] | None] | None = None
-    for published_version, published_semver in published_semvers:
-        if (
-            latest_published_semver is None
-            or compare_semver(published_semver, latest_published_semver) > 0
-        ):
-            latest_published_version = published_version
-            latest_published_semver = published_semver
     if (
         latest_published_semver is not None
         and compare_semver(candidate_semver, latest_published_semver) <= 0
@@ -478,7 +680,6 @@ def validate_release_policy(
             "release version must be newer than latest published Semantic Version "
             f"{latest_published_version} for {definition.core_id}: {candidate_version}"
         )
-    latest_published_date = max((date for _, date in published), default=None)
     if (
         latest_published_date is not None
         and definition.release_date <= latest_published_date
@@ -492,9 +693,23 @@ def validate_release_policy(
         "manifest_filename": path.name,
         "manifest_size": len(policy_bytes),
         "manifest_sha256": sha256_bytes(policy_bytes),
-        "inventory_commit": inventory_commit,
+        "magic": "SWAN_SONG_RELEASE_POLICY_V2",
         "core_id": approved_core_id,
         "repository_url": approved_repository_url,
+        "identity_authorized": identity_authorized,
+        "distribution_and_licensing_authorized": distribution_authorized,
+        "predecessor": {
+            "core_id": predecessor_core_id,
+            "repository_url": predecessor_repository_url,
+            "inventory": {
+                "repository_url": inventory_repository_url,
+                "commit": inventory_commit,
+            },
+            "published_release_count": len(predecessor_published),
+            "latest_published_version": predecessor_latest_version,
+            "latest_published_date": predecessor_latest_date,
+        },
+        "published_release_count": len(published),
         "latest_published_version": latest_published_version,
         "latest_published_date": latest_published_date,
     }
@@ -582,7 +797,7 @@ def create_package(
     core_directory = dist / definition.core_directory
     rbf_bytes = rbf.read_bytes()
     verified_evidence = (
-        validate_build_evidence(evidence_argument, rbf_bytes)
+        validate_build_evidence(evidence_argument, rbf_bytes, rbf.name)
         if evidence_argument is not None
         else None
     )

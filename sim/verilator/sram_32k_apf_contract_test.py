@@ -133,7 +133,9 @@ def main() -> None:
     wonderswan = (ROOT / "src/fpga/core/wonderswan.sv").read_text(encoding="utf-8")
     core_top = (ROOT / "src/fpga/core/core_top.v").read_text(encoding="utf-8")
     data_definition = json.loads(
-        (ROOT / "dist/Cores/agg23.WonderSwan/data.json").read_text(encoding="utf-8")
+        (ROOT / "dist/Cores/RegionallyFamous.SwanSong/data.json").read_text(
+            encoding="utf-8"
+        )
     )
     valid: list[object] = [
         memorymux, savestates, wonderswan, core_top, data_definition

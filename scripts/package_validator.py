@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CORE_RELATIVE = pathlib.PurePosixPath("Cores/agg23.WonderSwan")
+CORE_RELATIVE = pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong")
 PLATFORM_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_]{0,14}\Z")
 HEX_PATTERN = re.compile(r"0[xX][0-9a-fA-F]+\Z")
 VERSION_REQUIRED_PATTERN = re.compile(r"[0-9]+\.[0-9]+\Z")
@@ -92,6 +92,33 @@ DISPLAY_MODE_IDS = {
     0xE0,
     0xE1,
 }
+
+
+class StrictJsonError(ValueError):
+    """A JSON document used a construct forbidden by RFC 8259."""
+
+
+def strict_json_loads(value: str) -> Any:
+    """Decode standards-compliant JSON while rejecting ambiguous objects."""
+
+    def object_without_duplicate_members(
+        members: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for name, member_value in members:
+            if name in result:
+                raise StrictJsonError(f"duplicate object member {name!r}")
+            result[name] = member_value
+        return result
+
+    def reject_nonstandard_constant(constant: str) -> None:
+        raise StrictJsonError(f"non-standard JSON constant {constant!r}")
+
+    return json.loads(
+        value,
+        object_pairs_hook=object_without_duplicate_members,
+        parse_constant=reject_nonstandard_constant,
+    )
 
 
 @dataclass(frozen=True)
@@ -200,8 +227,8 @@ def _unique(values: list[Any], where: str) -> None:
 def _read_json(dist: pathlib.Path, relative: str) -> dict[str, Any]:
     path = dist / relative
     try:
-        return _object(json.loads(path.read_text(encoding="utf-8")), relative)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return _object(strict_json_loads(path.read_text(encoding="utf-8")), relative)
+    except (OSError, UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
         raise ValueError(f"invalid JSON {relative}: {error}") from error
 
 

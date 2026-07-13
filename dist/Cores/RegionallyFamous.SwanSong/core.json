@@ -3,12 +3,12 @@
     "magic": "APF_VER_1",
     "metadata": {
       "platform_ids": ["wonderswan"],
-      "shortname": "WonderSwan",
-      "description": "WonderSwan and WonderSwan Color by Bandai",
-      "author": "agg23",
-      "url": "https://github.com/agg23/openfpga-wonderswan",
-      "version": "1.0.1",
-      "date_release": "2023-05-06"
+      "shortname": "SwanSong",
+      "description": "Swan Song for WonderSwan and WonderSwan Color",
+      "author": "RegionallyFamous",
+      "url": "https://github.com/RegionallyFamous/swan-song",
+      "version": "0.1.0-dev.1",
+      "date_release": "2026-07-13"
     },
     "framework": {
       "target_product": "Analogue Pocket",

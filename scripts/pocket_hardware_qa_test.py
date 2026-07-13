@@ -55,7 +55,9 @@ class PocketHardwareQATest(unittest.TestCase):
         (self.private / "dock-id.txt").write_text("synthetic-dock-unit-1", encoding="utf-8")
 
         self.core_json = self.private / "core.json"
-        shutil.copy2(ROOT / "dist/Cores/agg23.WonderSwan/core.json", self.core_json)
+        shutil.copy2(
+            ROOT / "dist/Cores/RegionallyFamous.SwanSong/core.json", self.core_json
+        )
         self.raw_rbf = self.private / "ap_core.rbf"
         self.raw_rbf.write_bytes(bytes(range(256)) * 256)
         self.installed = self.private / "wonderswan.rev"

@@ -2,7 +2,9 @@
 
 Swan Song can use Analogue Platform Framework (APF) per-asset overrides to give
 each WonderSwan ROM its own video, performance, and audio defaults plus a
-path-mirrored Controls description.
+path-mirrored Controls description. Swan Song is maintained by Regionally
+Famous and the generator defaults to APF core ID
+`RegionallyFamous.SwanSong`.
 The repository includes a deterministic generator:
 
 ```sh
@@ -63,8 +65,8 @@ For example, if slot 0 is:
 the generator writes:
 
 ```text
-/Presets/agg23.WonderSwan/Interact/wonderswan/common/Vertical/Example.json
-/Presets/agg23.WonderSwan/Input/wonderswan/common/Vertical/Example.json
+/Presets/RegionallyFamous.SwanSong/Interact/wonderswan/common/Vertical/Example.json
+/Presets/RegionallyFamous.SwanSong/Input/wonderswan/common/Vertical/Example.json
 ```
 
 The Interact output is a complete copy of Swan Song's menu definition with
@@ -118,9 +120,36 @@ wrong platform roots, malformed extensions, injected core IDs, and symlinks in
 the destination tree. The two outputs are preflighted together so a normal
 conflict cannot leave only half a preset pair.
 
-`--core-id` exists for a future authorized core rename. Its value must exactly
-match the installed `/Cores/AuthorName.CoreName/` directory or APF will not find
-the presets.
+Normal use should omit `--core-id`; the checked-in default matches
+`/Cores/RegionallyFamous.SwanSong/`. The override exists for controlled
+development cases and must exactly match the installed
+`/Cores/AuthorName.CoreName/` directory or APF will not find the presets.
+
+### Moving from the historical core namespace
+
+Pocket treats `RegionallyFamous.SwanSong` and `agg23.WonderSwan` as separate
+settings/preset namespaces even when both cores select the same ROM in the
+shared `/Assets/wonderswan/common` tree. It does not automatically migrate:
+
+- `/Presets/agg23.WonderSwan/` to
+  `/Presets/RegionallyFamous.SwanSong/`; or
+- `/Settings/agg23.WonderSwan/` to
+  `/Settings/RegionallyFamous.SwanSong/`.
+
+With Pocket no longer accessing the SD card, make a backup and use the
+[core-ID migration helper](CORE_ID_MIGRATION.md). Its read-only plan and
+validated no-clobber apply mode recursively copy every eligible JSON file
+while preserving the complete relative path; they never move the source or
+overwrite an existing destination. The plan is Mac/exFAT-tested, but the
+tested macOS exFAT filesystem cannot provide the required atomic publication,
+so apply fails closed there; see the helper's documented filesystem boundary.
+Prefer regenerating presets with this tool
+so they match the current definitions; copy host-owned settings only when you
+intentionally want the old persistent values, then launch each affected title
+and verify its menu before removing any source copy. This namespace copy is
+unrelated to cartridge saves, which remain shared under the mirrored
+`/Saves/wonderswan/common/...` path, and it must never be used to migrate
+Memories.
 
 ## Privacy and release packaging
 

@@ -49,14 +49,14 @@ class PocketPerGamePresetTests(unittest.TestCase):
             )
 
             expected_suffix = pathlib.Path(
-                "Presets/agg23.WonderSwan/Interact/"
+                "Presets/RegionallyFamous.SwanSong/Interact/"
                 "wonderswan/common/Vertical/Example.json"
             )
             self.assertEqual(result.interact_path, root / expected_suffix)
             self.assertEqual(
                 result.input_path,
                 root
-                / "Presets/agg23.WonderSwan/Input/"
+                / "Presets/RegionallyFamous.SwanSong/Input/"
                 "wonderswan/common/Vertical/Example.json",
             )
 
@@ -140,7 +140,7 @@ class PocketPerGamePresetTests(unittest.TestCase):
             root = self._root(directory)
             settings = (
                 root
-                / "Settings/agg23.WonderSwan/Interact/"
+                / "Settings/RegionallyFamous.SwanSong/Interact/"
                 "wonderswan/common/Game.json"
             )
             settings.parent.mkdir(parents=True)
@@ -159,7 +159,9 @@ class PocketPerGamePresetTests(unittest.TestCase):
             )
             self.assertIsNone(result.input_path)
             self.assertTrue(result.interact_path.is_file())
-            self.assertFalse((root / "Presets/agg23.WonderSwan/Input").exists())
+            self.assertFalse(
+                (root / "Presets/RegionallyFamous.SwanSong/Input").exists()
+            )
 
     def test_refuses_overwrite_then_force_replaces_both_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -189,7 +191,7 @@ class PocketPerGamePresetTests(unittest.TestCase):
             root = self._root(directory)
             relative = pathlib.Path("wonderswan/common/Game.json")
             existing_input = (
-                root / "Presets/agg23.WonderSwan/Input" / relative
+                root / "Presets/RegionallyFamous.SwanSong/Input" / relative
             )
             existing_input.parent.mkdir(parents=True)
             existing_input.write_text("mine", encoding="utf-8")
@@ -197,7 +199,9 @@ class PocketPerGamePresetTests(unittest.TestCase):
             with self.assertRaisesRegex(PresetError, "already exists"):
                 generate_presets(sd_root=root, asset="Game.ws")
             self.assertFalse(
-                (root / "Presets/agg23.WonderSwan/Interact" / relative).exists()
+                (
+                    root / "Presets/RegionallyFamous.SwanSong/Interact" / relative
+                ).exists()
             )
             self.assertEqual(existing_input.read_text(encoding="utf-8"), "mine")
 
@@ -211,7 +215,7 @@ class PocketPerGamePresetTests(unittest.TestCase):
             "Games\\Game.ws",
             "/Assets/wonderswan/other/Game.ws",
             "/Assets/other/common/Game.ws",
-            "/Presets/agg23.WonderSwan/Game.ws",
+            "/Presets/RegionallyFamous.SwanSong/Game.ws",
             "Game.rom",
             ".ws",
             "Game.ws\x00ignored",

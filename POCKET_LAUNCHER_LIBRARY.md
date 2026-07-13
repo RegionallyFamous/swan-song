@@ -10,8 +10,8 @@ third-party core or an SD-card ROM to Pocket's top-level **Library**. The
 shortest supported path is:
 
 1. Set Pocket's **Startup Action** to **openFPGA**.
-2. Launch Swan Song once so Pocket 2.6.0 can place the activity in openFPGA's
-   host-owned **Recent** category.
+2. Launch Swan Song once; Pocket 2.6.0 is expected to record that usage
+   activity in openFPGA's host-owned **Recent** category.
 3. Let Swan Song's persistent cartridge data slot reuse the last selected
    `.ws` or `.wsc` file when the core is opened again.
 
@@ -97,8 +97,9 @@ Analogue states that Pocket's smaller System FPGA is used exclusively for
 Analogue OS, while third-party cores run in the Primary Core FPGA through APF.
 The documented SD layout exposes core, asset, save, setting, preset, and
 Memories locations, but no third-party PocketOS application or Library-record
-manifest. The official package format is therefore the `Assets`, `Cores`, and
-`Platforms` tree Swan Song already uses.
+manifest. Swan Song's supported package therefore uses its existing `Assets`,
+`Cores`, and `Platforms` tree; the general package contract is a snapshot of
+the relevant Pocket top-level directories, not a launcher manifest.
 
 As of this audit, no public supported PocketOS plug-in, per-core home-screen
 shortcut, or custom-firmware extension point is documented. Patching firmware,

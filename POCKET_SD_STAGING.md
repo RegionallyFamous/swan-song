@@ -2,7 +2,8 @@
 
 This workflow validates a Swan Song **development** package and builds a local
 Pocket-shaped directory tree without touching a mounted SD card by default. It
-never downloads or bundles a BIOS or game image.
+never downloads or bundles a BIOS or game image. Swan Song is maintained by
+Regionally Famous and the package identity is `RegionallyFamous.SwanSong`.
 
 Analogue documents a core ZIP as a snapshot of the Pocket SD filesystem that
 is extracted at the SD root. Core definitions belong under
@@ -14,7 +15,7 @@ documentation. Swan Song therefore manages only:
 
 - `Assets/wonderswan/common/bw.rom`
 - `Assets/wonderswan/common/color.rom`
-- the package's `Cores/agg23.WonderSwan` files
+- the package's `Cores/RegionallyFamous.SwanSong` files
 - `Platforms/wonderswan.json` and `Platforms/_images/wonderswan.bin`
 
 Unrelated files and directories are neither deleted nor rewritten.
@@ -106,6 +107,46 @@ entire destination plan is checked before the first write and each managed
 path is checked again immediately before use. Existing identical files are
 left alone. Existing managed files are replaced; unrelated content is
 preserved. Nothing is pruned.
+
+## Existing upstream core and user-data namespaces
+
+Staging `Cores/RegionallyFamous.SwanSong` does not replace or delete
+`Cores/agg23.WonderSwan`; the two APF identities can be installed side by side.
+The script intentionally performs no user-data migration. Platform-common ROMs
+and BIOS files stay shared in `Assets/wonderswan/common`. Slot-11 cartridge
+saves also stay shared in the mirrored `Saves/wonderswan/common/...` path, so
+make a backup before using the same cartridge save with both cores.
+
+Fixed console EEPROM, settings, presets, and Memories are core-ID scoped. If a
+prior development installation stored data under `agg23.WonderSwan`, make a
+complete SD backup, stop Pocket/core access, and use the read-only-first
+[core-ID migration helper](CORE_ID_MIGRATION.md) to copy rather than move:
+
+- exact-size `mono.eeprom` and `color.eeprom` files from
+  `Saves/wonderswan/agg23.WonderSwan/` into
+  `Saves/wonderswan/RegionallyFamous.SwanSong/`;
+- every eligible, valid JSON file recursively from
+  `Settings/agg23.WonderSwan/` into
+  `Settings/RegionallyFamous.SwanSong/`; and
+- every eligible, valid JSON file recursively from
+  `Presets/agg23.WonderSwan/` into
+  `Presets/RegionallyFamous.SwanSong/`.
+
+The helper's read-only plan is tested on macOS-mounted exFAT and ignores
+AppleDouble sidecars. Its no-clobber apply mode deliberately fails closed on
+the tested macOS 26.5.2 exFAT implementation because that filesystem supplies
+neither exclusive rename, atomic swap, nor hard links. Review
+[`CORE_ID_MIGRATION.md`](CORE_ID_MIGRATION.md) before attempting a write; a VM
+must receive the physical SD and prove its own exFAT primitive rather than
+being assumed safer.
+
+Refuse destination overwrites, keep the source copy, confirm the EEPROM sizes
+are 128 and 2,048 bytes, and test the new core before removing anything. Do not
+copy `Memories/Beta/agg23.WonderSwan` into the new namespace: Swan Song does
+not advertise Memories and defines no cross-ID Memory migration. These
+boundaries follow Analogue's
+[SD directory rules](https://www.analogue.co/developer/docs/directories-and-sd-folder-structure)
+and per-core [Interact persistence paths](https://www.analogue.co/developer/docs/core-definition-files/interact-json).
 
 Add only personally and legally obtained `.ws`/`.wsc` images beneath the local
 `Assets/wonderswan/common/` tree. Inspect the complete staging directory, then

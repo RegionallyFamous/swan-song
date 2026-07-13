@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DATA = ROOT / "dist/Cores/agg23.WonderSwan/data.json"
+DATA = ROOT / "dist/Cores/RegionallyFamous.SwanSong/data.json"
 
 SOURCE_PATHS = {
     "core_top": ROOT / "src/fpga/core/core_top.v",

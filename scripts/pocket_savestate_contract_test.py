@@ -61,7 +61,7 @@ class PocketSavestateContract(unittest.TestCase):
         self.assertIn("wire[31:0]savestate_maxloadsize=32'h9_0320;", top)
 
     def test_support_remains_disabled_and_requests_fail_closed(self) -> None:
-        core = json.loads(source("dist/Cores/agg23.WonderSwan/core.json"))
+        core = json.loads(source("dist/Cores/RegionallyFamous.SwanSong/core.json"))
         self.assertIs(core["core"]["framework"]["sleep_supported"], False)
 
         top = compact(source("src/fpga/core/core_top.v"))

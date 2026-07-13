@@ -16,7 +16,7 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = ROOT / "dist/Cores/agg23.WonderSwan/icon.bin"
+DEFAULT_OUTPUT = ROOT / "dist/Cores/RegionallyFamous.SwanSong/icon.bin"
 LOGICAL_SIZE = 18
 PIXEL_SCALE = 2
 DISPLAY_SIZE = LOGICAL_SIZE * PIXEL_SCALE
