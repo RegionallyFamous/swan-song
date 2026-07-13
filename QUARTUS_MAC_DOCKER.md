@@ -5,6 +5,14 @@ Cyclone V `5CEBA4F23C8`. Quartus has no macOS build. This workflow runs the
 official Linux amd64 release in an amd64 Docker container and leaves the source
 checkout read-only.
 
+Altera now labels 21.1.1 as legacy software, recommends upgrading for current
+functional and security updates, and warns that the download may eventually be
+removed. Swan Song nevertheless pins this exact build because FPGA results and
+their evidence must be reproducible with the project's reviewed tool version.
+Do not silently substitute a newer Quartus release. See the warning and exact
+legacy payload on the official
+[Quartus Prime Lite 21.1.1 Linux page](https://www.altera.com/downloads/fpga-development-tools/quartus-prime-lite-edition-design-software-version-21-1-1-linux).
+
 ## Required download
 
 Download exactly this file from the official
@@ -37,6 +45,13 @@ Ubuntu 20.04 amd64 container:
 ./scripts/quartus_docker.sh doctor
 ```
 
+Docker's current
+[Mac installation requirements](https://docs.docker.com/desktop/setup/install/mac-install/)
+recommend Rosetta 2 on Apple Silicon for the best experience, but no longer
+require it for Docker Desktop itself. Do not change Docker's virtual-machine
+manager or Rosetta setting merely for this workflow: run `doctor` against the
+current configuration, and proceed only if its amd64 probe succeeds.
+
 Verify the complete vendor bundle and the two required inner packages:
 
 ```sh
@@ -65,6 +80,12 @@ The installer command follows Altera's documented unattended options:
 states that EULA acceptance is mandatory in unattended mode.
 
 ### What has and has not been proved locally
+
+On the current Apple-Silicon Mac, Docker Desktop 4.81.0 successfully ran the
+pinned Ubuntu 20.04 amd64 image with networking disabled, and `uname -m`
+returned `x86_64`. Thus the current basic `doctor` probe passes. This proves
+only that a small amd64 Linux process starts; it does not prove that the much
+larger Quartus installer or compiler will survive emulation.
 
 The pinned Ubuntu 20.04 amd64 base and every declared Ubuntu runtime package
 have been built successfully under Docker's amd64 emulation on the current Mac.
@@ -137,9 +158,14 @@ Docker documents `--platform linux/amd64` as the way to run an Intel image on
 Apple Silicon, but also calls this emulation
 [best effort](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/known-issues/):
 it can crash, and it is slower and more memory-intensive than native execution.
-Docker likewise warns that
-[QEMU builds are much slower](https://docs.docker.com/build/builders/drivers/docker-container/)
-for compute-heavy compilation.
+Docker's current
+[virtual-machine-manager documentation](https://docs.docker.com/desktop/features/vmm/)
+also states that Docker VMM does not support Rosetta and therefore runs amd64
+emulation slowly. Docker separately warns that
+[non-native builds under QEMU user-mode emulation](https://docs.docker.com/build/building/multi-platform/)
+can be much slower for compute-heavy work such as compilation. These limits are
+reasons to allow extra build time and retain the native-Linux fallback, not a
+requirement to alter a working Docker Desktop configuration.
 
 Consequently, `doctor` proves only that a basic amd64 Linux process starts.
 Until the official installer, Quartus device probe, complete Swan Song fit, and
