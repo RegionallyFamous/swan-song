@@ -72,6 +72,16 @@ the final 16-byte reset-vector/header footer from the open `spritepriority.ws`
 carrier above; the provenance probe changes the footer's color flag so the
 color-only GDMA block can be exercised.
 
+The mapper-memory and boot-overlay regressions are also generated under
+`build/`, but are fully self-contained: they synthesize their own valid
+cartridge footers/checksums and open simulation-only 4 KiB/8 KiB boot test
+images. They include no console firmware or commercial data. The mapper probe
+uses save type `0x03` (128 KiB SRAM), whose current header meaning is
+unambiguous. It deliberately avoids `0x01`: current [WSdev ROM-header
+research](https://ws.nesdev.org/wiki/ROM_header) reports 32 KiB chips in known
+cartridges while the inherited RTL still interprets that value as 8 KiB.
+Resolving that hardware-accuracy question is outside the probe's role.
+
 The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked

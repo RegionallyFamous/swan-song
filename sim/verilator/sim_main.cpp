@@ -86,9 +86,25 @@ static std::string trace_fnv1a64(const fs::path& path) {
   return result;
 }
 
+static std::string bytes_fnv1a64(const std::vector<uint8_t>& bytes) {
+  uint64_t hash = UINT64_C(0xcbf29ce484222325);
+  for (const uint8_t byte : bytes) {
+    hash ^= byte;
+    hash *= UINT64_C(0x100000001b3);
+  }
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result(16, '0');
+  for (int index = 15; index >= 0; --index) {
+    result[static_cast<size_t>(index)] = digits[hash & 0xf];
+    hash >>= 4;
+  }
+  return result;
+}
+
 static void write_trace_manifest(const swansong::trace::Config& config,
                                  uint64_t capture_cycles, unsigned frames,
-                                 size_t rom_size) {
+                                 const std::vector<uint8_t>& rom,
+                                 const std::vector<uint8_t>& bios) {
   const fs::path path = trace_manifest_path(config.output);
   if (path.has_parent_path()) fs::create_directories(path.parent_path());
   std::ofstream output(path, std::ios::out | std::ios::trunc);
@@ -121,7 +137,10 @@ static void write_trace_manifest(const swansong::trace::Config& config,
          << "  \"capture_completed\": true,\n"
          << "  \"capture_cycles\": " << capture_cycles << ",\n"
          << "  \"completed_frames\": " << frames << ",\n"
-         << "  \"rom_size\": " << rom_size << ",\n"
+         << "  \"rom_size\": " << rom.size() << ",\n"
+         << "  \"rom_fnv1a64\": \"" << bytes_fnv1a64(rom) << "\",\n"
+         << "  \"bios_size\": " << bios.size() << ",\n"
+         << "  \"bios_fnv1a64\": \"" << bytes_fnv1a64(bios) << "\",\n"
          << "  \"iram_initial_state\": \"zero\",\n"
          << "  \"savestate_inputs_asserted\": false,\n"
          << "  \"events\": {\n"
@@ -476,6 +495,12 @@ int main(int argc, char** argv) {
     if (trace_capture_active) ++trace_cycle;
   };
 
+  // Establish the initialized low clock levels before the first programming
+  // edge.  Without this evaluation Verilator has no preceding clk=0 sample,
+  // so the first 0->1 transition is not observed and BIOS bytes 0/1 remain
+  // unwritten.
+  eval();
+
   // Program the inferred BIOS RAM while reset is asserted.
   for (size_t byte = 0; byte < bios.size(); byte += 2) {
     top->bios_wraddr = static_cast<uint16_t>(byte);
@@ -517,7 +542,7 @@ int main(int argc, char** argv) {
   }
   if (event_trace) {
     event_trace.reset();
-    write_trace_manifest(event_trace_config, trace_cycle, frames, rom.size());
+    write_trace_manifest(event_trace_config, trace_cycle, frames, rom, bios);
   }
   return 0;
 }

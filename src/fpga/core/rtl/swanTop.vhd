@@ -614,7 +614,16 @@ begin
                mem_stage1_write        <= bus_write;
                mem_stage1_address      <= std_logic_vector(bus_addr);
                mem_stage1_write_value  <= bus_datawrite;
-               mem_stage1_be           <= bus_be;
+               -- Byte enables are meaningful for CPU writes and for the
+               -- DMA engines' fixed-width transfers.  The CPU does not
+               -- drive bus_be for reads, so carrying it into the trace would
+               -- expose stale state from an earlier write.  Use zero as the
+               -- explicit CPU-read convention instead.
+               if (bus_write = '1' or dma_active = '1' or sdma_active = '1') then
+                  mem_stage1_be <= bus_be;
+               else
+                  mem_stage1_be <= "00";
+               end if;
                mem_stage1_space        <= mux_debug_mem_space;
                mem_stage1_offset       <= mux_debug_mem_offset;
                mem_stage1_offset_valid <= mux_debug_mem_offset_valid;

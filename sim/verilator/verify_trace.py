@@ -376,7 +376,7 @@ def verify(
                 )
                 address = number(row["address"], "address", line, 0xFFFFF)
                 number(row["value"], "value", line, 0xFFFF)
-                number(row["byte_enable"], "byte_enable", line, 3)
+                byte_enable = number(row["byte_enable"], "byte_enable", line, 3)
                 initiator = row["initiator"]
                 access = row["access"]
                 space = row["space"]
@@ -389,6 +389,11 @@ def verify(
                     raise ValueError(f"line {line}: invalid memory space: {space!r}")
                 if origin_status not in ORIGIN_STATUSES:
                     raise ValueError(f"line {line}: invalid origin status: {origin_status!r}")
+                if schema >= 5 and initiator == "cpu" and access == "read" and byte_enable:
+                    raise ValueError(
+                        f"line {line}: v5 CPU read byte_enable must be zero; "
+                        "CPU read width is not represented"
+                    )
                 if mem_initiator_filter is not None and initiator not in mem_initiator_filter:
                     raise ValueError(f"line {line}: memory initiator escaped requested filter")
                 if mem_access_filter is not None and access not in mem_access_filter:

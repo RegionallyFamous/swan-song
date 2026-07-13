@@ -127,11 +127,11 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `physical_pc` | 20-bit CPU physical PC sampled at instruction completion |
 | `cs`, `ip` | logical CPU location sampled at instruction completion |
 | `address` | C0-C3 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
-| `value` | bank-register byte, or completed 16-bit memory-bus value interpreted with `byte_enable` |
+| `value` | bank-register byte, or raw completed 16-bit memory-bus value; use `byte_enable` only for writes and DMA transfers |
 | `role` | display fetch role; empty/null for other events |
 | `initiator` | `cpu`, `gdma`, or `sdma` for `mem` |
 | `access` | completed `read` or `write` for `mem` |
-| `byte_enable` | raw two-bit logical bus lane mask, 0-3; zero is valid for prefetch reads |
+| `byte_enable` | raw two-bit logical lane mask, 0-3, for writes and DMA transfers; CPU reads use 0 because the CPU does not drive a read mask, so this field does not encode CPU operand width |
 | `space` | `iram`, `cart_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, `unmapped`, or `absent_sram` |
 | `mapped_offset` | exact resolved byte offset within the backing space, including address bit 0; cartridge offsets include the active mask; null for unmapped/absent SRAM |
 | `instruction_id` | monotonic CPU instruction-chain identity for exact CPU-owned `mem` and `bank` events; required to be nonzero on v5 `bank` |
@@ -179,7 +179,17 @@ the one-clock CPU/DMA request and resolved mapping, then captures returned data
 at the core's two-edge read latency. Writes retain their issued value. CPU-side
 tags distinguish future-instruction prefetch and interrupt servicing from data
 owned by a decoded instruction; the logger never guesses ownership from the
-nearest instruction-complete event.
+nearest instruction-complete event. CPU read events deliberately report
+`byte_enable=0`: the functional CPU only drives byte enables for writes, so
+forwarding that signal on a read would expose stale state from an earlier
+write. DMA's fixed-width transfers continue to report their real mask. Do not
+infer the width of a CPU read from this field.
+
+The `sdma` initiator value and filter are reserved in the schema, but the
+translated `is_simu=1` configuration suppresses `sdma_request` and prevents an
+SDMA bus read. Runtime captures therefore cover CPU and GDMA only. SDMA
+provenance requires a simulation configuration that emits real sound-DMA bus
+traffic plus a focused probe; no such runtime evidence exists.
 
 The raw 20-bit address and resolved offset are both intentional. The mapper's
 ROM0, ROM1, and linear windows can reach the same storage byte through different
@@ -235,9 +245,12 @@ Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame
 target, included unfiltered `mem` and `vram` history, included `bg_cell` when
 requested, avoided save-state input, and can therefore use the defined zero
-power-up state of IRAM. Its byte length and FNV-1a digest bind that certificate
-to the exact trace file; starting a new capture at the same path invalidates
-the old manifest before truncating the trace. The word-level correlator labels
+power-up state of IRAM. ROM and boot-image byte sizes and FNV-1a digests bind
+the stimulus identity, while the trace byte length and digest bind the
+certificate to the exact output file. These digests detect accidental or stale
+artifact substitution; they are deterministic bindings, not cryptographic
+authenticity claims. Starting a new capture at the same path invalidates the
+old manifest before truncating the trace. The word-level correlator labels
 coverage `complete_from_reset` only when the memory/display conditions hold.
 The atomic correlator additionally requires `events.bg_cell=true` and
 `complete_bg_cell_history=true`; otherwise it refuses
@@ -296,14 +309,28 @@ general Japanese-text provenance path while deliberately leaving any
 commercial title's private codepoint mapping unclaimed. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
 completed chain `ROM 0x0100 -> IRAM 0x4000` and `ROM 0x0102 -> IRAM 0x4002`,
-including known values and mapped offsets. SRAM, ROM0, ROM1, BIOS, and
-absent-SRAM formulas are RTL-reviewed but do not yet have dedicated runtime
-probes.
+including known values and mapped offsets. Paired generated 2 MiB mapper
+probes add complete-from-reset CPU coverage of all eight trace-space labels:
+`iram`, `cart_sram`, `absent_sram`, `cart_rom0`, `cart_rom1`,
+`cart_rom_linear`, `boot_rom`, and mono `unmapped`. The verifier binds the ROM
+and boot-image inputs, requires the complete 36,817-event memory history plus
+five exact bank writes in each trace, and checks resolved offsets, masks,
+values, aliases, instruction IDs, and origin PCs. Separate mono and Color boot
+probes execute from byte zero and prove A0 lockout changes physical addresses
+`0xffff0..0xffffe` from mono offsets `0xff0..0xffe` or Color offsets
+`0x1ff0..0x1ffe` to carrier-ROM offsets `0x1fff0..0x1fffe`.
+
+Those probes lock the translated RTL resolver and observer, not physical
+hardware behavior. Current RTL returns zero for absent SRAM and `0x9090` for
+mono unmapped reads; ares instead models absent SRAM as cartridge open bus,
+while Mesen's fallback is marked as an open-bus TODO. Neither current-core
+result is claimed as hardware-correct. The SRAM probe uses `ramtype=0x03`
+(128 KiB), avoiding the disputed `0x01` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
-The six-frame display-provenance regression requires 78,946/78,946
+The six-frame display-provenance regression requires 78,940/78,940
 non-collision physical display reads to match the complete-from-reset IRAM
-scoreboard: 78,754 are tied to exact CPU writer instructions and 192 pre-enable
+scoreboard: 78,750 are tied to exact CPU writer instructions and 190 pre-enable
 prefetches to the defined power-up value. Any value mismatch fails regression.
 The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
 the extended-range Color fixture adds 5,176 Screen 1 cells and the Shift-JIS

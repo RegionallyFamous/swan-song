@@ -15,6 +15,8 @@ echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
+python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 
 require_bg_layers() {
   local summary="$1"
@@ -66,9 +68,9 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage \
-  --expect-count fetches=78946 --expect-count match=78946 \
-  --expect-count collision=0 --expect-count cpu_exact=78754 \
-  --expect-count initial_powerup=192 --expect-count gdma_rom=0
+  --expect-count fetches=78940 --expect-count match=78940 \
+  --expect-count collision=0 --expect-count cpu_exact=78750 \
+  --expect-count initial_powerup=190 --expect-count gdma_rom=0
 BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/bg-cells.csv" \
@@ -139,6 +141,63 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/verify_provenance_probe.py" \
   "$BUILD/provenance-probe/events.csv"
 
+# Exercise every memory-space classification that can be reached with open,
+# generated stimuli. The paired ROMs differ only in their unambiguous 128 KiB
+# SRAM declaration; both use the same generated mono boot image and complete,
+# unfiltered mem+bank capture. The dedicated verifier binds all three inputs,
+# both traces, exact mapper origins, bank masks, lane masks, and resolved
+# offsets without treating the core's absent-SRAM value as a hardware oracle.
+MAPPER_OUT="$BUILD/mapper-memory-probe"
+rm -rf "$MAPPER_OUT"
+python3 "$ROOT/sim/verilator/generate_mapper_memory_probe.py" "$MAPPER_OUT" \
+  >/dev/null
+for variant in present absent; do
+  "$SIM" \
+    --rom "$MAPPER_OUT/mapper_memory_${variant}.ws" \
+    --bios "$MAPPER_OUT/mapper_memory_boot.bin" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$MAPPER_OUT/${variant}-frames" \
+    --event-trace "$MAPPER_OUT/${variant}.csv" \
+    --trace-events mem,bank >/dev/null
+  python3 "$ROOT/sim/verilator/verify_trace.py" \
+    "$MAPPER_OUT/${variant}.csv" \
+    --allowed mem,bank --require mem,bank \
+    --require-bank-addresses 0xc0,0xc1,0xc2,0xc3 \
+    --require-mem-initiators cpu \
+    --require-origin-statuses exact,unattributed
+done
+python3 "$ROOT/sim/verilator/verify_mapper_memory_probe.py" \
+  "$MAPPER_OUT/mapper_memory_boot.bin" \
+  "$MAPPER_OUT/mapper_memory_present.ws" "$MAPPER_OUT/present.csv" \
+  "$MAPPER_OUT/mapper_memory_absent.ws" "$MAPPER_OUT/absent.csv"
+
+# Independently cover both boot-ROM sizes. The open test images execute from
+# byte zero, read a low-window marker, lock port A0, and prove that physical
+# FFFF0-FFFFE then resolves to the generated cartridge footer. This also
+# regression-locks the simulator's initial low-clock evaluation, which is
+# required for BIOS bytes 0/1 to be programmed.
+BOOT_OUT="$BUILD/boot-overlay-probe"
+rm -rf "$BOOT_OUT"
+python3 "$ROOT/sim/verilator/generate_boot_overlay_probe.py" "$BOOT_OUT" \
+  >/dev/null
+for model in mono color; do
+  "$SIM" \
+    --rom "$BOOT_OUT/boot_overlay_carrier.ws" \
+    --bios "$BOOT_OUT/boot_overlay_${model}.bin" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$BOOT_OUT/${model}-frames" \
+    --event-trace "$BOOT_OUT/${model}.csv" \
+    --trace-events mem >/dev/null
+  python3 "$ROOT/sim/verilator/verify_trace.py" \
+    "$BOOT_OUT/${model}.csv" \
+    --allowed mem --require mem --require-mem-initiators cpu \
+    --require-origin-statuses exact,unattributed
+  python3 "$ROOT/sim/verilator/verify_boot_overlay_probe.py" \
+    "$model" "$BOOT_OUT/${model}.csv" \
+    "$BOOT_OUT/boot_overlay_carrier.ws" \
+    "$BOOT_OUT/boot_overlay_${model}.bin"
+done
+
 # Run a native Wonderful-built Shift-JIS renderer over six licensed Misaki
 # glyphs. This binds Japanese character identity to exact ROM offsets, GDMA
 # tile writes, CPU map writes, promoted background rows, and final pixels.
@@ -156,9 +215,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage \
-  --expect-count fetches=25113 --expect-count match=25113 \
+  --expect-count fetches=25111 --expect-count match=25111 \
   --expect-count collision=0 --expect-count cpu_exact=24729 \
-  --expect-count initial_powerup=192 --expect-count gdma_rom=192
+  --expect-count initial_powerup=190 --expect-count gdma_rom=192
 SJIS_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/bg-cells.csv" \
   --require-complete-coverage)"
@@ -221,8 +280,8 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage \
-  --expect-count fetches=15796 --expect-count match=15796 \
-  --expect-count collision=0 --expect-count cpu_exact=15610 \
+  --expect-count fetches=15794 --expect-count match=15794 \
+  --expect-count collision=0 --expect-count cpu_exact=15608 \
   --expect-count initial_powerup=186 --expect-count gdma_rom=0
 EXT_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/bg-cells.csv" \

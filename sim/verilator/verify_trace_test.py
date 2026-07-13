@@ -169,6 +169,28 @@ def main() -> None:
             write_v5(invalid_bank, [row])
             run(invalid_bank, "--allowed", "bank", succeeds=False)
 
+        cpu_read: dict[str, object] = {
+            "cycle": 7,
+            "event": "mem",
+            "address": 0x100,
+            "value": 0,
+            "initiator": "cpu",
+            "access": "read",
+            "byte_enable": 0,
+            "space": "iram",
+            "mapped_offset": 0x100,
+            "origin_status": "unattributed",
+        }
+        v5_cpu_read = root / "v5-cpu-read.csv"
+        write_v5(v5_cpu_read, [cpu_read])
+        run(v5_cpu_read, "--allowed", "mem", "--require", "mem")
+
+        stale_cpu_read = root / "v5-stale-cpu-read-mask.csv"
+        stale_row = dict(cpu_read)
+        stale_row["byte_enable"] = 1
+        write_v5(stale_cpu_read, [stale_row])
+        run(stale_cpu_read, "--allowed", "mem", succeeds=False)
+
         bg1: dict[str, object] = {
             "cycle": 6,
             "event": "bg_cell",
