@@ -83,6 +83,7 @@ class PocketLauncherLibraryContractTest(unittest.TestCase):
     def test_documentation_keeps_the_supported_boundary_explicit(self) -> None:
         audit = AUDIT.read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        developer_hub = (ROOT / "docs/wiki/Developer-Hub.md").read_text(encoding="utf-8")
         building = (ROOT / "BUILDING.md").read_text(encoding="utf-8")
         regression = (ROOT / "scripts/regression.sh").read_text(encoding="utf-8")
         for marker in (
@@ -94,7 +95,8 @@ class PocketLauncherLibraryContractTest(unittest.TestCase):
             "will not ship such a patch",
         ):
             self.assertIn(marker, audit)
-        self.assertIn("POCKET_LAUNCHER_LIBRARY.md", readme)
+        self.assertIn("https://github.com/RegionallyFamous/swan-song/wiki", readme)
+        self.assertIn("POCKET_LAUNCHER_LIBRARY.md", developer_hub)
         self.assertIn("POCKET_LAUNCHER_LIBRARY.md", building)
         self.assertIn("pocket_launcher_library_contract_test.py", regression)
 

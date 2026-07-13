@@ -47,6 +47,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
     platform_json = bundle["platform_json"]
     info = bundle["info"]
     readme = bundle["readme"]
+    controls_and_settings = bundle["controls_and_settings"]
     presets = bundle["presets"]
     first_class_input = bundle["first_class_input"]
     core_top_source = bundle["core_top"]
@@ -139,8 +140,10 @@ def verify_contract(bundle: dict[str, object]) -> None:
         "Pocket's built-in controls and a Dock controller use this same Player 1 digital\nmapping",
         "FIRST_CLASS_INPUT_DOCK.md",
     ):
-        if statement not in readme:
-            raise ValueError(f"README omits input/Dock contract: {statement}")
+        if statement not in controls_and_settings:
+            raise ValueError(f"wiki Controls and Settings omits input/Dock contract: {statement}")
+    if "https://github.com/RegionallyFamous/swan-song/wiki" not in readme:
+        raise ValueError("README does not direct players to the Swan Song wiki")
     if "Pocket owns the actual saved control remaps" in readme:
         raise ValueError("README makes an unsupported saved-remap claim")
 
@@ -253,6 +256,7 @@ def load_bundle() -> dict[str, object]:
         "platform_json": json.loads((ROOT / "dist/Platforms/wonderswan.json").read_text()),
         "info": (CORE_DIR / "info.txt").read_text(),
         "readme": (ROOT / "README.md").read_text(),
+        "controls_and_settings": (ROOT / "docs/wiki/Controls-and-Settings.md").read_text(),
         "presets": (ROOT / "PER_GAME_PRESETS.md").read_text(),
         "first_class_input": (ROOT / "FIRST_CLASS_INPUT_DOCK.md").read_text(),
         "core_top": (ROOT / "src/fpga/core/core_top.v").read_text(),
@@ -319,8 +323,8 @@ def main() -> None:
             (
                 "firmware conflict claim",
                 (
-                    "readme",
-                    bundle["readme"].replace(
+                    "controls_and_settings",
+                    bundle["controls_and_settings"].replace(
                         "official Pocket firmware 2.4 notes", "older firmware notes", 1
                     ),
                 ),

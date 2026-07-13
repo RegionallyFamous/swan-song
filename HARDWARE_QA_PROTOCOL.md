@@ -87,6 +87,14 @@ deterministic repository-generator identity, SHA-256
 not an arbitrary valid 896 KiB image. BIOS filenames and sizes must be exactly
 `bw.rom`/4096 and `color.rom`/8192.
 
+From the repository root, generate the fixed probe at the example inventory
+path before generating the manifest:
+
+```sh
+python3 sim/verilator/generate_non_power_two_probe.py \
+  /private/swan-song-qa/private/compact-896k.wsc
+```
+
 Use the firmware file actually installed for the run. V1 is deliberately pinned
 to firmware 2.6.0 and its official MD5
 `d5be2c99e436081266810594117db496`. A later firmware requires a reviewed code

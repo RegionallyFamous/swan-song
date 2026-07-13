@@ -1,0 +1,74 @@
+# Playing Games
+
+> Swan Song is still in development and has no verified public release. This
+> guide describes the intended player experience; Startup Action, Recent,
+> title switching, saves, and menus still require final Pocket hardware
+> acceptance.
+
+## Start a game
+
+1. Open **openFPGA** on the Pocket.
+2. Choose **Swan Song**.
+3. Select a `.ws` or `.wsc` file from `/Assets/wonderswan/common/`.
+4. If Pocket asks for either BIOS, select the correctly named file from that
+   same folder.
+
+Swan Song asks Pocket to remember the last selected cartridge. Use **Core
+Settings > Cartridge** to change games. Selecting a new title performs a full
+restart so the outgoing save can be flushed before the next game begins.
+
+For a shorter power-on route, choose **Settings > Pocket > Startup Action >
+openFPGA**. Current Pocket firmware also has a host-owned openFPGA **Recent**
+category. Public APF documentation does not let a core pin or pre-seed that
+list, and final relaunch behavior is still a physical-hardware test item.
+
+Swan Song cannot add itself or individual ROMs to Analogue's first-party
+Library. That is a PocketOS boundary, not missing core artwork. The detailed
+research is in the [Pocket launcher and Library
+audit](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_LAUNCHER_LIBRARY.md).
+
+## Enter the original console setup
+
+Choose **Core Settings > Console Setup** to recreate the original console's
+Start-held power-on gesture. With your legally obtained BIOS, this should open
+the mono or Color firmware owner-registration screen. It does not edit your
+profile itself, rotate the picture, or change controls.
+
+Swan Song keeps the mono and Color owner data in separate persistent console
+EEPROM files. Their final quit, relaunch, model-switch, title-switch, and
+power-cycle behavior remains part of hardware acceptance.
+
+## Horizontal and vertical games
+
+WonderSwan software can change its native orientation. Swan Song uses that
+native signal for the game-visible button matrix. The **Display Orientation**
+setting controls only how Pocket presents the completed picture; forcing a
+display rotation does not secretly change what the game reads.
+
+See [Controls and
+Settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
+for the two layouts and display options.
+
+## Fast Forward
+
+- Hold Pocket **Select (`-`)** for temporary 2.5× Fast Forward.
+- Tap it to latch Fast Forward on.
+- Press it again to return to normal speed.
+
+The **Audio in Fast Forward** setting decides whether sound continues while
+Fast Forward is active.
+
+## Per-game presets
+
+Advanced users can create local per-game defaults for orientation, color,
+buffering, LCD response, CPU Turbo, Fast Forward audio, and descriptive
+controls. Presets stay on your own SD card and do not inspect or catalogue ROM
+contents. PocketOS behavior around editable controls is still being verified.
+See the [per-game preset
+guide](https://github.com/RegionallyFamous/swan-song/blob/main/PER_GAME_PRESETS.md).
+
+## Resetting remembered choices
+
+Pocket's **Reset all to defaults** action clears remembered browser choices
+along with core settings. If a title or BIOS choice appears to have been
+forgotten after that action, select it again normally.

@@ -10,5 +10,6 @@ src/sim/*.mem
 src/sim/*.bin
 /build/
 /upstream/
+/.swan-song-lab/
 __pycache__/
 *.py[cod]

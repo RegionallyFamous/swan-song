@@ -302,10 +302,28 @@ class PocketHardwareQATest(unittest.TestCase):
         path.write_bytes(valid)
 
     def test_compact_probe_identity_matches_repository_generator(self) -> None:
+        probe = compact_probe.image()
+        self.assertEqual(len(probe), 917_504)
         self.assertEqual(
-            hashlib.sha256(compact_probe.image()).hexdigest(),
+            hashlib.sha256(probe).hexdigest(),
             hardware_qa.COMPACT_896K_PROBE_SHA256,
         )
+        compact_case = next(spec for spec in CASE_SPECS if spec.case_id == "compact_rom_896k")
+        self.assertEqual(compact_case.rom_requirement, "compact_896k")
+
+        example = json.loads(
+            (ROOT / "hardware-qa-inventory.example.json").read_text(encoding="utf-8")
+        )
+        rows = example["hardware_qa_inventory"]["roms"]
+        self.assertIn({
+            "id": "compact-896k",
+            "title": "Repository-generated 896 KiB compact probe",
+            "path": "private/compact-896k.wsc",
+            "system": "wsc",
+            "native_orientation": "horizontal",
+            "save_media": "none",
+            "rtc": False,
+        }, rows)
 
     def test_compact_case_rejects_other_valid_896k_image(self) -> None:
         path = self.private / "compact-896k.wsc"

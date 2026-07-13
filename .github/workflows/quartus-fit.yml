@@ -1,7 +1,13 @@
 name: Quartus fit candidate
+run-name: Quartus fit candidate ${{ inputs.lab_nonce }}
 
 on:
   workflow_dispatch:
+    inputs:
+      lab_nonce:
+        description: Optional Swan Song Lab dispatch identity
+        required: false
+        type: string
 
 permissions:
   contents: read

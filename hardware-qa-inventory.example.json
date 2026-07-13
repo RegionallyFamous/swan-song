@@ -34,7 +34,8 @@
     ],
     "roms": [
       {"id": "horizontal-sram", "title": "Replace", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
-      {"id": "vertical-eeprom-rtc", "title": "Replace", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true}
+      {"id": "vertical-eeprom-rtc", "title": "Replace", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true},
+      {"id": "compact-896k", "title": "Repository-generated 896 KiB compact probe", "path": "private/compact-896k.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false}
     ],
     "controllers": [
       {"id": "pocket-built-in", "scope": "pocket", "device_type": "gamepad", "transport": "built_in", "model": "Pocket built-in controls", "firmware_version": "2.6.0", "mapping_mode": "APF type 1"},

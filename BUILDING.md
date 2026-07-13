@@ -594,10 +594,24 @@ FNV-1a digests; dedicated fixtures separately lock their generated inputs with
 SHA-256. Regression also proves a failed same-path rerun removes the preceding
 success certificate.
 
+For resumable exploratory smoke tests across a private, legally held ROM
+collection, see [`PRIVATE_CORPUS_TESTING.md`](PRIVATE_CORPUS_TESTING.md). That
+runner keeps ROMs, BIOSes, frames, logs, and paths outside the repository and
+emits only secret-keyed, sanitized results. It is separate from the cloud
+Quartus Lab below, which never receives ROM or BIOS data, and it does not
+replace physical Pocket/Dock acceptance.
+
 Generated VHDL-to-Verilog files, binaries, traces, raw RGB frames, and PNGs live
 under `build/` and are ignored by Git.
 
 ## Quartus
+
+For a launchable native x86_64 cloud worker that Codex can control from an
+authenticated Mac terminal, see [`SWAN_SONG_LAB.md`](SWAN_SONG_LAB.md). Its
+DigitalOcean control surface is a dry run by default, prepares the exact local
+Quartus Docker image before registering a one-job GitHub JIT runner, and
+deletes the Droplet, attached volume, firewall, tag, and runner explicitly.
+It never handles ROM or BIOS data.
 
 The checked-in project records Quartus 18.1.1 as its original version and
 21.1.1 Lite as its last-saved version; `ap_core.qpf` still declares 18.1. The
