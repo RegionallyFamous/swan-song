@@ -8,7 +8,7 @@
 | Upstream pins and license audit | Provenance complete; release clearance open | `UPSTREAMS.md`; MiSTer program notice is GPL v2-or-later and is version-compatible with GPL-v3-or-later RTL, but Pocket omitted that notice and the tree lacks a GPL v3 license copy |
 | Architecture and port boundary | Complete | `ARCHITECTURE.md`, `PORTING.md` |
 | System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's mono 80186-quirks and WSC extended-range fixtures, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, and a build-generated Color sprite-priority probe via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
-| V30MZ instruction quirks | Result behavior verified in translated RTL | pinned open `80186_quirks.ws` renders three PASS results for D4/AAM and D5/AAD with base 16 plus D6/SALC; the verifier binds source, licenses, ROM/footer/font, terminal loop, atomic PASS rows, exact `871d7e...d6dce0` frame, and paired determinism; the upstream ROM does not test flags, D4 base-zero interrupt behavior, or timing |
+| V30MZ instruction quirks | Value, flag, exception, and memory-side-effect behavior verified in translated RTL | pinned open `80186_quirks.ws` renders three upstream-authored PASS results for D4/AAM and D5/AAD with base 16 plus D6/SALC; a separate build-generated probe records 24 exact results covering defined AAM flags, full AAD byte-ADD flags, D4 base-zero vector 0/post-IP/AX state, and D6 values with AH plus full before/after PUSHF words preserved and no data-memory access; exact hardware timing remains reference-correlated rather than trace-measured |
 | Simulation CI | Immutable workflow contract; remote run open | checkout is pinned by full SHA; official Verilator 5.050/GCC 13.3.0 and GHDL 6.0.0 images are digest-pinned and version-checked before `make regression`; the Ubuntu runner still supplies platform-managed shell/Make/Python; the current branch has not been pushed to a configured fork, so no remote green run is claimed |
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
@@ -133,10 +133,13 @@ XLAT memory path. The shared V30MZ RTL now consumes the unsigned D4/D5 base,
 raises vector 0 for D4 base zero after fetching the immediate, and implements
 the eight-clock D6/SALC value behavior without a data-memory read. Defined
 AAM flags derive from the result low byte; AAD uses the full low-byte ADD flag
-model on which pinned ares and Mesen agree. The open hardware-authored ROM
-proves the three value results in translated RTL; the flag, exception, and
-timing details remain reference-correlated until focused or physical tests
-cover them.
+model on which pinned ares and Mesen agree. The open upstream-authored ROM
+proves the three value results in translated RTL. A generated, self-contained
+probe now verifies the flag, exception-return, and no-data-memory contracts
+through 24 exact IRAM records plus complete CPU/memory history. The eight-clock
+SALC setting remains reference-correlated: prefetch-buffer credit makes the
+observer's end-to-end completion delta unsuitable as an isolated hardware
+timing measurement.
 
 The boot-overlay probe exposed a simulator initialization error: the model had
 not observed its initial low clock level before the first BIOS-programming

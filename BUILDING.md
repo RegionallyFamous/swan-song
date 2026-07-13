@@ -22,6 +22,17 @@
   `871d7e2de2f915ceaae2a94fcf99b86825430f79588e43e640f9bfa8fed6dce0`.
   This upstream ROM checks result values; it does not test flags, AAM base-zero
   interrupt behavior, or instruction timing.
+- A complementary build-generated mono probe covers those value-only test
+  boundaries without checking in another binary. Its self-authored 128 KiB
+  image has SHA-256
+  `c0165695a4c236b61addd8cf1a27d1b9e5c0d47a67b1bc29f8e4af85d0b57ece`
+  and needs no assembler, SDK, firmware, or carrier ROM. Twenty-four exact IRAM
+  records prove AL-derived AAM parity/zero/sign (including nonzero quotient and
+  zero remainder), all six AAD byte-ADD flags, AAM base-zero vector-0 entry with
+  preserved AX and post-immediate return IP, and both SALC values with AH and
+  the full before/after PUSHF words unchanged. Complete CPU-memory history
+  proves no SALC data transaction. Prefetch credit affects observed completion deltas,
+  so the probe does not relabel those deltas as a hardware clock measurement.
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
@@ -263,6 +274,14 @@ positions, reconstructs all eight rows of every PASS marker from the embedded
 font, and compares both traces and both frame pairs byte for byte. Focused
 mutation tests reject changed source, footer, checksum, ROM, terminal state,
 result tile, framebuffer, manifest, and paired-run identity.
+
+The generated CPU-quirks probe separately binds its exact authored program,
+marker, footer, checksum, ROM and boot identities, complete v5 CPU/memory
+manifest, every result write and owning PC, adjacent SALC completions, and the
+halt boundary. Its mutation suite flips each AAM/AAD/INT0/SALC contract,
+instruction origin, ROM, manifest, and SALC memory behavior; even an
+unattributed IRAM read inserted into a SALC interval is rejected, while normal
+ROM prefetches must match the generated image exactly.
 
 The simulator also accepts a strict `--input-script FILE` schedule keyed to
 36.864 MHz system cycles from reset release. The integrated regression uses an

@@ -32,6 +32,7 @@ python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_80186_quirks_test.py"
+python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 
@@ -471,6 +472,23 @@ run_case() {
     --max-cycles 4000000 --out "$output" >/dev/null
   check_case "$name" "$expected" "$output"
 }
+
+# Generate a self-contained CPU probe to cover the flag and exception details
+# outside the upstream fixture: AL-derived AAM flags, AAD's full byte-ADD flags,
+# AAM base-zero INT0 return state, and SALC's full before/after PUSHF plus AH
+# preservation with no data-memory transaction. The ROM is build-only authored
+# machine code.
+CPU_QUIRKS_OUT="$BUILD/cpu-quirks-probe"
+rm -rf "$CPU_QUIRKS_OUT"
+python3 "$ROOT/sim/verilator/generate_cpu_quirks_probe.py" "$CPU_QUIRKS_OUT" >/dev/null
+"$SIM" --rom "$CPU_QUIRKS_OUT/cpu_quirks_probe.ws" \
+  --frames 1 --max-cycles 1000000 --out "$CPU_QUIRKS_OUT/frames" \
+  --event-trace "$CPU_QUIRKS_OUT/events.csv" --trace-events cpu,mem >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$CPU_QUIRKS_OUT/events.csv" --allowed cpu,mem --require cpu,mem \
+  --require-mem-initiators cpu --require-origin-statuses exact,unattributed
+python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe.py" \
+  "$CPU_QUIRKS_OUT/cpu_quirks_probe.ws" "$CPU_QUIRKS_OUT/events.csv"
 
 # Exercise the V30MZ's 80186-compatible AAM/AAD immediate-base behavior and
 # undocumented SALC opcode with the pinned open ws-test-suite ROM. Two complete

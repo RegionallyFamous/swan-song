@@ -174,7 +174,7 @@ the pinned MIT ws-test-suite source at `7dfa0e2e`. Its local README records the
 pinned Wonderful container, `target-wswan-syslibs` version and zlib notice,
 source files, 131,072-byte size, and ROM SHA-256
 `b44090665f0165c7e3279da13359a0b27c69e3127823d55b2bb16f3dd4a2eb1c`.
-The hardware-authored [test vectors](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/cpu/80186_quirks/tests.s#L10-L39)
+The upstream-authored [test vectors](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/cpu/80186_quirks/tests.s#L10-L39)
 establish D4/AAM and D5/AAD base-16 results plus D6/SALC values for both carry
 states. They do not test flags, D4 base-zero, memory side effects, or timing.
 Renesas's official [V30MZ hardware manual](https://www.renesas.com/en/document/lbr/v30mztm-hardware-preliminary)
@@ -194,6 +194,19 @@ imported MiSTer timing ROM's D6 `XLAT` label is not
 used as an opcode oracle; its measured timing expectation nevertheless agrees
 with the independent eight-clock SALC references. These are translated-model
 and reference-correlated claims, not Pocket hardware validation.
+
+The complementary CPU-quirks probe is generated under `build/` and is never
+checked in. Its 128 KiB mono image, machine code, interrupt handler, identity
+marker, footer, and checksum are repository-authored; it uses no carrier ROM,
+assembler, SDK, firmware, or third-party binary. Its exact-result contract
+extends the open fixture with defined AAM flags, the full AAD byte-ADD flag
+model shared by the pinned references, AAM base-zero vector-0 state and return
+IP, full before/after SALC PUSHF words, and complete-history exclusion of a
+SALC data read. The verifier permits only ROM-byte-matched instruction prefetches during
+the observed SALC intervals. Because the inherited CPU subtracts prefetch
+buffer credit from its delay counter, those end-to-end trace intervals are
+reported only as observer deltas; the eight-clock SALC value remains a pinned
+reference contract, not a physical timing result.
 
 The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
 Wonderful build of project source plus six unmodified 8×8 rows from Misaki
