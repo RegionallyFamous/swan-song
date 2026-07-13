@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 module apf_video_bus_tb;
-    localparam integer LINE_CYCLES = 401;
+    localparam integer LINE_CYCLES = 397;
     localparam integer FRAME_LINES = 258;
     localparam integer FRAME_CYCLES = LINE_CYCLES * FRAME_LINES;
     localparam [23:0] SCALER_EOL_WORD = 24'h004000;
@@ -154,7 +154,7 @@ module apf_video_bus_tb;
                 last_hs_cycle = cycle_count;
             end
             if (video_de && ~previous_video_de && last_hs_cycle >= 0 &&
-                cycle_count - last_hs_cycle != 164)
+                cycle_count - last_hs_cycle != 160)
                 $fatal(1, "HS-to-DE gap %0d cycles", cycle_count - last_hs_cycle);
             if (video_hs && (video_de || video_vs || video_rgb != 24'd0)) begin
                 $fatal(1, "HS overlapped DE/VS/reserved word cycle=%0d", cycle_count);
@@ -228,7 +228,7 @@ module apf_video_bus_tb;
         drive_sample(1'b0, 1'b0, 1'b0, 1'b0, 24'd0);
 
         $display(
-            "PASS APF video bus active=224x144 lines=258 cadence=103458@6.144MHz(59.386Hz) hs/vs=one-cycle gaps=14/164 eol=one-per-active-line grayscale=frame-atomic stable=full-cycle"
+            "PASS APF video bus active=224x144 lines=258 cadence=102426@6.144MHz(59.985Hz) hs/vs=one-cycle gaps=14/160 eol=one-per-active-line grayscale=frame-atomic stable=full-cycle"
         );
         $finish;
     end

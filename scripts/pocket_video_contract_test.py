@@ -185,6 +185,8 @@ class PocketVideoContractTest(unittest.TestCase):
     def test_immutable_framebank_ownership_and_history_priming(self) -> None:
         swan = compact(read("src/fpga/core/wonderswan.sv"))
         arbiter = compact(read("src/fpga/core/apf_framebank_arbiter.sv"))
+        orientation = compact(read("src/fpga/core/apf_frame_orientation.sv"))
+        cadence = compact(read("src/fpga/core/apf_scanout_cadence.sv"))
         frame_ram = compact(read("src/fpga/core/apf_framebank_ram.sv"))
 
         self.assertIn("apf_framebank_arbiterframebank_arbiter(", swan)
@@ -195,8 +197,17 @@ class PocketVideoContractTest(unittest.TestCase):
             swan,
         )
         self.assertIn(
-            "wirescanout_frame_boundary=ce_pix&&scanout_line_end&&y>=257;",
+            "apf_scanout_cadencescanout_cadence(",
             swan,
+        )
+        self.assertIn("parameter[8:0]LINE_PIXELS=9'd397", cadence)
+        self.assertIn("parameter[8:0]FRAME_LINES=9'd258", cadence)
+        self.assertIn("localparam[8:0]LINE_LAST=LINE_PIXELS-1'd1;", cadence)
+        self.assertIn("localparam[8:0]FRAME_LAST=FRAME_LINES-1'd1;", cadence)
+        self.assertIn("assignline_end=x>=LINE_LAST;", cadence)
+        self.assertIn(
+            "assignframe_boundary=pixel_enable&&line_end&&y>=FRAME_LAST;",
+            cadence,
         )
         self.assertIn(".producer_frame_done(producer_frame_done)", swan)
         self.assertIn(".consumer_frame_boundary(scanout_frame_boundary)", swan)
@@ -234,6 +245,23 @@ class PocketVideoContractTest(unittest.TestCase):
         )
         self.assertIn("allow_direct_while_priming<=1'b1;", swan)
 
+        # The Pocket scaler must rotate the frame selected for scanout, not a
+        # newer live console state that may have outrun the buffered pixels.
+        self.assertIn("apf_frame_orientationframe_orientation(", swan)
+        self.assertIn(".producer_orientation(vertical)", swan)
+        self.assertIn(".buffered_frame_visible(use_buffered_history)", swan)
+        self.assertIn(".history_newest(framebank_newest)", swan)
+        self.assertIn("assignis_vertical=presented_vertical;", swan)
+        self.assertNotIn("assignis_vertical=vertical;", swan)
+        self.assertIn("reg[4:0]bank_orientation=5'b00000;", orientation)
+        self.assertIn("if(producer_frame_done)begin", orientation)
+        self.assertIn("elseif(consumer_frame_boundary)begin", orientation)
+        self.assertIn(
+            "assignpresented_orientation=buffered_frame_visible?"
+            "buffered_orientation:direct_orientation;",
+            orientation,
+        )
+
         self.assertIn("for(candidate=0;candidate<5;candidate=candidate+1)begin", arbiter)
         self.assertIn("if(reset||!enable)begin", arbiter)
         self.assertIn("case({producer_frame_done,consumer_frame_boundary})", arbiter)
@@ -250,6 +278,8 @@ class PocketVideoContractTest(unittest.TestCase):
             "core/apf_settings_cdc.sv",
             "core/apf_framebank_ram.sv",
             "core/apf_framebank_arbiter.sv",
+            "core/apf_frame_orientation.sv",
+            "core/apf_scanout_cadence.sv",
             "core/apf_scaler_selector.sv",
             "core/apf_temporal_blend.sv",
             "core/apf_video_bus.sv",
@@ -262,6 +292,8 @@ class PocketVideoContractTest(unittest.TestCase):
             "run_apf_settings_cdc_tb.sh",
             "run_apf_framebank_ram_tb.sh",
             "run_apf_framebank_arbiter_tb.sh",
+            "run_apf_frame_orientation_tb.sh",
+            "run_apf_scanout_cadence_tb.sh",
             "run_apf_scaler_selector_tb.sh",
             "run_apf_temporal_blend_tb.sh",
             "run_apf_video_bus_tb.sh",

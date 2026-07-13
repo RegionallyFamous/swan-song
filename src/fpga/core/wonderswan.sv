@@ -436,23 +436,33 @@ module wonderswan (
   wire vertical;
   reg hs, vs, hbl, vbl, ce_pix;
   reg [7:0] r, g, b;
-  reg [8:0] x, y;
+  wire [8:0] x, y;
   reg [2:0] div;
   reg signed [3:0] HShift;
   reg signed [3:0] VShift;
 
   // TODO: This setting is not exposed for Pocket
   wire use_refresh_rate_75hz = 0;
-  wire scanout_line_end =
-      (x >= 400 && ~use_refresh_rate_75hz) ||
-      (x >= 378 && use_refresh_rate_75hz);
-  wire scanout_frame_boundary = ce_pix && scanout_line_end && y >= 257;
+  wire scanout_line_end;
+  wire scanout_frame_boundary;
   wire producer_frame_done = pixel_we && pixel_addr == 32255;
   wire [2:0] framebank_write;
   wire [2:0] framebank_newest;
   wire [2:0] framebank_previous;
   wire [2:0] framebank_oldest;
   wire [1:0] framebank_valid_count;
+
+  // 397 * 258 pixels at 6.144 MHz is 59.984769 Hz.  The dedicated cadence
+  // block keeps the APF raster exact and independently simulation-testable.
+  apf_scanout_cadence scanout_cadence (
+      .clk(clk_sys_36_864),
+      .reset(reset),
+      .pixel_enable(ce_pix),
+      .x(x),
+      .y(y),
+      .line_end(scanout_line_end),
+      .frame_boundary(scanout_frame_boundary)
+  );
 
   always @(posedge clk_sys_36_864) begin
     if (reset) begin
@@ -570,6 +580,24 @@ module wonderswan (
   wire [11:0] buffered_oldest =
       framebank_valid_count >= 3 ? framebank_rgb(framebank_oldest) : buffered_previous;
   wire use_buffered_history = buffervideo && framebank_valid_count != 2'd0;
+  wire presented_vertical;
+
+  // Presentation follows the orientation stored beside the frame that owns
+  // the pixels. The live `vertical` signal remains connected directly to the
+  // emulated keypad and GPU; Pocket-only buffering must never delay or force
+  // game-visible input behavior.
+  apf_frame_orientation frame_orientation (
+      .clk(clk_sys_36_864),
+      .reset(reset),
+      .producer_frame_done(producer_frame_done),
+      .write_bank(framebank_write),
+      .producer_orientation(vertical),
+      .consumer_frame_boundary(scanout_frame_boundary),
+      .buffered_frame_visible(use_buffered_history),
+      .history_newest(framebank_newest),
+      .presented_orientation(presented_vertical)
+  );
+
   wire [11:0] direct_or_blank =
       (!buffervideo || allow_direct_while_priming) ? rgb0 : 12'd0;
   wire [11:0] blend_newest =
@@ -634,23 +662,16 @@ module wonderswan (
         end
       end
 
-      x <= x + 1'd1;
-      if (scanout_line_end) begin
-        x <= 0;
-        if (~&y) y <= y + 1'd1;
-        if (y >= 257) begin
-          y <= 0;
-
-          // HShift         <= status[19:16];
-          // VShift         <= status[23:20];
-          HShift         <= 0;
-          VShift         <= 0;
-        end
+      if (scanout_frame_boundary) begin
+        // HShift         <= status[19:16];
+        // VShift         <= status[23:20];
+        HShift         <= 0;
+        VShift         <= 0;
       end
     end
   end
 
-  assign is_vertical = vertical;
+  assign is_vertical = presented_vertical;
 
   assign video_r = r;
   assign video_g = g;
