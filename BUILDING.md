@@ -658,8 +658,9 @@ staging, `package_validator.py` checks all seven APF core JSON definitions and
 the platform JSON with an exact, fail-closed Swan Song release profile: required
 members, unknown members, APF limits, integer ranges, unique IDs, safe
 filenames, documented key/display values, cross-file platform/core identity,
-the official 32-line printable-ASCII `info.txt` limit, and the currently
-implemented slot/controller/variant shape. It also rejects
+the official [32-line printable-ASCII `info.txt`
+limit](https://www.analogue.co/developer/docs/core-definition-files), and the
+currently implemented slot/controller/variant shape. It also rejects
 symlinks, special files, case-folded path collisions, unexpected folders, and
 unknown SD-card payloads. The 521x165 platform graphic must be exactly 171,930
 bytes with valid 16-bit brightness lanes; an optional author icon must be
@@ -678,8 +679,10 @@ ZIP and provenance sidecar before validating new inputs, so stale output cannot
 masquerade as success.
 
 `make package` remains a development-package command: it can prove the exact
-host inputs but cannot manufacture Quartus timing or hardware evidence. A
-release package must additionally use `--release` and `--build-evidence`:
+host inputs but cannot manufacture Quartus timing or hardware evidence. It
+does not read or validate the release policy, so policy work cannot change an
+otherwise identical development ZIP or provenance sidecar. A release package
+must additionally use `--release` and `--build-evidence`:
 
 ```sh
 ./scripts/package_core.py \
@@ -690,8 +693,18 @@ release package must additionally use `--release` and `--build-evidence`:
 ```
 
 The output name must exactly match the author, shortname, version, and date in
-`core.json`. Do not run this release form against the inherited 1.0.1 identity;
-release ownership, URL, version, and date must first be authorized and updated.
+`core.json`. Release mode also reads the checked-in
+[`release-policy.json`](release-policy.json), which pins the reviewed public
+inventory commit, publisher identity and repository URL, plus every published
+version/date pair. It refuses an unauthorized publisher, identity or URL drift,
+an existing tuple, a candidate Semantic Version that is not strictly newer than
+the public latest, and a date that is not strictly later than the public latest.
+A successful release sidecar binds the policy file by
+size and SHA-256. The checked-in policy deliberately has `authorized: false`:
+do not merely flip it. Release ownership must first be resolved as either an
+authorized upstream continuation or a separately authored core, after which
+the core folder, metadata, policy, and new version/date must agree in one
+reviewed change.
 
 The evidence file is strict JSON with one `release_evidence` object. It records
 magic `SWAN_SONG_RELEASE_EVIDENCE_V1`, the full lowercase 40-hex source commit,

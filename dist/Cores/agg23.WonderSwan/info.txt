@@ -3,21 +3,21 @@ System core by Robert Peip
 Pocket port by agg23
 
 Supported launch path:
-* openFPGA SD-card assets
+* SD-card games through openFPGA
 * WonderSwan .ws and WonderSwan Color .wsc
-* Required 4 KiB bw.rom and 8 KiB color.rom
-* Last cartridge is remembered for the next launch
-* Framework 2.3 minimum; Analogue OS 2.6 recommended
+* User-supplied 4 KiB bw.rom and 8 KiB color.rom
+* Last-game reuse is configured; Pocket verification pending
+* Pocket firmware 2.3 minimum; 2.6.0 recommended
 
 PocketChallenge v2 and .pc2 assets are not supported.
 The physical cartridge and link ports are not used.
 
 Features:
-* Fast forward and CPU turbo
-* Automatic or forced display presentation
-* Landscape, portrait, and 180-degree presentation
-* Tear-safe buffering and source-pinned LCD response options
-* Raw RGB444 or optional ares color profile
+* Fast Forward and CPU Turbo
+* Automatic, horizontal, or vertical display orientation
+* Optional landscape 180-degree presentation
+* Triple-buffered video and optional LCD response effects
+* Raw RGB444 and optional Color LCD (ares) profile
 
 The game's native orientation still controls its button matrix.
 Display Orientation and Landscape 180 degrees affect presentation only.

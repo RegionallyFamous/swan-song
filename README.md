@@ -26,6 +26,15 @@ should be upstreamed after they are verified.
 
 The updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven) are excellent for published openFPGA cores. The current Swan Song development branch is not yet a verified updater release; using an updater today may install or restore upstream WonderSwan 1.0.1 instead. Use this route only after a Swan Song release is explicitly listed.
 
+Release packaging is deliberately locked by [`release-policy.json`](release-policy.json).
+It records the public `agg23.WonderSwan` 1.0.0/1.0.1 inventory history and
+keeps publisher authorization false until an upstream continuation or an
+independently authored core identity is explicitly approved. Development ZIPs
+remain available for host-side work, but release packaging remains disabled
+until that decision is authorized. An authorized release must still use a
+strictly newer Semantic Version and later date, with publisher and repository
+metadata that exactly match the reviewed policy.
+
 ### Manual mode
 When a verified Swan Song release is available, download its APF ZIP from the
 Releases page. The current development branch has not been validated on Pocket.
@@ -50,13 +59,15 @@ For the shortest supported boot path, choose **Startup Action > openFPGA** in
 Pocket Settings. This opens openFPGA at power-on; it does not add Swan Song or
 individual games to Analogue Library and does not select a title by itself.
 
-APF is configured to remember the last cartridge selected and reuse it on the
-next normal launch. Reopening Swan Song from openFPGA—including through
-**Recent** on Analogue OS 2.6—is therefore expected to return to that title,
-but this direct-title flow remains pending Pocket verification. Use **Core
-Settings > Cartridge** to switch games. **Reset all to defaults** clears the
-remembered browser choices; framework 2.3 is the minimum because that release
-fixed browser-history reset behavior.
+The cartridge data slot is configured to ask Pocket to reuse the last selected
+game on the next normal launch. Reopening Swan Song from openFPGA—including
+through **Recent** on current [Pocket firmware
+2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0)—is therefore
+expected to return to that title, but this direct-title flow remains pending
+Pocket verification. Use **Core Settings > Cartridge** to switch games.
+**Reset all to defaults** clears the remembered browser choices; Pocket
+firmware 2.3 is the minimum because that release fixed browser-history reset
+behavior.
 
 You must provide the BIOS files for both the original and WonderSwan Color. The
 BIOSes should be named `bw.rom` and `color.rom`, and should be placed in

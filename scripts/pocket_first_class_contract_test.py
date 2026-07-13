@@ -463,6 +463,92 @@ class PocketFirstClassContractTest(unittest.TestCase):
             },
         )
 
+    def test_platform_detail_info_matches_the_shipped_contract(self) -> None:
+        info_bytes = (CORE_DIR / "info.txt").read_bytes()
+        info = info_bytes.decode("ascii")
+        lines = info.splitlines()
+        self.assertLessEqual(len(lines), 32)
+        self.assertTrue(
+            all(byte == 0x0A or 0x20 <= byte <= 0x7E for byte in info_bytes)
+        )
+        self.assertEqual(
+            lines[:3],
+            [
+                "Swan Song for Analogue Pocket",
+                "System core by Robert Peip",
+                "Pocket port by agg23",
+            ],
+        )
+
+        core = load("core.json")["core"]
+        data = load("data.json")["data"]
+        slots = {number(slot["id"]): slot for slot in data["data_slots"]}
+        cartridge = slots[0]
+        self.assertEqual(cartridge["extensions"], ["ws", "wsc"])
+        self.assertIn("* WonderSwan .ws and WonderSwan Color .wsc", lines)
+
+        bw_bios = slots[9]
+        color_bios = slots[10]
+        self.assertTrue(bw_bios["required"])
+        self.assertTrue(color_bios["required"])
+        self.assertIn(
+            "* User-supplied "
+            f"{bw_bios['size_exact'] // 1024} KiB {bw_bios['filename']} and "
+            f"{color_bios['size_exact'] // 1024} KiB {color_bios['filename']}",
+            lines,
+        )
+        self.assertIn(
+            "* Pocket firmware "
+            f"{core['framework']['version_required']} minimum; 2.6.0 recommended",
+            lines,
+        )
+
+        self.assertIn(
+            "* Last-game reuse is configured; Pocket verification pending", lines
+        )
+        self.assertNotIn("Last cartridge is remembered", info)
+        self.assertNotIn("Tear-safe", info)
+        self.assertNotIn("source-pinned", info)
+        self.assertNotIn("Analogue OS", info)
+
+        variables = {
+            number(variable["id"]): variable
+            for variable in load("interact.json")["interact"]["variables"]
+        }
+        self.assertEqual(variables[41]["name"], "Triple Buffer")
+        self.assertEqual(variables[42]["name"], "LCD Response")
+        self.assertIn(
+            "* Triple-buffered video and optional LCD response effects", lines
+        )
+        self.assertEqual(variables[45]["name"], "Color Profile")
+        self.assertEqual(
+            [option["name"] for option in variables[45]["options"]],
+            ["Raw RGB444", "Color LCD (ares)"],
+        )
+        self.assertIn(
+            "* Raw RGB444 and optional Color LCD (ares) profile", lines
+        )
+
+        self.assertFalse(core["framework"]["sleep_supported"])
+        self.assertFalse(core["framework"]["hardware"]["link_port"])
+        self.assertEqual(core["framework"]["hardware"]["cartridge_adapter"], -1)
+        self.assertIn("The physical cartridge and link ports are not used.", lines)
+        self.assertIn(
+            "Memories and Sleep + Wake remain disabled pending end-to-end Pocket validation.",
+            lines,
+        )
+        self.assertNotIn(
+            "pc2",
+            {
+                extension.lower()
+                for slot in data["data_slots"]
+                for extension in slot.get("extensions", [])
+            },
+        )
+        self.assertIn(
+            "PocketChallenge v2 and .pc2 assets are not supported.", lines
+        )
+
     def test_video_modes_are_generic_and_backed_by_grayscale_rtl(self) -> None:
         video = load("video.json")["video"]
         self.assertEqual(video["magic"], "APF_VER_1")
