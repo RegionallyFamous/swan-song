@@ -64,7 +64,7 @@ background cell promoted into a pixel-producing buffer:
 python3 sim/verilator/correlate_provenance.py \
   build/sim/text.csv \
   --output build/sim/text-provenance.csv \
-  --fail-on-mismatch \
+  --require-exact-fetches \
   --require-complete-coverage
 python3 sim/verilator/correlate_bg_cells.py \
   build/sim/text.csv \
@@ -78,6 +78,11 @@ tool can reconstruct the full IRAM history. The atomic background correlator
 also requires an exact, unfiltered capture. Every `bg_cell` must match a raw
 Screen 1/2 fetch group; physical read-ahead that has not been promoted when the
 capture ends is counted explicitly rather than mistaken for corruption.
+`--require-exact-fetches` evaluates the complete capture before applying
+report-output filters and rejects any value mismatch, mixed-port collision,
+partial word, or unobserved byte. The older `--fail-on-mismatch` remains
+available for exploratory reports where collision-marked uncertainty is
+acceptable.
 
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` accepts
 one or more comma-separated inclusive `START-END` ranges and treats them as a
@@ -262,8 +267,10 @@ protocol order with matching value and byte enable. For every display read it
 compares the returned word with the independently reconstructed bytes and
 reports the low/high writer and any mapped ROM source. A collision produces
 `unspecified_collision`, while a non-collision disagreement produces
-`mismatch` and can fail the run. This proves graphics-data provenance; it does
-not by itself prove that a tile index is a character code. Rasterized text can
+`mismatch`. Confirmation runs use `--require-exact-fetches`, which fails on
+either condition and also rejects partial or unobserved data; output filters
+cannot hide a global uncertainty. This proves graphics-data provenance; it
+does not by itself prove that a tile index is a character code. Rasterized text can
 write glyph bitmaps into preassigned canvas tiles, as documented for
 [WonderWitch Shift-JIS text](https://ws.nesdev.org/wiki/WonderWitch/FreyaBIOS/Text).
 

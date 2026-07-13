@@ -67,7 +67,7 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
-  --fail-on-mismatch --require-complete-coverage \
+  --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=78940 --expect-count match=78940 \
   --expect-count collision=0 --expect-count cpu_exact=78750 \
   --expect-count initial_powerup=190 --expect-count gdma_rom=0
@@ -214,7 +214,7 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --require-origin-statuses exact,unattributed,not_applicable
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
-  --fail-on-mismatch --require-complete-coverage \
+  --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=25111 --expect-count match=25111 \
   --expect-count collision=0 --expect-count cpu_exact=24729 \
   --expect-count initial_powerup=190 --expect-count gdma_rom=192
@@ -279,7 +279,7 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --require-mem-initiators cpu --require-origin-statuses exact
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
-  --fail-on-mismatch --require-complete-coverage \
+  --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=15794 --expect-count match=15794 \
   --expect-count collision=0 --expect-count cpu_exact=15608 \
   --expect-count initial_powerup=186 --expect-count gdma_rom=0

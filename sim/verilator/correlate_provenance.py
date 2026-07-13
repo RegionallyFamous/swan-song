@@ -251,6 +251,7 @@ def correlate(
     fail_on_mismatch: bool = False,
     require_matches: int = 0,
     require_complete_coverage: bool = False,
+    require_exact_fetches: bool = False,
 ) -> dict[str, int]:
     coverage_status, iram = read_manifest(trace)
     if require_complete_coverage and coverage_status != "complete_from_reset":
@@ -380,6 +381,15 @@ def correlate(
                     byte_value = (value >> (8 * lane)) & 0xFF
                     iram[target] = ByteVersion(byte_value, row, source_read, lane)
 
+    if require_exact_fetches:
+        uncertain = {
+            name: counts[name]
+            for name in ("mismatch", "collision", "partial", "unobserved")
+            if counts[name]
+        }
+        if uncertain:
+            detail = " ".join(f"{name}={count}" for name, count in uncertain.items())
+            raise ValueError(f"exact display fetches required, got {detail}")
     if fail_on_mismatch and counts["mismatch"]:
         raise ValueError(f"{counts['mismatch']} display values disagree with the IRAM scoreboard")
     if counts["match"] < require_matches:
@@ -438,6 +448,11 @@ def main() -> None:
     )
     parser.add_argument("--only-status", type=status_set)
     parser.add_argument("--fail-on-mismatch", action="store_true")
+    parser.add_argument(
+        "--require-exact-fetches",
+        action="store_true",
+        help="reject any mismatch, collision, partial, or unobserved display fetch",
+    )
     parser.add_argument("--require-matches", type=int, default=0)
     parser.add_argument("--require-complete-coverage", action="store_true")
     parser.add_argument(
@@ -463,6 +478,7 @@ def main() -> None:
                 fail_on_mismatch=args.fail_on_mismatch,
                 require_matches=args.require_matches,
                 require_complete_coverage=args.require_complete_coverage,
+                require_exact_fetches=args.require_exact_fetches,
             )
         for name, expected in args.expect_count:
             if counts[name] != expected:

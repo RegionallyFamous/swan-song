@@ -149,7 +149,8 @@ coverage.
 The boot probes bind both input images and prove the overlay-to-cartridge
 transition at identical physical addresses.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
-memory/display capture and fails on any non-collision fetched-word mismatch.
+memory/display capture and requires every fetched word to be exact: no value
+mismatch, mixed-port collision, partial word, or unobserved byte is accepted.
 The v5 path additionally runs `correlate_bg_cells.py`: it independently groups
 Screen 1/2 map and tile reads, validates each promoted atomic background cell,
 and preserves the writers observed on the raw-fetch edge rather than consulting

@@ -20,7 +20,7 @@ def event(cycle: int, kind: str, **values: object) -> dict[str, object]:
     return row
 
 
-def write_trace(path: Path) -> None:
+def write_trace(path: Path, fetch_collision: int = 1) -> None:
     rows = [
         event(
             1,
@@ -90,7 +90,7 @@ def write_trace(path: Path) -> None:
             address=0x4000,
             role="screen1_tile",
             fetch_value=0xAA34,
-            fetch_collision=1,
+            fetch_collision=fetch_collision,
         ),
         event(
             7,
@@ -152,6 +152,20 @@ def main() -> None:
         assert filtered_counts["fetches"] == 4
         assert len(list(csv.DictReader(io.StringIO(filtered.getvalue())))) == 1
 
+        try:
+            correlate(
+                trace,
+                io.StringIO(),
+                roles={"screen2_tile"},
+                only_status={"match"},
+                require_exact_fetches=True,
+            )
+        except ValueError as error:
+            assert "collision=1" in str(error)
+            assert "unobserved=1" in str(error)
+        else:
+            raise AssertionError("output filters hid globally uncertain fetches")
+
         manifest = {
             "schema": "swan-song-trace-manifest-v1",
             "trace_schema": 4,
@@ -181,6 +195,37 @@ def main() -> None:
         complete_rows = list(csv.DictReader(io.StringIO(complete.getvalue())))
         assert complete_rows[2]["writer_summary"] == "initial_powerup"
         assert complete_rows[2]["coverage_status"] == "complete_from_reset"
+
+        try:
+            correlate(
+                trace,
+                io.StringIO(),
+                roles={"screen2_tile"},
+                require_complete_coverage=True,
+                require_exact_fetches=True,
+            )
+        except ValueError as error:
+            assert "collision=1" in str(error)
+            assert "unobserved" not in str(error)
+        else:
+            raise AssertionError("complete trace collision passed exact-fetch gate")
+
+        exact_trace = Path(directory) / "exact-events.csv"
+        write_trace(exact_trace, fetch_collision=0)
+        exact_manifest = dict(manifest)
+        exact_manifest["trace_size_bytes"] = exact_trace.stat().st_size
+        exact_manifest["trace_fnv1a64"] = trace_fnv1a64(exact_trace)
+        Path(f"{exact_trace}.manifest.json").write_text(
+            json.dumps(exact_manifest), encoding="utf-8"
+        )
+        exact_counts = correlate(
+            exact_trace,
+            io.StringIO(),
+            require_complete_coverage=True,
+            require_exact_fetches=True,
+        )
+        assert exact_counts["match"] == 4
+        assert exact_counts["collision"] == 0
 
         with trace.open("a", encoding="utf-8") as output:
             output.write("\n")
