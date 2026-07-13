@@ -626,7 +626,7 @@ module wonderswan (
   always_comb begin
     save_size = 0;
 
-    if (ramtype == 8'h01) save_size = 12'h10;
+    if (ramtype == 8'h01) save_size = 12'h40;
     if (ramtype == 8'h02) save_size = 12'h40;
     if (ramtype == 8'h03) save_size = 12'h100;
     if (ramtype == 8'h04) save_size = 12'h200;

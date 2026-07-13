@@ -136,7 +136,7 @@ begin
          bus_out_be    <= x"FF";
          
          case (ramtype) is
-            when x"01"  => savetypes(2) <=   8192; 
+            when x"01"  => savetypes(2) <=  32768;
             when x"02"  => savetypes(2) <=  32768;
             when x"03"  => savetypes(2) <= 131072; 
             when x"04"  => savetypes(2) <= 262144; 
@@ -409,7 +409,6 @@ begin
    
 
 end architecture;
-
 
 
 

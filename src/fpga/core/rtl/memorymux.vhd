@@ -179,7 +179,7 @@ begin
    
    -- carttype
    rommask      <= maskAddr;      
-   sramMask     <= x"001FFF" when ramtype = x"01" else     
+   sramMask     <= x"007FFF" when ramtype = x"01" else
                    x"007FFF" when ramtype = x"02" else     
                    x"01FFFF" when ramtype = x"03" else     
                    x"03FFFF" when ramtype = x"04" else     
@@ -584,4 +584,3 @@ begin
    
 
 end architecture;
-
