@@ -29,6 +29,8 @@ python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_sram_32k_probe_test.py"
+python3 "$ROOT/sim/verilator/sram_32k_apf_contract_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_modes_probe_test.py"
@@ -434,6 +436,32 @@ python3 "$ROOT/sim/verilator/verify_mapper_memory_probe.py" \
   "$MAPPER_OUT/mapper_memory_boot.bin" \
   "$MAPPER_OUT/mapper_memory_present.ws" "$MAPPER_OUT/present.csv" \
   "$MAPPER_OUT/mapper_memory_absent.ws" "$MAPPER_OUT/absent.csv"
+
+# Type 0x01 and type 0x02 both identify 32 KiB SRAM. Paired generated ROMs
+# prove that 0000, 2000, and 7fff remain distinct, 8000 mirrors 0000, and the
+# two header values produce byte-identical bus traces. The focused contract
+# above independently locks the matching save-state and Pocket/APF sizes.
+SRAM_32K_OUT="$BUILD/sram-32k-probe"
+rm -rf "$SRAM_32K_OUT"
+python3 "$ROOT/sim/verilator/generate_sram_32k_probe.py" \
+  "$SRAM_32K_OUT" >/dev/null
+for sram_type in 01 02; do
+  "$SIM" \
+    --rom "$SRAM_32K_OUT/sram_type${sram_type}_32k.ws" \
+    --bios "$SRAM_32K_OUT/sram_32k_boot.bin" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$SRAM_32K_OUT/type${sram_type}-frames" \
+    --event-trace "$SRAM_32K_OUT/type${sram_type}.csv" \
+    --trace-events mem --trace-mem-address 0x10000-0x18000 >/dev/null
+  python3 "$ROOT/sim/verilator/verify_trace.py" \
+    "$SRAM_32K_OUT/type${sram_type}.csv" \
+    --allowed mem --require mem --mem-address 0x10000-0x18000 \
+    --require-mem-initiators cpu --require-origin-statuses exact
+done
+python3 "$ROOT/sim/verilator/verify_sram_32k_probe.py" \
+  "$SRAM_32K_OUT/sram_32k_boot.bin" \
+  "$SRAM_32K_OUT/sram_type01_32k.ws" "$SRAM_32K_OUT/type01.csv" \
+  "$SRAM_32K_OUT/sram_type02_32k.ws" "$SRAM_32K_OUT/type02.csv"
 
 # Independently cover both boot-ROM sizes. The open test images execute from
 # byte zero, read a low-window marker, lock port A0, and prove that physical
