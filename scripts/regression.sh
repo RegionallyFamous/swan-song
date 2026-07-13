@@ -43,6 +43,7 @@ python3 "$ROOT/sim/verilator/verify_interrupts_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_sound_dma_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_internal_eeprom_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
+python3 "$ROOT/scripts/migrate_type01_save_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 
