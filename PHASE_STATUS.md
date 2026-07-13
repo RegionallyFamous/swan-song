@@ -21,7 +21,7 @@
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
 | Structured event trace | V5/v6 runtime verified in Verilator | simulation-gated CPU, bank-register, completion-aligned display word/collision, completed CPU/GDMA/SDMA memory, atomic Screen 1/2 background-cell taps, and conditional atomic sprite-row taps; v5/v6 CSV/JSONL with v1-v6 CSV fixtures; translated open/generated-ROM regression plus focused atomic decode/grouping/writer-snapshot tests pass; `sim/verilator/TRACE.md` |
 | Trace-to-frame artifact binding | Opt-in manifest v2 verified | `--trace-frame-artifacts` preserves v5/v6 trace bytes while binding every raw 224×144 RGB888 artifact to its zero-based final-pixel cycle, manifest-relative path, exact 96,768-byte size, and FNV-1a digest; atomic frame publication plus a strict artifact verifier reject mutation, symlink/hardlink/trace aliasing, field/count/index/cycle/path errors, and incomplete bundles while legacy manifest v1 remains unchanged; publication cycles are not claimed as hardware VBlank or blanket pixel causality |
-| APF package assembly | Host release gate verified; final evidence unavailable | `package_validator.py` fail-closes the exact release tree, every shipped APF/platform JSON, official limits and cross-file identities, plus 521x165 and optional 36x36 assets; `package_core.py` reverses the supplied RBF, materializes the pinned 259-byte Chip32 loader, and emits byte-identical ZIP/provenance pairs that hash every payload; release mode enforces metadata-derived naming and binds the exact RBF, generated date/time/commit build-ID MIF, Quartus 21.1.1 flow/fit/STA reports, and eleven explicitly accepted timing/warning/compression/hardware gates into the sidecar; 11 focused tests cover mutation/tamper/failure paths; no real Quartus or Pocket evidence has been accepted |
+| APF package assembly | Host release gate verified; publisher and final evidence unavailable | `package_validator.py` fail-closes the exact release tree, every shipped APF/platform JSON, official limits and cross-file identities, plus 521x165 and optional 36x36 assets; `package_core.py` reverses the supplied RBF, materializes the pinned 259-byte Chip32 loader, and emits byte-identical ZIP/provenance pairs that hash every payload; release mode enforces metadata-derived naming, requires an explicitly authorized publisher, rejects the two pinned public `agg23.WonderSwan` version/date tuples plus any candidate Semantic Version not strictly newer than public 1.0.1, non-newer dates, and URL/identity drift, and binds the reviewed inventory policy, exact RBF, generated date/time/commit build-ID MIF, Quartus 21.1.1 flow/fit/STA reports, and eleven explicitly accepted timing/warning/compression/hardware gates into the sidecar; 19 focused tests cover deterministic non-release behavior, policy/schema/order/collision failures, mutation/tamper paths, and successful evidence/policy binding; the checked policy remains unauthorized and no real Quartus or Pocket evidence has been accepted |
 | Reproducible build identity | Generator verified; full RBF proof open | the APF pre-flow MIF uses a clean source commit, its UTC commit timestamp or explicit `SOURCE_DATE_EPOCH`, and a commit-derived 32-bit identity; focused tests prove identical output across repeats/timezones plus fail-closed dirty, mismatched, malformed, and non-Git inputs; two Quartus builds have not been compared |
 | Quartus bitstream | Blocked on host tool availability | requires supported Linux/Windows Quartus 21.1.1 host |
 | Timing closure | Not tested | requires Quartus build |
@@ -55,6 +55,7 @@ deferred or Phase 1 accepted.
 | Atomic sprite-row correlation | Verified in translated RTL on open/generated probes | `correlate_sprite_rows.py` independently binds each promotion to its exact latched raw OAM generation, line-load epoch, exact two-read tile group, and fetch-time byte writers/sources; it locks the one-cycle admission edge and contiguous per-epoch slots, including focused slot-31, interleaved-DMA, repeated-line, and identical-refresh mutations; the open extended-range fixture covers 32 planar 2bpp rows and separates 32 noncontributing second reads, while the generated Color-priority probe covers 48 packed 4bpp rows sourced through GDMA; this stops at line-buffer admission, before X/window/transparency/priority/composition |
 | Color 4bpp format equivalence | Verified in translated RTL | repository-authored, build-generated, non-checked-in probes select planar `0xc0` and packed `0xe0`, copy distinct 32-byte tile payloads by exact GDMA chains, display normal/H/V/HV placements, and require 64 provenance-complete diagnostic rows plus identical reporter fingerprints and final RGB across both encodings |
 | Open Japanese text workload | Verified in Verilator | native Wonderful-built fixture parses `日本語かな漢`; a dedicated verifier binds licensed Misaki Unicode/Shift-JIS rows to exact ROM/GDMA/tile/map/cell provenance and pixel-perfect output; `testroms/swan-song/sjis_glyph_provenance/README.md` |
+| Wonderful medium-SRAM homebrew runtime | Verified in Verilator; Pocket hardware open | a current open `wswan/medium-sram` Color build binds the CRT's DS=`1000h` `.bss` clear and `.data` copy, ordered `5aa5/0000 -> a55a/c33c` cartridge-SRAM accesses, far jump into `main`, far ROM strings, exact `MEDIUM-SRAM OK` map cells, terminal HLT, and final raster; the probe also establishes that the 32 KiB target's SP=`8000h` requires Color IRAM and that CRT-managed SRAM sections must not overlap persistent records; `HOMEBREW_WONDERWITCH.md` |
 | Glyph candidate report | Verified on open Japanese fixture | `report_glyphs.py` emits a deterministic, title-agnostic epoch CSV and labeled contact PNG across 2bpp/4bpp planar/packed formats and both flips; regression preserves all 592 fixture epochs while the compact unique-exact view surfaces seven bitmaps and binds the six ROM-sourced glyph candidates to their exact fingerprints, map slots, writers, IRAM spans, and source offsets; it never infers character identity |
 | Trace-filter config | Verified with v5/v6 CPU/GDMA/SDMA/display runtime | parser/serializer unit tests plus translated-model event selection, PC/address/offset containment, all three memory initiator filters, memory access/space/origin filters, all six display roles, conditional sprite-row schema, and legacy stability; `trace.example.conf`, v1-v6 CSV, and JSONL are documented |
 | Translation-target acceptance | Not tested | no trace of the target 2001 WSC title has been captured or correlated with its kanji/glyph mapping |
@@ -144,6 +145,27 @@ pre-bus single-read continuation, legacy collapse, invalid-header fallback,
 and illegal-state fail-safe behavior. This is exact continuation at the legal
 save-handshake boundaries, not evidence for the open physical timing,
 Hyper Voice, arbitrary source mappings, or Pocket-hardware cases.
+
+## Phase 6 — homebrew and WonderWitch
+
+Ordinary Wonderful cartridge homebrew now has a current, deterministic open
+regression beyond the older pinned `initfini` result. The
+`wswan/medium-sram` Color fixture proves current CRT `.data`/`.bss`
+initialization in cartridge SRAM, medium-model far code, far ROM data, current
+console libraries, exact SRAM mutation/readback, success cells, final pixels,
+and terminal HLT. This is translated-RTL evidence only; Pocket hardware and
+save persistence still require validation. Full build advice and the discovered
+32 KiB Color-stack/persistent-region constraints are in
+[`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md).
+
+WonderWitch remains investigated, not supported. Wonderful's experimental
+`wwitch` target emits `.fx` applications that require FreyaBIOS, FreyaOS, and a
+filesystem. The inherited core exposes ordinary `.ws`/`.wsc` assets and does
+not implement the MBM29DL400TC flash state or Bandai 2003 port-`CEh` write
+window. Open AthenaOS is pinned as the correct future source-built environment,
+but no firmware image is bundled and no WonderWitch compatibility claim is
+made. A complete open AthenaOS cartridge boot/launch/filesystem/persistence
+regression and any required mapper implementation remain open.
 
 ## Baseline corrections discovered
 

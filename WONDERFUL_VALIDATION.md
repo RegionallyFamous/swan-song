@@ -1,8 +1,9 @@
 # Wonderful toolchain validation
 
-This record covers one open-source Wonderful toolchain ROM executed by the
-Swan Song system simulator on 2026-07-12. It does not establish Quartus timing
-closure or behavior on an Analogue Pocket.
+This record covers open-source Wonderful toolchain ROMs executed by the Swan
+Song system simulator. The original 2026-07-12 record below preserves the
+pinned `initfini` result; the current medium-SRAM regression is recorded at the
+end. Neither establishes Quartus timing closure or Analogue Pocket behavior.
 
 ## Source and build provenance
 
@@ -108,3 +109,25 @@ renders tile 6 (an X) on failure. The result therefore verifies
 that this pinned Wonderful-generated ROM entered its CRT, ran its constructor,
 entered main, initialized the text display, and reached its terminal loop in
 the translated system model.
+
+## Current medium-SRAM regression (2026-07-13)
+
+The repository now carries a second, deterministic Wonderful-generated open
+ROM and source under
+[`testroms/swan-song/wonderful_medium_sram`](testroms/swan-song/wonderful_medium_sram/README.md).
+It uses the current `wswan/medium-sram` target, system libraries at
+`d7d97ce9490c54aff3ad8ad5f4b60f1c547757ab`, and example scaffold at
+`811b739ab1f0203336a08da8db34365d29869617`.
+
+`make regression` binds its exact source and 131,072-byte ROM hash, the CRT's
+DS=`1000h` SRAM selection, `.bss` zeroing, `.data=0x5AA5` initialization, far
+jump to `main`, exact program mutation/readback to `0xA55A`/`0xC33C`, the
+successful `MEDIUM-SRAM OK` console cells, terminal HLT, and final raw RGB
+SHA-256 `3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b`.
+The focused verifier rejects source and ROM mutations.
+
+The complete targeting guidance and the deliberately separate WonderWitch
+boundary are in [`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md). A
+Wonderful `.fx` build requires FreyaBIOS/FreyaOS and a filesystem; the current
+core does not implement the WonderWitch flash command/port-`CEh` path and makes
+no WonderWitch compatibility claim. No firmware is bundled.

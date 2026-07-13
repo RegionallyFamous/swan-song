@@ -16,7 +16,9 @@ Pinned on 2026-07-12:
 | Official Chip32 assembler/image reference | https://github.com/open-fpga/bass-chip32 | `f3ad17dfd541e67b527298808ebef131e979ded4` / `v1.0.0` | MIT |
 | Wonderful open test reference | https://github.com/asiekierka/ws-test-suite | `7dfa0e2e869d08386b685d6a56df0bcfaf181b47` | MIT |
 | Wonderful native example reference | https://github.com/WonderfulToolchain/target-wswan-examples | `811b739ab1f0203336a08da8db34365d29869617` | CC0-1.0 example scaffold; linked libraries use zlib terms |
-| Misaki Japanese font source mirror | https://github.com/OpenWitch/AthenaOS | `d37beae7482616313883dcfa4bdb7114d1ef5749` | author's official source/license: https://littlelimit.net/misaki.htm; unlimited use/copy/distribution with or without modification; no warranty |
+| Wonderful current system libraries | https://codeberg.org/WonderfulToolchain/target-wswan-syslibs | `d7d97ce9490c54aff3ad8ad5f4b60f1c547757ab` | zlib-style notices; component notices vary |
+| Wonderful target documentation | https://github.com/WonderfulToolchain/wonderful-docs | `98dd8700b0f8ec71c6e05bcd11042956fdd6f230` | repository notice pages vary |
+| Open WonderWitch OS / Misaki source mirror | https://github.com/OpenWitch/AthenaOS | `d37beae7482616313883dcfa4bdb7114d1ef5749` | AthenaOS MIT; bundled component/font notices vary; Misaki's official terms permit use/copy/distribution with or without modification and disclaim warranty |
 | ares behavioral reference | https://github.com/ares-emulator/ares | `449b93716fb162632de2fd43bf2eba2064fa43f2` | ares core under ISC-style notice; bundled notices vary |
 | Mesen behavioral reference | https://github.com/SourMesen/Mesen2 | `b9fa69ddc6d0a331fb103fdb5eef6904305703c2` | GPL v3 |
 

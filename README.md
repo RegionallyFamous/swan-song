@@ -6,9 +6,10 @@ reproducible build, an executable Verilator regression harness, and a documented
 boundary between console logic and Pocket integration. Hardware equivalence has
 not yet been confirmed; see [PHASE_STATUS.md](PHASE_STATUS.md).
 
-Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md), and
-[PHASE_STATUS.md](PHASE_STATUS.md). No BIOS or commercial cartridge image is
-included or downloaded.
+Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md),
+[PHASE_STATUS.md](PHASE_STATUS.md), and the
+[homebrew/WonderWitch guide](HOMEBREW_WONDERWITCH.md). No BIOS, WonderWitch
+firmware, or commercial cartridge image is included or downloaded.
 
 The WonderSwan system core was developed by [Robert Peip](https://github.com/RobertPeip)
 ([Patreon](https://www.patreon.com/FPGAzumSpass)) and the Analogue Pocket port
@@ -139,6 +140,19 @@ controlling specifications are Analogue's [boot process](https://www.analogue.co
 [`core.json`](https://www.analogue.co/developer/docs/core-definition-files/core-json),
 and [bus communication](https://www.analogue.co/developer/docs/bus-communication)
 documentation.
+
+### Homebrew and WonderWitch
+
+Current Wonderful `.ws`/`.wsc` output has a dedicated open regression,
+including `wswan/medium-sram` CRT initialization, far code/ROM data, and real
+cartridge-SRAM reads and writes. Build guidance, memory-model caveats, pinned
+toolchain sources, and the exact simulation boundary are in
+[`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md).
+
+WonderWitch `.fx` programs are not ordinary cartridge ROMs: they assume a
+FreyaBIOS/FreyaOS environment, filesystem, and flash-cartridge behavior. This
+core does not currently expose `.fx`, emulate WonderWitch flash writes, bundle
+firmware, or claim full WonderWitch compatibility.
 
 ## Features
 

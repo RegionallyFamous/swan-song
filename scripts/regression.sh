@@ -20,6 +20,10 @@ echo "PASS structured trace parser and writer"
 echo "PASS deterministic controller input-script parser"
 "$ROOT/sim/rtl/run_dma_pending_tb.sh"
 "$ROOT/sim/rtl/run_dma_savestate_tb.sh"
+"$ROOT/sim/rtl/run_apf_crc64_ecma32_tb.sh"
+"$ROOT/sim/rtl/run_apf_savestate_sdram_writer_tb.sh"
+"$ROOT/sim/rtl/run_apf_savestate_sdram_reader_tb.sh"
+python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_savestate_envelope_tb.sh"
 "$ROOT/sim/rtl/run_apf_host_notify_tb.sh"
 "$ROOT/sim/rtl/run_apf_grayscale_video_tb.sh"
@@ -36,7 +40,10 @@ echo "PASS deterministic controller input-script parser"
 "$ROOT/sim/rtl/run_apf_framebank_ram_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_arbiter_tb.sh"
 "$ROOT/sim/rtl/run_apf_frame_orientation_tb.sh"
+"$ROOT/sim/rtl/run_apf_orientation_transition_guard_tb.sh"
+"$ROOT/sim/rtl/run_apf_orientation_delivery_e2e_tb.sh"
 "$ROOT/sim/rtl/run_apf_beam_race_candidate_tb.sh"
+"$ROOT/sim/rtl/run_apf_late_frame_candidate_tb.sh"
 "$ROOT/sim/rtl/run_apf_scanout_cadence_tb.sh"
 "$ROOT/sim/rtl/run_apf_scaler_selector_tb.sh"
 "$ROOT/sim/rtl/run_apf_temporal_blend_tb.sh"
@@ -68,11 +75,13 @@ python3 "$ROOT/sim/verilator/verify_interrupts_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_sound_dma_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_internal_eeprom_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_wonderful_medium_sram_fixture_test.py"
 python3 "$ROOT/scripts/migrate_type01_save_test.py"
 python3 "$ROOT/scripts/migrate_legacy_eeprom_save_test.py"
 python3 "$ROOT/scripts/pocket_per_game_preset_test.py"
 python3 "$ROOT/scripts/frame_delivery_metrics_test.py"
 python3 "$ROOT/scripts/beam_race_safety_test.py"
+python3 "$ROOT/scripts/late_frame_delivery_test.py"
 python3 "$ROOT/scripts/pocket_first_class_contract_test.py"
 python3 "$ROOT/scripts/pocket_save_metadata_constraint_test.py"
 python3 "$ROOT/scripts/pocket_control_cdc_contract_test.py"
@@ -664,6 +673,28 @@ python3 "$ROOT/sim/verilator/verify_sjis_glyph_fixture.py" \
   --glyph-cells "$SJIS_OUT/bg-cells.csv" \
   --glyph-report "$SJIS_OUT/glyph-epochs.csv" \
   --glyph-contact "$SJIS_OUT/glyph-contact.png"
+
+# Validate Wonderful's current advanced C runtime path: medium-model far code
+# plus a 32 KiB cartridge-SRAM data segment. The open Color fixture's CRT must
+# initialize .bss/.data in SRAM, enter main through a far jump, survive exact
+# mutation/readback checks, render the success string, and halt.
+WONDERFUL_SRAM_FIXTURE="$ROOT/testroms/swan-song/wonderful_medium_sram"
+WONDERFUL_SRAM_OUT="$BUILD/wonderful-medium-sram"
+rm -rf "$WONDERFUL_SRAM_OUT"
+"$SIM" \
+  --rom "$WONDERFUL_SRAM_FIXTURE/medium_sram_probe.wsc" \
+  --frames 2 --max-cycles 4000000 --out "$WONDERFUL_SRAM_OUT" \
+  --event-trace "$WONDERFUL_SRAM_OUT/events.csv" \
+  --trace-events cpu,mem,bg_cell \
+  --trace-pc 0xfff30-0xfffa7,0xff14b-0xff1c7 \
+  --trace-mem-space cart_sram \
+  --trace-mem-address 0x10012-0x10013,0x10016-0x10017 \
+  >/dev/null
+python3 "$ROOT/sim/verilator/verify_wonderful_medium_sram_fixture.py" \
+  "$WONDERFUL_SRAM_FIXTURE" \
+  "$WONDERFUL_SRAM_OUT/events.csv" \
+  "$WONDERFUL_SRAM_OUT/frame-0.rgb" \
+  "$WONDERFUL_SRAM_OUT/frame-1.rgb"
 
 check_case() {
   local name="$1" expected="$2" output="$3" frame="${4:-5}"
