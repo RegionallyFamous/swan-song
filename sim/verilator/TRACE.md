@@ -12,6 +12,7 @@ Capture bank-register writes and GPU VRAM fetches as CSV:
 ./sim/verilator/run.sh \
   --rom /path/to/game.wsc \
   --frames 10 \
+  --trace-frame-artifacts \
   --event-trace build/sim/game.csv \
   --trace-events bank,vram
 ```
@@ -192,9 +193,12 @@ identity. `--contact-mode unique-exact` keeps the CSV complete while drawing
 one provenance-rich exact epoch for each distinct bitmap in the PNG; every
 `E###` label points back to the original CSV epoch. Use `exact` or `all` when repeated
 placements or incomplete/collision-marked candidates need visual inspection.
-Because structured traces currently have no frame marker, repeated normalized
-rows delimit occurrences; the report retains exact cycle spans instead of
-presenting that heuristic as frame identity.
+For both manifest versions, repeated normalized rows delimit occurrences
+because neither the trace nor this report carries a renderer-aware frame event.
+A v2 manifest separately supplies exact raw-frame publication cycles, but does
+not add frame identity to the atomic-cell CSV or glyph report. The report keeps
+exact renderer-event cycle spans instead of treating publication intervals as
+pixel causality.
 
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` accepts
 one or more comma-separated inclusive `START-END` ranges and treats them as a
@@ -434,6 +438,45 @@ and `complete_bg_cell_history=true`. The sprite atomic correlator analogously
 requires `events.sprite_row=true` and `complete_sprite_row_history=true`;
 otherwise either tool refuses `--require-complete-coverage` and never treats an
 absent write as zero.
+
+By default the simulator preserves the exact manifest-v1 contract used by the
+open probes. Add `--trace-frame-artifacts` to emit manifest v2 with an ordered
+`frames` array. Each record binds zero-based `index`, `completion_cycle`, a
+manifest-relative `file`, `size_bytes`, and lowercase FNV-1a digest. The bound
+file is the raw 224×144 RGB888 `frame-N.rgb` artifact (96,768 bytes), not the
+PNG that `run.sh` creates after the simulator exits. Verify the complete bundle
+before using it as evidence:
+
+```sh
+python3 sim/verilator/verify_frame_manifest.py build/sim/game.csv
+```
+
+This command verifies the exact trace bytes, ordered frame identities, paths,
+cycles, sizes, and contents recorded by manifest v2. For CSV event semantics,
+also run `verify_trace.py` with the investigation's required events and ranges;
+artifact integrity is not a substitute for schema/content assertions.
+Manifest v2 requires the event trace and every listed frame to be distinct,
+regular, non-symlink files. Raw frames are published through fresh temporary
+files and renamed into place; their size and digest are captured at publication
+and rechecked before the success manifest is atomically installed. This breaks
+preexisting hardlink aliases and refuses later substitution instead of silently
+adopting it.
+
+`completion_cycle` is the 36.864 MHz trace-cycle label on which the harness
+observes and copies the final visible framebuffer pixel at address 32,255. It
+is a framebuffer-sweep publication boundary, not an exported hardware VBlank
+or final-line strobe. WSdev documents the default 224×144 visible area within
+[159 lines of 256 display clocks](https://ws.nesdev.org/w/index.php?title=Timing&oldid=645),
+and the LCD final-line register is independently programmable
+([Display I/O revision 582](https://ws.nesdev.org/w/index.php?title=Display/IO_Ports&oldid=582)).
+Pinned ares likewise ends its hardware frame from `vcounter` and `vtotal`, not
+from the final visible pixel
+([PPU reference](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/ppu.cpp#L188-L228)).
+Consequently the v2 timeline proves which raw artifact was published at each
+cycle and detects stale or changed files; it does not by itself prove that an
+arbitrary earlier fetch survived the renderer into that artifact. The atomic
+background/sprite events remain the stronger renderer-aware provenance
+boundaries. Trace CSV/JSONL remains byte-for-byte v5/v6 with or without v2.
 
 `correlate_provenance.py` maintains IRAM per byte, respects partial and odd
 writes, preserves exact CPU origins, pairs GDMA reads/writes only in protocol

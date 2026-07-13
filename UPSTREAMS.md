@@ -208,6 +208,20 @@ buffer credit from its delay counter, those end-to-end trace intervals are
 reported only as observer deltas; the eight-clock SALC value remains a pinned
 reference contract, not a physical timing result.
 
+The opt-in trace/frame manifest v2 binds the simulator's raw RGB artifacts to
+the exact reset-relative system cycles on which their final visible pixels are
+published. Its terminology is intentionally narrower than a hardware frame:
+WSdev's pinned [timing revision](https://ws.nesdev.org/w/index.php?title=Timing&oldid=645)
+documents 224 visible pixels across 144 of 159 default lines and 256 display
+clocks per line, while the pinned [LCD register
+research](https://ws.nesdev.org/w/index.php?title=Display/IO_Ports&oldid=582)
+documents a programmable final line. Pinned ares independently ends a hardware
+frame when `vcounter` reaches `max(144, vtotal + 1)`
+([PPU implementation](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/ppu.cpp#L188-L228)).
+The manifest therefore certifies artifact publication, path, size, and content;
+it does not relabel that host observation as VBlank or infer that every trace
+event in the preceding interval causally contributed a visible pixel.
+
 The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
 Wonderful build of project source plus six unmodified 8×8 rows from Misaki
 Gothic. Its local README pins the author's official PNG and BDF archives and
