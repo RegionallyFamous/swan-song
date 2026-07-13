@@ -1,7 +1,8 @@
 # Per-game Pocket presets
 
 Swan Song can use Analogue Platform Framework (APF) per-asset overrides to give
-each WonderSwan ROM its own video, performance, audio, and Controls settings.
+each WonderSwan ROM its own video, performance, and audio defaults plus a
+path-mirrored Controls description.
 The repository includes a deterministic generator:
 
 ```sh
@@ -42,9 +43,13 @@ The authoritative references are Analogue's
 [`interact.json` documentation](https://www.analogue.co/developer/docs/core-definition-files/interact-json),
 [`input.json` documentation](https://www.analogue.co/developer/docs/core-definition-files/input-json),
 and [SD directory structure](https://www.analogue.co/developer/docs/directories-and-sd-folder-structure).
-Analogue OS 1.1 beta 5 added host-managed remapping for cores that provide an
-`input.json`; see the official
-[1.1 beta 5 changelog](https://www.analogue.co/developer/docs/changelog/1-1-beta-5).
+The current `input.json` page calls the Controls menu **currently read-only**,
+and Analogue's current [core-definition overview](https://www.analogue.co/developer/docs/core-definition-files)
+says remapping is coming soon. The historical
+[1.1 beta 5 changelog](https://www.analogue.co/developer/docs/changelog/1-1-beta-5)
+announced per-core OS remapping, but that older statement conflicts with the
+current definition pages. Swan Song therefore treats the current pages as the
+present public contract and makes no editable-remap or remap-persistence claim.
 
 For example, if slot 0 is:
 
@@ -84,20 +89,13 @@ rejects that ineffective combination instead of silently accepting it.
 ## Per-game Controls
 
 By default, the generator also creates the path-mirrored `Input` definition.
-This selects a per-asset APF Controls definition/namespace; it does **not**
-pre-remap any button. Every newly generated Input file is initially an exact
-copy of the core's default eight mappings. Open the running game's **Core
-Settings > Controls** menu on Pocket to perform the actual host-managed remap.
-The generated definition preserves all eight verified Swan Song mapping IDs,
-dual-orientation labels, and APF keycodes so Pocket can associate those
-functions with that slot-0 asset.
-
-The public `input.json` schema defines the control mapping surface, but does not
-document a JSON format or SD path for the user's saved remap values. Therefore,
-the tool does not fabricate or modify host-owned remap state. This is a cautious
-inference from the current public documentation: the per-asset Input override
-is supported, while the remap store remains an Analogue OS implementation
-detail.
+This selects a per-asset APF Controls definition/namespace. Every newly
+generated Input file is an exact copy of the core's default eight mappings, so
+the same verified mapping IDs, dual-orientation labels, and APF keycodes appear
+for that slot-0 asset. Under the current public documentation, **Core Settings
+> Controls** is read-only mapping help: generating this file does not remap a
+button or make that screen editable. The tool neither invents nor modifies an
+undocumented remap store.
 
 Use `--controls inherit` to create no Input override and retain the core-wide
 Controls definition. This option does not delete a per-game Input file that is
@@ -154,20 +152,19 @@ The suite proves exact path mirroring, all setting values, byte-for-byte
 determinism, no ROM reads or embedded ROM metadata, complete Input cloning,
 overwrite behavior, all-or-nothing preflight, CLI errors, and traversal/core-ID/
 symlink rejection. The following physical acceptance matrix is required before
-calling per-game Controls or Dock behavior certified:
+calling per-game Controls display or Dock behavior certified:
 
 | Surface | Required exercise | Pass condition |
 | --- | --- | --- |
-| Pocket built-in controls | With a fresh per-game Input definition, inspect all eight defaults, remap each function once, relaunch the title, then choose **Reset to Defaults**. | Every dual-orientation label and default key is correct; all eight remaps take effect and survive relaunch; reset restores only the declared defaults. |
-| Per-asset isolation | Create definitions for two personally owned ROM paths, assign visibly different remaps, alternate launches, then test a third title using `--controls inherit`. | The two per-asset mappings do not leak into each other; the inherited title retains the core-wide mapping. Treat failure as an Analogue OS behavior gap, because the public docs do not define the saved-remap store. |
-| Dock digital controller (`type 2`) | Test a wired digital pad and a second representative wired or wireless pad. Exercise D-pad, all six remappable action/trigger functions, Start, and Fast Forward in both native orientations. | Dock Player 1 produces the same canonical functions and labels as Pocket, with no brand-specific swaps or missing simultaneous inputs. |
+| Pocket built-in controls | With a fresh per-game Input definition, inspect all eight entries and exercise every declared physical button in both native orientations. | The screen remains read-only, every dual-orientation label is exact, and each physical button produces the documented function. |
+| Per-asset definition lookup | Create definitions for two personally owned ROM paths, alternate launches, then test a third title using `--controls inherit`. | Each generated title resolves its path-mirrored Controls definition; the inherited title resolves the core-wide definition. No editable-remap or saved-remap behavior is part of this gate. |
+| Dock digital controller (`type 2`) | Test a wired digital pad and a second representative wired or wireless pad. Exercise D-pad, all six declared action/trigger functions, Start, and Fast Forward in both native orientations. | Dock Player 1 produces the same canonical functions and labels as Pocket, with no brand-specific swaps or missing simultaneous inputs. |
 | Dock analog-capable controller (`type 3`) | Repeat the digital matrix over both USB and Bluetooth where supported, using the controller's digital D-pad. Move both analog sticks through their full range without pressing the D-pad. | Digital controls match Pocket. Analog motion alone produces no WonderSwan direction because Swan Song intentionally does not synthesize D-pad bits from `cont1_joy`. |
-| Native X/Y independence | In horizontal and vertical titles, hold each D-pad direction while pressing every face/trigger action individually and in representative chords. | Directional input and the opposite native X/Y action cluster remain independently visible; no remap aliases one Pocket control onto both native clusters at once. |
-| Hot plug and focus | Enter/leave the menu, insert/remove Pocket from Dock, reconnect both tested pads, and repeat while no control is held and while a control is released during the transition. | No stuck direction, action, Start, or Fast Forward state; control resumes on Player 1 without resetting or changing the per-asset mapping. |
+| Native X/Y independence | In horizontal and vertical titles, hold each D-pad direction while pressing every face/trigger action individually and in representative chords. | Directional input and the opposite native X/Y action cluster remain independently visible; no single Pocket control aliases both native clusters at once. |
+| Hot plug and focus | Enter/leave the menu, insert/remove Pocket from Dock, reconnect both tested pads, and repeat while no control is held and while a control is released during the transition. | No stuck direction, action, Start, or Fast Forward state; control resumes on Player 1 without resetting or changing the declared mapping. |
 | Non-gamepad packets | Connect a Dock keyboard and mouse, then disconnect all controllers. | Keyboard (`type 4`), mouse (`type 5`), disconnected (`type 0`), and reserved packet types cannot become WonderSwan buttons. This is source-simulated, but still needs a physical smoke test. |
 
-The intended per-asset Controls definition must appear in every case. Any
-host-managed remap must remain scoped to the intended game before release. The
-public APF documentation specifies per-asset Input lookup and host remapping,
-but does not publish the remap-store path or formally guarantee its persistence
-scope; that portion of the matrix cannot be replaced by an offline test.
+The intended per-asset Controls definition must appear in every case. The
+current public APF documentation specifies per-asset Input lookup and a
+read-only Controls menu; Swan Song does not claim host remapping or remap
+persistence.
