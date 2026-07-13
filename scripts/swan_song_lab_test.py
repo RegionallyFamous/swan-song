@@ -65,6 +65,13 @@ class SwanSongLabTest(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(lab.LabError):
                 lab.validate_ssh_cidr(invalid)
 
+    def test_full_outbound_rules_use_current_digitalocean_api_sentinel(self) -> None:
+        self.assertNotIn("ports:all", lab.OUTBOUND_RULES)
+        self.assertEqual(lab.OUTBOUND_RULES.count("ports:0"), 3)
+        self.assertIn("protocol:tcp,ports:0", lab.OUTBOUND_RULES)
+        self.assertIn("protocol:udp,ports:0", lab.OUTBOUND_RULES)
+        self.assertIn("protocol:icmp,ports:0", lab.OUTBOUND_RULES)
+
     def test_cloud_init_is_secret_free_hardened_and_uses_volume(self) -> None:
         script = lab.cloud_init("swan-data", "192.0.2.9/32")
         self.assertIn("00-swan-song-lab.conf", script)
@@ -292,6 +299,7 @@ class SwanSongLabTest(unittest.TestCase):
             payload = api.call_args_list[1].kwargs["input_body"]
             self.assertEqual(payload["ref"], "main")
             self.assertEqual(payload["inputs"]["lab_nonce"], "swan-lab-fixed")
+            self.assertIs(payload["return_run_details"], True)
 
     def test_state_file_is_private_and_rejects_wrong_magic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

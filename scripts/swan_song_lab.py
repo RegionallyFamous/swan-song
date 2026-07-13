@@ -26,6 +26,11 @@ ARCHIVE_NAME = "Quartus-lite-21.1.1.850-linux.tar"
 ARCHIVE_SHA1 = "789c1133d99fde7146fdb99c1f5dcb4d2e5cc0cc"
 IMAGE = "swan-song-quartus:21.1.1-850-cyclonev"
 LABELS = ["self-hosted", "linux", "x64", "swan-song-quartus-21-1-1"]
+OUTBOUND_RULES = (
+    "protocol:tcp,ports:0,address:0.0.0.0/0 "
+    "protocol:udp,ports:0,address:0.0.0.0/0 "
+    "protocol:icmp,ports:0,address:0.0.0.0/0"
+)
 MAGIC = "SWAN_SONG_DIGITALOCEAN_LAB_V1"
 DEFAULT_REPO = "RegionallyFamous/swan-song"
 DEFAULT_IMAGE = "ubuntu-24-04-x64"
@@ -721,8 +726,7 @@ def launch(args: argparse.Namespace) -> None:
                 "--name", firewall_name,
                 "--tag-names", tag,
                 "--inbound-rules", f"protocol:tcp,ports:22,address:{args.ssh_cidr}",
-                "--outbound-rules",
-                "protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,ports:all,address:0.0.0.0/0",
+                "--outbound-rules", OUTBOUND_RULES,
                 "--output", "json",
             ]),
             "firewall",
@@ -909,7 +913,11 @@ def dispatch(args: argparse.Namespace) -> None:
                 f"repos/{state['repo']}/actions/workflows/quartus-fit.yml/dispatches",
                 "--input", "-",
             ],
-            input_body={"ref": state["default_branch"], "inputs": {"lab_nonce": nonce}},
+            input_body={
+                "ref": state["default_branch"],
+                "inputs": {"lab_nonce": nonce},
+                "return_run_details": True,
+            },
         ),
         "workflow dispatch",
     )
