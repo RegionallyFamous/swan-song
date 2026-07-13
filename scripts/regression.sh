@@ -30,6 +30,7 @@ python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
+python3 "$ROOT/sim/verilator/verify_frame_manifest_test.py"
 python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_80186_quirks_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
@@ -146,6 +147,101 @@ python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
 python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
   "$INPUT_OUT/run-b/events.csv" \
   "$INPUT_OUT/fixture/input_replay_probe.input"
+
+# The opt-in manifest v2 binds each raw RGB artifact to the exact trace cycle
+# containing its final visible-pixel write. Two repeated captures must report
+# identical publication cycles, and the option must not alter trace/frame bytes
+# relative to the otherwise identical legacy manifest-v1 capture above.
+for frame_run in a b; do
+  "$SIM" \
+    --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+    --input-script "$INPUT_OUT/fixture/input_replay_probe.input" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$INPUT_OUT/frame-bound-$frame_run/frames" \
+    --event-trace "$INPUT_OUT/frame-bound-$frame_run/events.csv" \
+    --trace-frame-artifacts --trace-events bank >/dev/null
+done
+FRAME_BOUND_A="$(python3 "$ROOT/sim/verilator/verify_frame_manifest.py" \
+  "$INPUT_OUT/frame-bound-a/events.csv")"
+FRAME_BOUND_B="$(python3 "$ROOT/sim/verilator/verify_frame_manifest.py" \
+  "$INPUT_OUT/frame-bound-b/events.csv")"
+test "$FRAME_BOUND_A" = "$FRAME_BOUND_B"
+echo "$FRAME_BOUND_A"
+cmp "$INPUT_OUT/run-a/events.csv" "$INPUT_OUT/frame-bound-a/events.csv"
+cmp "$INPUT_OUT/run-a/frames/frame-0.rgb" \
+  "$INPUT_OUT/frame-bound-a/frames/frame-0.rgb"
+python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
+  "$INPUT_OUT/frame-bound-a/events.csv" \
+  "$INPUT_OUT/fixture/input_replay_probe.input"
+
+# Repeat the same legacy/bound comparison with sprite_row selected so the
+# conditional v6 event schema is locked independently of v5.
+"$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --input-script "$INPUT_OUT/fixture/input_replay_probe.input" \
+  --frames 2 --max-cycles 1500000 \
+  --out "$INPUT_OUT/legacy-v6/frames" \
+  --event-trace "$INPUT_OUT/legacy-v6/events.csv" \
+  --trace-events bank,sprite_row >/dev/null
+mkdir -p "$INPUT_OUT/frame-bound-v6/frames"
+touch "$INPUT_OUT/frame-bound-v6/frames/frame-0.rgb"
+ln "$INPUT_OUT/frame-bound-v6/frames/frame-0.rgb" \
+  "$INPUT_OUT/frame-bound-v6/frames/frame-1.rgb"
+"$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --input-script "$INPUT_OUT/fixture/input_replay_probe.input" \
+  --frames 2 --max-cycles 1500000 \
+  --out "$INPUT_OUT/frame-bound-v6/frames" \
+  --event-trace "$INPUT_OUT/frame-bound-v6/events.csv" \
+  --trace-frame-artifacts --trace-events bank,sprite_row >/dev/null
+python3 "$ROOT/sim/verilator/verify_frame_manifest.py" \
+  "$INPUT_OUT/frame-bound-v6/events.csv"
+cmp "$INPUT_OUT/legacy-v6/events.csv" \
+  "$INPUT_OUT/frame-bound-v6/events.csv"
+cmp "$INPUT_OUT/legacy-v6/frames/frame-0.rgb" \
+  "$INPUT_OUT/frame-bound-v6/frames/frame-0.rgb"
+cmp "$INPUT_OUT/legacy-v6/frames/frame-1.rgb" \
+  "$INPUT_OUT/frame-bound-v6/frames/frame-1.rgb"
+if [[ "$INPUT_OUT/frame-bound-v6/frames/frame-0.rgb" \
+      -ef "$INPUT_OUT/frame-bound-v6/frames/frame-1.rgb" ]]; then
+  echo "atomic frame publication retained a hardlink alias" >&2
+  exit 1
+fi
+
+COLLISION_OUT="$INPUT_OUT/trace-frame-collision"
+if ( "$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --frames 1 --max-cycles 1000000 \
+  --out "$COLLISION_OUT" \
+  --event-trace "$COLLISION_OUT/frame-0.rgb" \
+  --trace-frame-artifacts --trace-events bank ) >/dev/null 2>&1; then
+  echo "event trace at a raw frame path unexpectedly ran" >&2
+  exit 1
+fi
+test ! -e "$COLLISION_OUT/frame-0.rgb.manifest.json"
+
+VCD_COLLISION_OUT="$INPUT_OUT/vcd-frame-collision"
+mkdir -p "$VCD_COLLISION_OUT"
+ln -s frame-0.rgb "$VCD_COLLISION_OUT/capture.vcd"
+if ( "$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --frames 1 --max-cycles 1000000 \
+  --out "$VCD_COLLISION_OUT" \
+  --trace "$VCD_COLLISION_OUT/capture.vcd" \
+  --event-trace "$VCD_COLLISION_OUT/events.csv" \
+  --trace-frame-artifacts --trace-events bank ) >/dev/null 2>&1; then
+  echo "symlinked VCD at a raw frame path unexpectedly ran" >&2
+  exit 1
+fi
+test ! -e "$VCD_COLLISION_OUT/events.csv.manifest.json"
+
+if ( "$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --frames 1 --trace-frame-artifacts ) >/dev/null 2>&1; then
+  echo "frame artifacts without an event trace unexpectedly ran" >&2
+  exit 1
+fi
+echo "PASS frame-bound trace bytes preserve legacy v5 output"
 
 # A final event at --max-cycles can never be applied because simulation runs
 # [0,max-cycles). Reject it before simulation and invalidate the prior success
