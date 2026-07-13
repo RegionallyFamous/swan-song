@@ -1280,6 +1280,24 @@ module core_top (
   reg [31:0] reset_delay = 0;
   wire external_reset = reset_delay > 0;
 
+  // The original console enters its owner/setup screen when Start is held
+  // across power-on.  Pocket exposes that gesture as a one-shot action at
+  // 0x54.  Its dedicated sequencer releases reset before forced Start and
+  // moves both levels safely from clk_74a into the WonderSwan system clock.
+  wire console_setup_trigger_74a =
+      bridge_wr && bridge_addr == 32'h00000054 && bridge_wr_data == 32'd1;
+  wire console_setup_reset_sys_s;
+  wire console_setup_start_sys_s;
+
+  apf_console_setup console_setup_sequencer (
+      .clk_source(clk_74a),
+      .clk_destination(clk_sys_36_864),
+      .reset_n(reset_n),
+      .trigger(console_setup_trigger_74a),
+      .reset_active_destination(console_setup_reset_sys_s),
+      .start_active_destination(console_setup_start_sys_s)
+  );
+
   reg [1:0] configured_system = 2'd0;
 
   reg use_cpu_turbo = 1'b0;
@@ -1415,7 +1433,7 @@ module core_top (
       .reset_n(reset_n_mem_s),
       .reset_n_sys(reset_n_sys_s),
       .pll_core_locked(pll_core_ready_mem),
-      .external_reset(external_reset_sys_s),
+      .external_reset(external_reset_sys_s | console_setup_reset_sys_s),
 
       .ioctl_wr  (ioctl_wr),
       .ioctl_addr(ioctl_addr),
@@ -1448,7 +1466,7 @@ module core_top (
       .button_y(cont1_key_s[7]),
       .button_trig_l(cont1_key_s[8]),
       .button_trig_r(cont1_key_s[9]),
-      .button_start(cont1_key_s[15]),
+      .button_start(cont1_key_s[15] | console_setup_start_sys_s),
       .button_select(cont1_key_s[14]),
       .dpad_up(cont1_key_s[0]),
       .dpad_down(cont1_key_s[1]),

@@ -526,9 +526,11 @@ class PackageCoreTest(unittest.TestCase):
             ),
             (
                 CORE_DIRECTORY / "interact.json",
-                lambda value: value["interact"]["variables"][1]["options"].append(
-                    {"value": 0, "name": "Duplicate"}
-                ),
+                lambda value: next(
+                    item
+                    for item in value["interact"]["variables"]
+                    if int(item["id"]) == 10
+                )["options"].append({"value": 0, "name": "Duplicate"}),
                 "options values must be unique",
             ),
             (

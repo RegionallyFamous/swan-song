@@ -160,7 +160,7 @@ def verify_contract(core_top_source: str, wonderswan_source: str) -> None:
         {
             "reset_n": "reset_n_mem_s",
             "reset_n_sys": "reset_n_sys_s",
-            "external_reset": "external_reset_sys_s",
+            "external_reset": "external_reset_sys_s|console_setup_reset_sys_s",
             "ext_cart_download": "ext_cart_download_mem_s",
             "ext_cart_download_sys": "ext_cart_download_sys_s",
             "bios_download": "bios_download_sys_s",
@@ -300,7 +300,7 @@ def main() -> None:
         ("core_top", "ext_cart_download_mem_s,\n      clk_mem_110_592", "ext_cart_download_sys_s,\n      clk_mem_110_592", "memory cartridge-download synchronizer"),
         ("core_top", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_sys_36_864", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_mem_110_592", "system download synchronizer"),
         ("core_top", ".reset_n_sys(reset_n_sys_s)", ".reset_n_sys(reset_n_mem_s)", "WonderSwan domain controls"),
-        ("core_top", ".external_reset(external_reset_sys_s)", ".external_reset(external_reset)", "WonderSwan domain controls"),
+        ("core_top", ".external_reset(external_reset_sys_s | console_setup_reset_sys_s)", ".external_reset(external_reset | console_setup_reset_sys_s)", "WonderSwan domain controls"),
         ("core_top", ".ext_cart_download_sys(ext_cart_download_sys_s)", ".ext_cart_download_sys(ext_cart_download_mem_s)", "WonderSwan domain controls"),
         ("core_top", ".bios_download(bios_download_sys_s)", ".bios_download(bios_download)", "WonderSwan domain controls"),
         ("wonderswan", "~reset_n_sys | cart_download_sys", "~reset_n | cart_download_sys", "system reset expression"),

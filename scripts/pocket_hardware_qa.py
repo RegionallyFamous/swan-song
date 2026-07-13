@@ -157,7 +157,8 @@ CASE_SPECS = (
     CaseSpec("console_eeprom_lifecycle", "both", (
         "fixed_paths_mono_128_color_2048", "absent_before_first_launch_both",
         "factory_files_created_both", "original_mono_bios_setup_edit",
-        "original_color_bios_setup_edit", "quit_relaunch_loaded_both",
+        "original_color_bios_setup_edit", "console_setup_action_both_models",
+        "quit_relaunch_loaded_both",
         "model_switch_isolated", "title_switch_isolated",
         "ordinary_reset_retained_both", "power_cycle_loaded_both",
         "exact_stage_snapshots_and_hashes_recorded", "shutdown_flush_complete",

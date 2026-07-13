@@ -96,8 +96,9 @@ game on the next normal launch. Current [Pocket firmware
 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0) adds a host-owned
 openFPGA **Recent** category. If that surface reopens Swan Song, the persistent
 slot is expected to return to the last title, but the complete flow remains
-pending Pocket verification. APF provides no supported field for pre-seeding or
-pinning Recent. Use **Core Settings > Cartridge** to switch games. The exact
+pending Pocket verification. The public APF documentation provides no supported
+field for pre-seeding or pinning Recent. Use **Core Settings > Cartridge** to
+switch games. The exact
 launcher and Library boundary is documented in
 [POCKET_LAUNCHER_LIBRARY.md](POCKET_LAUNCHER_LIBRARY.md).
 **Reset all to defaults** clears the remembered browser choices; Pocket
@@ -122,6 +123,20 @@ deterministic factory image; an ordinary reset does not clear either bank.
 The BIOS setup flow therefore remains the original firmware flow, and the
 project still bundles no BIOS. Quit/relaunch, model switching, title switching,
 and power-cycle retention remain required physical-Pocket acceptance checks.
+
+Choose **Core Settings > Console Setup** to recreate the
+[original Bandai manual's owner-registration gesture](https://archive.org/details/booklet_20201231):
+hold Start while powering on with a cartridge inserted. Analogue's official
+[`interact.json` action](https://www.analogue.co/developer/docs/core-definition-files/interact-json)
+writes the core's dedicated BRIDGE register; the independently documented
+[mono and Color boot-ROM flow](https://ws.nesdev.org/wiki/Boot_ROM) confirms
+that a held Start enters the firmware menu. The action resets the emulated
+console for about 14 ms and keeps only
+logical Start forced for about 452 ms, long enough for the original mono or
+Color BIOS to enter its owner screen. It does not change Display Orientation,
+the game's native orientation, or the button mapping. Host Reset Enter cancels
+the gesture; selecting Console Setup again restarts both intervals. This is
+source- and CDC-simulated behavior pending the physical-Pocket check above.
 
 WonderSwan
 

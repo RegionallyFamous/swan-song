@@ -144,8 +144,11 @@ labels are exactly `console-eeprom {mono|color} {stage}`, where stage is
 `title-switch`, `ordinary-reset`, or `power-cycle`. The verifier requires every
 mono snapshot to be 128 bytes, every Color snapshot to be 2,048 bytes, each
 setup hash to differ from its factory hash, and every later hash to match the
-edited image. Capture at least two visual records showing the original BIOS
-flows and a UTF-8 log that records absent-file checks, both shutdown/flush
+edited image. For each model, enter the flow through **Core Settings > Console
+Setup**; confirm that the original BIOS owner screen appears as though Start
+were held at power-on, and that the action does not change Display Orientation
+or the native control matrix. Capture at least two visual records showing the
+original BIOS flows and a UTF-8 log that records absent-file checks, both shutdown/flush
 boundaries, exact SD paths, device/model/title transitions, and hashes.
 
 The fixed catalogue covers:
