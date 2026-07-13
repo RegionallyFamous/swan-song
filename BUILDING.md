@@ -93,10 +93,15 @@
   DMA-entity test forces pending-request cancellation behind IDLE/GDMA and one
   already-issued completion. The inherited DMA bus reports raw
   `byte_enable=3` while SDMA still advances one byte per transfer, so the trace
-  contract does not treat that mask as sample width. Exact held reads record
-  current translated policy; neither probe establishes physical `117 mod 128`
-  phase, `6+N` stolen-cycle cost, slower rates, Hyper Voice, save-state
-  continuation, or hardware behavior.
+  contract does not treat that mask as sample width. A pinned open Wonderful
+  fixture adds paired 346-read captures, all 22 PASS markers, terminal PC
+  `0xff63a`, and exact final pixels. Its two source-labeled SRAM phases are
+  required to resolve to 43 segment-zero IRAM rows and zero cartridge-SRAM
+  rows, exposing the toolchain limitation instead of claiming SRAM coverage.
+  Direct save/load tests cover versioned and legacy continuation boundaries.
+  Exact held reads record current translated policy; these tests do not
+  establish physical `117 mod 128` phase, `6+N` stolen-cycle cost, slower-rate
+  cadence, Hyper Voice, or hardware behavior.
 - Paired generated 2 MiB mapper probes runtime-verify `boot_rom`,
   `cart_sram`/`absent_sram`, mono `unmapped`, `cart_rom0`, `cart_rom1`, and
   `cart_rom_linear` classification. Exact checks cover C0/C1 bank bits that
@@ -105,6 +110,11 @@
   current core's readback values. Separate generated 4 KiB/8 KiB boot images
   prove mono and Color overlay offsets, execution from byte zero, a low-window
   marker read, A0 lockout, and the same top addresses becoming cartridge ROM.
+  A second generated pair declares header values `0x01` and `0x02` and requires
+  identical seven-event traces proving 32 KiB behavior: offsets `0x0000`,
+  `0x2000`, and `0x7fff` remain distinct and `0x8000` mirrors zero. A focused
+  contract also requires matching 32,768-byte mapper/save-state sizes, 64
+  Pocket blocks, and the dynamic APF Save slot.
   These are translated-RTL contracts: absent-SRAM zero and mono-unmapped
   `0x9090` readback are regression-locked current-core results, not physical
   hardware/open-bus claims.
@@ -156,6 +166,28 @@ Run the regression suite:
 ```sh
 make regression
 ```
+
+### Migrating legacy type-01 Pocket saves
+
+Pocket packages made from the inherited 1.0.1 core treated WonderSwan header
+type `0x01` as 8 KiB. The corrected core uses the documented 32 KiB layout, so
+an old 8,204-byte file must not be loaded directly. Convert it to a new path:
+
+```sh
+./scripts/migrate_type01_save.py \
+  /path/to/type01-game.ws \
+  /path/to/legacy-8204-byte.sav \
+  /path/to/new-32780-byte.sav
+```
+
+The tool requires a checksummed ROM whose footer declares exactly type `0x01`
+and an exactly 8,204-byte input. It preserves the first 8,192 SRAM bytes,
+zero-fills the newly exposed 24 KiB, moves the opaque 12-byte RTC trailer to
+the end of the 32 KiB SRAM region, prints input/output hashes, and refuses to
+overwrite or alias either input. It never changes the original save. If the
+output filesystem cannot atomically create without replacement, create the
+new file on a local filesystem and then copy it to the SD card. Data already
+lost through the old 8 KiB address alias cannot be recovered.
 
 ### Exact CI toolchain
 

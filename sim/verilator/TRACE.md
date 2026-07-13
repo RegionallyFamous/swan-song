@@ -633,7 +633,12 @@ and binds 21 selected reads to 12 self-checking success markers for the
 live/shadow, pause/resume, repeat, decrement, zero-length, and held-zero subset;
 the direct entity test covers pending cancellation and issued completion, and
 the direct save/load test covers the exact versioned/legacy continuation
-boundaries described above.
+boundaries described above. The pinned open WSC fixture adds two byte-identical
+15-frame captures with 346 exact SDMA rows, all 22 PASS markers, terminal PC
+`0xff63a`, and exact final pixels. Its source-labeled SRAM phases are explicitly
+43 segment-zero IRAM reads and zero cartridge-SRAM reads, so they establish no
+SRAM or wait-state behavior; the fixture also does not pin physical transfer
+phase or CPU-steal duration.
 The pinned open mono interrupt fixture is run twice and binds all 13 PASS cells,
 the exact terminal loop, complete background history, and its derived final
 raster. It directly covers eight UART-send-ready and five vector/status
@@ -650,13 +655,19 @@ values, aliases, instruction IDs, and origin PCs. Separate mono and Color boot
 probes execute from byte zero and prove A0 lockout changes physical addresses
 `0xffff0..0xffffe` from mono offsets `0xff0..0xffe` or Color offsets
 `0x1ff0..0x1ffe` to carrier-ROM offsets `0x1fff0..0x1fffe`.
+An additional generated pair declares SRAM types `0x01` and `0x02` and requires
+byte-identical seven-row CPU traces: offsets `0x0000`, `0x2000`, and `0x7fff`
+remain distinct, while address `0x18000` resolves to mirrored SRAM offset zero.
+The focused companion contract locks the corresponding 32 KiB mapper,
+save-state, Pocket block-count, and dynamic APF Save-slot authorities.
 
 Those probes lock the translated RTL resolver and observer, not physical
 hardware behavior. Current RTL returns zero for absent SRAM and `0x9090` for
 mono unmapped reads; ares instead models absent SRAM as cartridge open bus,
 while Mesen's fallback is marked as an open-bus TODO. Neither current-core
 result is claimed as hardware-correct. The SRAM probe uses `ramtype=0x03`
-(128 KiB), avoiding the disputed `0x01` interpretation.
+(128 KiB) for its broad resolver coverage; the separate paired probe verifies
+the corrected, research-consistent 32 KiB `0x01`/`0x02` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
 The six-frame display-provenance regression requires 78,940/78,940

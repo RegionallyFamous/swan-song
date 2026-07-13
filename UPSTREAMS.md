@@ -101,12 +101,17 @@ appears in bit 1; no external source bytes are copied into the generated probe.
 The mapper-memory and boot-overlay regressions are also generated under
 `build/`, but are fully self-contained: they synthesize their own valid
 cartridge footers/checksums and open simulation-only 4 KiB/8 KiB boot test
-images. They include no console firmware or commercial data. The mapper probe
-uses save type `0x03` (128 KiB SRAM), whose current header meaning is
-unambiguous. It deliberately avoids `0x01`: current [WSdev ROM-header
-research](https://ws.nesdev.org/wiki/ROM_header) reports 32 KiB chips in known
-cartridges while the inherited RTL still interprets that value as 8 KiB.
-Resolving that hardware-accuracy question is outside the probe's role.
+images. They include no console firmware or commercial data. The broad mapper
+probe retains save type `0x03` (128 KiB SRAM) so its eight-space provenance
+contract remains independent of the smaller-size correction. A dedicated pair
+now differs only in save type `0x01` versus `0x02` and proves that both retain
+distinct offsets `0x0000`, `0x2000`, and `0x7fff` before mirroring at `0x8000`.
+That correction follows pinned [WSdev ROM-header revision
+680](https://ws.nesdev.org/w/index.php?title=ROM_header&oldid=680), [Mesen2's
+save-size table](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsConsole.cpp#L58-L65),
+and [ares' loader](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/mia/medium/wonderswan.cpp#L85-L95),
+which all map both header values to 32 KiB. No external source bytes are copied
+into the generated pair.
 
 The Sound-DMA regressions generate two self-contained 128 KiB Color cartridges
 under `build/`; neither is checked in. The first minimal open 80186 program
@@ -116,6 +121,18 @@ its readback, terminal, pause/resume, live-edit, repeat, decrement, and held-zer
 assertions pass. Both programs, sample bytes, identity markers, input text,
 footers, and checksums are repository-authored and include no external carrier,
 firmware, SDK, hardware-test binary, or commercial data.
+
+A third Sound-DMA workload is checked in under
+`testroms/ws-test-suite/sound_dma`: it is a byte-identical build of the pinned
+MIT [ws-test-suite source](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/color/dma/sound_dma/main.c)
+with its exact source, configuration, MIT notice, linked Wonderful system-library
+zlib notice, container digest, footer/checksum, and ROM/font hashes recorded in
+the local README. It includes no BIOS, proprietary firmware, or commercial
+game data. The pinned Wonderful build placed the source's `.sram` symbol in
+segment zero, so the two SRAM-labeled tests produce 43 IRAM reads at
+`0x0059..0x0068` and no cartridge-SRAM reads. The strict verifier makes that
+limitation an acceptance condition rather than treating the green labels as
+SRAM or wait-state evidence.
 
 The contract was reviewed against pinned [WSdev DMA revision
 562](https://ws.nesdev.org/w/index.php?title=DMA&oldid=562), [Mesen2's transfer
