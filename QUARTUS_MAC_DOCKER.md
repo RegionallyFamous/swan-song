@@ -35,6 +35,12 @@ SHA-1: 467123b7bd5e6907beb7d6b1e073ed7bad3e5e94
 
 Do not download Questa. The existing Verilator/GHDL flow supplies simulation;
 Questa is not needed for synthesis, fitting, assembly, or timing analysis.
+The repository's fail-closed automation requires the complete 6.6 GB archive
+above even though Altera also publishes its inner installer and Cyclone V
+payload separately. Keep at least 36 GB free for the archive, extracted build
+context, Docker layers, Quartus installation, and compile artifacts. An 8 GB or
+larger Docker VM memory allocation is a practical starting point for the fit;
+that is a project recommendation, not a vendor guarantee.
 
 ## Preflight and installation
 
@@ -172,6 +178,13 @@ Until the official installer, Quartus device probe, complete Swan Song fit, and
 timing reports all succeed on this Mac, Quartus-under-emulation remains an
 unproven host path. A successful emulated fit still does not replace testing the
 RBF on an Analogue Pocket.
+
+There is no official Pocket/APF software simulator. The local Verilator and
+GHDL harnesses test core logic but cannot reproduce PocketOS, the APF host,
+physical SDRAM timing, the LCD/scaler/Dock path, or execute an RBF as Pocket
+hardware would. After a successful fit, follow
+[`POCKET_SD_STAGING.md`](POCKET_SD_STAGING.md) for the fail-closed package and
+microSD workflow before hardware acceptance testing.
 
 Finally, SHA-1 is used because it is the digest the vendor publishes for this
 release. These checks detect corruption and package mix-ups against that pinned
