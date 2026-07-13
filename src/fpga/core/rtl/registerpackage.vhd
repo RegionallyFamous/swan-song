@@ -58,7 +58,13 @@ entity eReg is
       BUS_Dout  : out   std_logic_vector(BUS_buswidth-1 downto 0) := (others => '0');
       Din       : in    std_logic_vector(Reg.upper downto Reg.lower);
       Dout      : out   std_logic_vector(Reg.upper downto Reg.lower);
-      written   : out   std_logic := '0'
+      written   : out   std_logic := '0';
+      -- Optional direct restore path for exact controller snapshots.  These
+      -- trailing defaults preserve every existing positional instantiation.
+      -- `written` deliberately remains a CPU-bus decode only: state_load
+      -- restores the latch without manufacturing a register-write event.
+      state_load : in   std_logic := '0';
+      state_data : in   std_logic_vector(Reg.upper downto Reg.lower) := (others => '0')
    );
 end entity;
 
@@ -80,6 +86,10 @@ begin
          
             Dout_buffer <= std_logic_vector(to_unsigned(Reg.defval,Reg.upper-Reg.lower+1));
          
+         elsif (state_load = '1') then
+
+            Dout_buffer <= state_data;
+
          else
       
             if (BUS_Adr = AdrI and BUS_wren = '1') then
@@ -95,7 +105,7 @@ begin
    
    Dout <= Dout_buffer;
    
-   written <= '1' when (BUS_Adr = AdrI and BUS_wren = '1') else '0';
+   written <= '1' when (BUS_Adr = AdrI and BUS_wren = '1' and state_load = '0') else '0';
    
    goutputbit: for i in Reg.lower to Reg.upper generate
       BUS_Dout(i) <= Din(i) when BUS_Adr = AdrI else '0';
@@ -114,6 +124,4 @@ begin
    end generate;
    
 end architecture;
-
-
 

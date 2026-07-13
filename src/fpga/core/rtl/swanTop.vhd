@@ -1086,6 +1086,14 @@ begin
       RTC_savedtimeOut     => RTC_savedtimeOut,  
                            
       sleep_savestate      => sleep_savestate,
+
+      -- The v2 RTC device boundary is implemented and independently tested,
+      -- but remains disconnected until the atomic v2 owner is integrated.
+      state_freeze         => '0',
+      state_frozen         => open,
+      state_load           => '0',
+      state_data_in        => (others => '0'),
+      state_data_out       => open,
                            
       RegBus_Din           => RegBus_Din,
       RegBus_Adr           => RegBus_Adr, 

@@ -23,6 +23,17 @@ entity rtc is
 
       sleep_savestate      : in  std_logic;
 
+      -- Exact device state for the Memories v2 RTC section.  Capture clients
+      -- first assert state_freeze and wait for state_frozen.  state_data_out
+      -- is then stable until state_freeze is released.  A state_load pulse is
+      -- accepted only while frozen and directly replaces the RTC state; it
+      -- does not replay register writes or command side effects.
+      state_freeze         : in  std_logic := '0';
+      state_frozen         : out std_logic := '0';
+      state_load           : in  std_logic := '0';
+      state_data_in        : in  std_logic_vector(255 downto 0) := (others => '0');
+      state_data_out       : out std_logic_vector(255 downto 0) := (others => '0');
+
       RegBus_Din           : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr           : in  std_logic_vector(BUS_busadr-1 downto 0);
       RegBus_wren          : in  std_logic;
@@ -35,8 +46,8 @@ end entity;
 architecture arch of rtc is
   
    -- register
-   signal RTC_COMMAND : std_logic_vector(7 downto 0);
-   signal RTC_READ    : std_logic_vector(7 downto 0);
+   signal RTC_COMMAND : std_logic_vector(7 downto 0) := (others => '0');
+   signal RTC_READ    : std_logic_vector(7 downto 0) := (others => '0');
    
    signal RTC_COMMAND_written : std_logic;
    
@@ -44,7 +55,11 @@ architecture arch of rtc is
    signal reg_wired_or : t_reg_wired_or;
    
    -- internal logic
-   signal index            : integer range 0 to 6;
+   -- The serialized forms intentionally cover the complete binary widths.
+   -- Values 7 and 36864000..67108863 are invalid v2 input and are rejected by
+   -- the outer loader, but retaining their full widths here makes this device
+   -- interface total and avoids simulator range failures on untrusted input.
+   signal index            : integer range 0 to 7 := 0;
    signal RegBus_wren_1    : std_logic := '0';
    signal RegBus_rden_1    : std_logic := '0';
    
@@ -53,10 +68,13 @@ architecture arch of rtc is
    signal rtc_change       : std_logic := '0';
    signal RTC_saveLoaded_1 : std_logic := '0';
    
-   signal RTC_timestamp    : std_logic_vector(31 downto 0);
+   -- Power-on zero is intentionally deterministic before Pocket's first
+   -- 0090 timestamp seed.  The edge detector below retains the legacy seed
+   -- behavior and does not continuously follow the host clock.
+   signal RTC_timestamp    : std_logic_vector(31 downto 0) := (others => '0');
    signal diffSeconds      : unsigned(31 downto 0) := (others => '0');
    
-   signal secondcount      : integer range 0 to 36864000 := 0; -- 1 second at 36.864 Mhz
+   signal secondcount      : integer range 0 to 67108863 := 0; -- 26-bit phase; 1 second at 36.864 MHz
                            
    signal tm_year          : unsigned(7 downto 0) := x"00";
    signal tm_mon           : unsigned(4 downto 0) := '0' & x"1";
@@ -66,17 +84,27 @@ architecture arch of rtc is
    signal tm_min           : unsigned(6 downto 0) := "000" & x"0";
    signal tm_sec           : unsigned(6 downto 0) := "000" & x"1";
                            
-   signal buf_tm_year      : std_logic_vector(7 downto 0);
-   signal buf_tm_mon       : std_logic_vector(4 downto 0);
-   signal buf_tm_mday      : std_logic_vector(5 downto 0);
-   signal buf_tm_wday      : std_logic_vector(2 downto 0);
-   signal buf_tm_hour      : std_logic_vector(5 downto 0);
-   signal buf_tm_min       : std_logic_vector(6 downto 0);
-   signal buf_tm_sec       : std_logic_vector(6 downto 0);
+   signal buf_tm_year      : std_logic_vector(7 downto 0) := x"00";
+   signal buf_tm_mon       : std_logic_vector(4 downto 0) := '0' & x"1";
+   signal buf_tm_mday      : std_logic_vector(5 downto 0) := "00" & x"1";
+   signal buf_tm_wday      : std_logic_vector(2 downto 0) := "000";
+   signal buf_tm_hour      : std_logic_vector(5 downto 0) := "00" & x"0";
+   signal buf_tm_min       : std_logic_vector(6 downto 0) := "000" & x"0";
+   signal buf_tm_sec       : std_logic_vector(6 downto 0) := "000" & x"1";
+
+   signal rtc_regbus_wren  : std_logic;
+   signal rtc_regbus_rst   : std_logic;
+   signal state_frozen_i   : std_logic := '0';
 
 begin 
-   iREG_RTC_COMMAND : entity work.eReg generic map ( REG_RTC_COMMAND ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), x"80"   , open, RTC_COMMAND_written);  
-   iREG_RTC_WRITE   : entity work.eReg generic map ( REG_RTC_WRITE   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), RTC_READ, open);   
+   -- eReg's stored writeback value is not architecturally visible here, but
+   -- suppressing its write input ensures that *all* sequential state below
+   -- the RTC device boundary is held during a cooperative freeze.
+   rtc_regbus_wren <= RegBus_wren when state_freeze = '0' else '0';
+   rtc_regbus_rst  <= RegBus_rst  when state_freeze = '0' else '0';
+
+   iREG_RTC_COMMAND : entity work.eReg generic map ( REG_RTC_COMMAND ) port map (clk, RegBus_Din, RegBus_Adr, rtc_regbus_wren, rtc_regbus_rst, reg_wired_or(0), x"80"   , open, RTC_COMMAND_written);
+   iREG_RTC_WRITE   : entity work.eReg generic map ( REG_RTC_WRITE   ) port map (clk, RegBus_Din, RegBus_Adr, rtc_regbus_wren, rtc_regbus_rst, reg_wired_or(1), RTC_READ, open);
    
    process (reg_wired_or)
       variable wired_or : std_logic_vector(7 downto 0);
@@ -96,10 +124,99 @@ begin
    RTC_savedtimeOut(19 downto 14) <= buf_tm_hour;
    RTC_savedtimeOut(13 downto 7)  <= buf_tm_min; 
    RTC_savedtimeOut(6 downto 0)   <= buf_tm_sec; 
+
+   state_frozen <= state_frozen_i;
+
+   -- Stable, byte-aligned v2 RTC image.  Byte +0x00 is bits 255:248, matching
+   -- the ABI rule that the lowest normalized byte occupies bridge bits 31:24.
+   -- This is the active first 0x20 bytes of the fixed 0x100-byte RTC section;
+   -- its serializer writes the remaining 0xe0 section bytes as zero.
+   --
+   --   00 command       01 read latch       02 index (low 3 bits)
+   --   03 edge/change flags: wren, rden, timestampNew, change, saveLoaded
+   --   04..07 timestamp 08..0b catch-up     0c..0f subsecond phase
+   --   10..16 live BCD calendar (year, month, mday, wday, hour, min, sec)
+   --   17..1d buffered BCD calendar         1e..1f zero
+   --
+   -- Unused upper bits within calendar/index/flag bytes are canonical zero.
+   -- Do not reorder these bytes without changing the device schema/ABI.
+   process (all)
+      variable packed_state : std_logic_vector(255 downto 0);
+   begin
+      packed_state := (others => '0');
+      packed_state(255 downto 248) := RTC_COMMAND;
+      packed_state(247 downto 240) := RTC_READ;
+      packed_state(234 downto 232) := std_logic_vector(to_unsigned(index, 3));
+      packed_state(224)            := RegBus_wren_1;
+      packed_state(225)            := RegBus_rden_1;
+      packed_state(226)            := RTC_timestampNew_1;
+      packed_state(227)            := rtc_change;
+      packed_state(228)            := RTC_saveLoaded_1;
+      packed_state(223 downto 192) := RTC_timestamp;
+      packed_state(191 downto 160) := std_logic_vector(diffSeconds);
+      packed_state(159 downto 128) := std_logic_vector(to_unsigned(secondcount, 32));
+      packed_state(127 downto 120) := std_logic_vector(tm_year);
+      packed_state(116 downto 112) := std_logic_vector(tm_mon);
+      packed_state(109 downto 104) := std_logic_vector(tm_mday);
+      packed_state(98 downto 96)   := std_logic_vector(tm_wday);
+      packed_state(93 downto 88)   := std_logic_vector(tm_hour);
+      packed_state(86 downto 80)   := std_logic_vector(tm_min);
+      packed_state(78 downto 72)   := std_logic_vector(tm_sec);
+      packed_state(71 downto 64)   := buf_tm_year;
+      packed_state(60 downto 56)   := buf_tm_mon;
+      packed_state(53 downto 48)   := buf_tm_mday;
+      packed_state(42 downto 40)   := buf_tm_wday;
+      packed_state(37 downto 32)   := buf_tm_hour;
+      packed_state(30 downto 24)   := buf_tm_min;
+      packed_state(22 downto 16)   := buf_tm_sec;
+      state_data_out <= packed_state;
+   end process;
                
    process (clk)
    begin
       if rising_edge(clk) then
+
+         -- The acknowledge rises only after an edge on which the complete
+         -- emulated RTC process was held.  It remains high until release.
+         state_frozen_i <= state_freeze;
+
+         -- Freeze deliberately dominates reset and register reset.  The v2
+         -- owner aborts an interrupted transaction by dropping state_freeze;
+         -- reset is then observed by this device on the following edge.
+         if (state_freeze = '1') then
+
+            -- A load is accepted only after the requester has observed the
+            -- previous-cycle acknowledge.  This enforces the documented
+            -- request -> frozen -> load ordering at the device boundary.
+            if (state_load = '1' and state_frozen_i = '1') then
+               RTC_COMMAND        <= state_data_in(255 downto 248);
+               RTC_READ           <= state_data_in(247 downto 240);
+               index              <= to_integer(unsigned(state_data_in(234 downto 232)));
+               RegBus_wren_1      <= state_data_in(224);
+               RegBus_rden_1      <= state_data_in(225);
+               RTC_timestampNew_1 <= state_data_in(226);
+               rtc_change         <= state_data_in(227);
+               RTC_saveLoaded_1   <= state_data_in(228);
+               RTC_timestamp      <= state_data_in(223 downto 192);
+               diffSeconds        <= unsigned(state_data_in(191 downto 160));
+               secondcount        <= to_integer(unsigned(state_data_in(153 downto 128)));
+               tm_year            <= unsigned(state_data_in(127 downto 120));
+               tm_mon             <= unsigned(state_data_in(116 downto 112));
+               tm_mday            <= unsigned(state_data_in(109 downto 104));
+               tm_wday            <= unsigned(state_data_in(98 downto 96));
+               tm_hour            <= unsigned(state_data_in(93 downto 88));
+               tm_min             <= unsigned(state_data_in(86 downto 80));
+               tm_sec             <= unsigned(state_data_in(78 downto 72));
+               buf_tm_year        <= state_data_in(71 downto 64);
+               buf_tm_mon         <= state_data_in(60 downto 56);
+               buf_tm_mday        <= state_data_in(53 downto 48);
+               buf_tm_wday        <= state_data_in(42 downto 40);
+               buf_tm_hour        <= state_data_in(37 downto 32);
+               buf_tm_min         <= state_data_in(30 downto 24);
+               buf_tm_sec         <= state_data_in(22 downto 16);
+            end if;
+
+         else
       
          if (rtc_change = '0') then
             buf_tm_year <= std_logic_vector(tm_year);
@@ -113,7 +230,11 @@ begin
       
          rtc_change <= '0';
          
-         secondcount <= secondcount + 1;
+         if (secondcount < 36863999) then
+            secondcount <= secondcount + 1;
+         else
+            secondcount <= 0;
+         end if;
          
          RTC_saveLoaded_1 <= RTC_saveLoaded;
          if (RTC_saveLoaded_1 = '0' and  RTC_saveLoaded = '1') then
@@ -275,13 +396,11 @@ begin
             end if;
             
          end if;
+
+         end if;
          
       end if;
    end process;
    
 
 end architecture;
-
-
-
-

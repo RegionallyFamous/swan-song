@@ -25,8 +25,11 @@ that resumes with different CPU, EEPROM, RTC, video, or audio behavior.
 The frozen target revision is documented in
 [`SAVESTATE_V2_FORMAT.md`](SAVESTATE_V2_FORMAT.md). Its package and exhaustive
 layout test define the fixed header, payload regions, title/model identity,
-active-size rules, and deterministic padding, but are deliberately not yet
-connected to the live core.
+active-size rules, and deterministic padding. Exact synthesis-tested RTC and
+internal/cartridge EEPROM controller ports now freeze, export, and restore their
+complete local sequential state under an executable device ABI. Production
+ties those ports off: they are deliberately not yet connected to a global v2
+owner, and EEPROM backing RAM is not yet walked into the payload.
 
 Reference coverage is consistent with this decision: pinned
 [ares system serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/system/serialization.cpp#L40-L49)
@@ -107,13 +110,21 @@ needs:
    protection for the exact blob length.
 2. A0 generation that finishes the complete staged image before reporting
    result `2`, including deterministic padding for smaller cartridge-RAM types.
-3. A4 validation of the complete envelope before asserting MiSTer `ss_load`;
-   malformed input must leave all emulated state untouched.
+3. A4 validation of the complete envelope before asserting any live v2
+   state-load/apply signal; malformed input must leave all emulated state
+   untouched.
 4. Title compatibility binding, interruption/reset behavior, repeated
    save/load, and older-format rejection tests through the compiled wrapper.
 5. Pocket/Dock hardware validation across mono/Color, every RAM type,
    EEPROM/RTC, audio activity, fast-forward, both orientations, and repeated
    Sleep + Wake cycles.
+
+The device-local prerequisite is no longer hypothetical: focused GHDL behavior
+and synthesis tests prove prior-cycle freeze/load ordering, exact RTC transient
+replay, EEPROM pending-write drain, no synthetic MMIO commands, hidden legacy
+state normalization, and synchronous-RAM settling. The remaining work is to
+coordinate those boundaries with CPU/DMA/PPU/APU/mapper pause, capture the
+separate EEPROM backing memories, and transact the complete validated blob.
 
 Until those gates pass, unsupported A0/A4 requests are rejected in the command
 handler without reaching the legacy controller.

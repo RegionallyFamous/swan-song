@@ -607,7 +607,13 @@ begin
       SSBus_Adr      => SSBus_Adr, 
       SSBus_wren     => SSBus_wren,
       SSBus_rst      => SSBus_rst, 
-      SSBus_Dout     => ss_wired_or(0)
+      SSBus_Dout     => ss_wired_or(0),
+
+      state_freeze   => '0',
+      frozen_ack     => open,
+      state_load     => '0',
+      state_in       => (others => '0'),
+      state_out      => open
    );
    
    ieeprom_ext : entity work.eeprom
@@ -652,7 +658,13 @@ begin
       SSBus_Adr      => SSBus_Adr, 
       SSBus_wren     => SSBus_wren,
       SSBus_rst      => SSBus_rst, 
-      SSBus_Dout     => ss_wired_or(1)
+      SSBus_Dout     => ss_wired_or(1),
+
+      state_freeze   => '0',
+      frozen_ack     => open,
+      state_load     => '0',
+      state_in       => (others => '0'),
+      state_out      => open
    );
    
 

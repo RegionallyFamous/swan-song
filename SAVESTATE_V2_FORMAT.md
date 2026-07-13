@@ -1,10 +1,15 @@
 # WonderSwan Memories v2 fixed ABI
 
-Status: **layout and executable invariants only; isolated and not integrated.**
-The production core still advertises neither Memories nor Sleep + Wake. This
-document and `src/fpga/core/apf_savestate_v2_layout_pkg.sv` freeze the target
-binary contract without changing the version-1 transport, instantiating a v2
-serializer, or adding v2 RTL to `ap_core.qsf`.
+Status: **fixed layout plus exact RTC/EEPROM controller boundaries implemented
+and focused-tested; the atomic v2 owner is not integrated.** The production
+core still advertises neither Memories nor Sleep + Wake. This document,
+`src/fpga/core/apf_savestate_v2_layout_pkg.sv`, and
+`src/fpga/core/apf_savestate_v2_device_abi_pkg.sv` freeze the target binary
+contract. The live RTC and both EEPROM instances expose synthesis-tested
+freeze/export/load ports, but every production instance ties those ports off.
+Neither v2 package is in `ap_core.qsf`, and there is still no v2 serializer,
+backing-memory walker, validator/loader owner, or change to the version-1
+transport.
 
 Version 1 is not a migration source. Its 32-byte envelope and `0x90300` payload
 omit CPU pipeline state, live PPU/APU pipelines, RTC protocol/timing, EEPROM
@@ -123,6 +128,56 @@ fast_forward_audio}`; its initial hard-match mask is only CPU turbo (`0x100`).
 | `0x000b00..0x000bff` | `0x100` | cartridge EEPROM controller |
 | `0x000c00..0x003fff` | `0x3400` | zero reserve |
 
+## Implemented device-controller schemas
+
+The following schema is executable in the device ABI package and byte-for-byte
+matched by focused tests against the real VHDL ports. It defines the active
+prefix of each fixed `0x100`-byte section; every remaining byte is zero.
+
+### RTC (`payload + 0x000900`)
+
+| Section offset | Bytes | Contents |
+| ---: | ---: | --- |
+| `0x00` | 1 | command latch |
+| `0x01` | 1 | read latch |
+| `0x02` | 1 | index in bits `2:0`; upper bits zero |
+| `0x03` | 1 | bits `0..4`: register-write history, register-read history, `0090` edge history, change latch, saved-time edge history |
+| `0x04` | 4 | live epoch seconds, u32 big-endian |
+| `0x08` | 4 | pending elapsed-time catch-up seconds, u32 big-endian |
+| `0x0c` | 4 | 36.864 MHz subsecond phase, u32 big-endian, maximum `36,863,999` |
+| `0x10..0x16` | 7 | live year/month/day/weekday/hour/minute/second signal values |
+| `0x17..0x1d` | 7 | buffered year/month/day/weekday/hour/minute/second signal values |
+| `0x1e..0xff` | 226 | zero |
+
+Calendar bytes preserve the implemented signal widths: year 8, month 5, day
+6, weekday 3, hour 6, and minute/second 7 bits. Exact restore deliberately
+accepts non-BCD values within those widths. Software command `0x14` can write
+them, and the translated RTC's multi-edge normalization legitimately exposes
+transients such as `0x59 -> 0x5a -> 0x60`. A semantic BCD/calendar helper exists
+for diagnostics, but it is not a load gate. Index `7`, unknown flags, excessive
+subsecond phase, nonzero upper field bits, and all padding still fail closed.
+
+### EEPROM controller (`payload + 0x000a00` and `+ 0x000b00`)
+
+| Section offset | Normalized 32-bit word |
+| ---: | --- |
+| `0x00` | `{WriteData[15:0], ReadData[15:0]}` |
+| `0x04` | `{Addr[15:0], Cmd[7:0], FSM[2:0], writeEnable, writeProtect, readDone, 2'b0}` |
+| `0x08` | `{readDelay[3:0], sizeWords[10:0], clearCounter[10:0], 6'b0}` |
+| `0x0c` | `{addrCounter[10:0], writeValue[15:0], ssLoaded, RAMWrEn, written, 2'b0}` |
+| `0x10..0xff` | zero |
+
+Stable FSM codes are `0` OFF, `1` IDLE, `2` EVALCMD, `3` CLEAR, `4` OVERWRITE,
+`5` WRITEWAIT, `6` READWAIT, and `7` READONE. The VHDL port uses a convenient
+native 128-bit packing, while the executable adapter above emits semantic
+big-endian fields, consistent with the rest of v2. At an acknowledged capture,
+pending RAM writes have committed exactly once and both `ssLoaded` and
+`RAMWrEn` are required zero; `written` remains the exact outgoing pulse
+history. The validator also binds controller size and reachable counter/FSM
+relationships to model and footer RAM type. Restoring register latches does not
+synthesize CPU write strobes, and a synchronous-RAM settle edge occurs before
+resume.
+
 ### PPU state
 
 | Range | Bytes | Contents |
@@ -183,6 +238,14 @@ computing CRC before publishing success. PPU/APU live pipelines are serialized;
 physical bridge FIFOs, SDRAM refresh/arbitration history, frame-history filters,
 I2S serialization phase, and debug counters are flushed and re-primed instead.
 
+The RTC and EEPROM device-local pieces of that protocol now exist. A load is
+ignored until a prior-cycle freeze acknowledgement; an acknowledged export is
+stable across bus writes and bus resets. EEPROM freeze drains its pending RAM
+write, consumes both effects of any pending legacy EEPROM-register load, and
+makes stale hidden legacy state irrelevant to future reset behavior. These are
+device boundaries only: the global pause/drain coordinator, EEPROM backing-RAM
+walker, payload writer/reader, and all-live-state rollback policy remain open.
+
 Pocket's `0090` event seeds time once at boot; it is not a continuously updated
 host clock. V2 therefore maintains a live epoch from that seed and the RTC
 second tick. RTC policy `1` is an explicit Swan Song rule: preserve the saved
@@ -214,11 +277,17 @@ Run:
 
 ```sh
 ./sim/rtl/run_apf_savestate_v2_layout_tb.sh
+./sim/rtl/run_apf_savestate_v2_device_abi_tb.sh
+./sim/rtl/run_rtc_state_tb.sh
+./sim/rtl/run_eeprom_state_tb.sh
 ```
 
-The test compiles the shared package and independently checks every region
-boundary and sum, header compound-field boundaries, exact address reservations,
-schema/feature identities, RAM-size tables, v1 rejection, and exhaustive fixed
-zero-padding byte counts. It is part of the aggregate `make regression` gate,
-while the package itself remains isolated from production RTL and the Quartus
-project.
+The layout test checks every region boundary and sum, header compound-field
+boundary, exact address reservation, schema/feature identity, RAM-size table,
+v1 rejection, and fixed-zero byte count. The device ABI adds exhaustive masks,
+native/payload adapters, controller reachability, all 65,536 EEPROM word values,
+and exact backing byte order. The GHDL tests exercise the real RTC/EEPROM RTL,
+including synthesis, transient RTC replay, all EEPROM FSMs, pending-write drain,
+legacy-state normalization, reset ordering, and synchronous-read settling. All
+four are part of `make regression`; the v2 packages and owner remain outside
+the Quartus project.

@@ -47,7 +47,16 @@ entity eeprom is
       SSBus_Adr      : in  std_logic_vector(SSBUS_busadr-1 downto 0);
       SSBus_wren     : in  std_logic;
       SSBus_rst      : in  std_logic;
-      SSBus_Dout     : out std_logic_vector(SSBUS_buswidth-1 downto 0)
+      SSBus_Dout     : out std_logic_vector(SSBUS_buswidth-1 downto 0);
+
+      -- Exact controller-state interface used by the Memories v2 staging
+      -- path.  All trailing defaults preserve legacy instantiations until
+      -- the higher-level state owner is connected.
+      state_freeze   : in  std_logic := '0';
+      frozen_ack     : out std_logic := '0';
+      state_load     : in  std_logic := '0';
+      state_in       : in  std_logic_vector(127 downto 0) := (others => '0');
+      state_out      : out std_logic_vector(127 downto 0) := (others => '0')
    );
 end entity;
 
@@ -67,6 +76,11 @@ architecture arch of eeprom is
    signal Data_L_written : std_logic;
    signal Data_H_written : std_logic;
    signal Cmd_written    : std_logic;
+   signal RegBus_wren_active : std_logic;
+   signal RegBus_rst_active  : std_logic;
+   signal SSBus_wren_active  : std_logic;
+   signal SSBus_rst_active   : std_logic;
+   signal state_load_active  : std_logic;
    
    type t_reg_wired_or is array(0 to 4) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
@@ -106,6 +120,7 @@ architecture arch of eeprom is
    signal writevalue   : std_logic_vector(15 downto 0);
    signal readvalue    : std_logic_vector(15 downto 0);
    signal RAMWrEn      : std_logic := '0';
+   signal written_reg  : std_logic := '0';
    
    signal wren_b       : std_logic;
          
@@ -113,13 +128,122 @@ architecture arch of eeprom is
    signal SS_EEPROM      : std_logic_vector(REG_SAVESTATE_EEPROM.upper downto REG_SAVESTATE_EEPROM.lower);
    signal SS_EEPROM_BACK : std_logic_vector(REG_SAVESTATE_EEPROM.upper downto REG_SAVESTATE_EEPROM.lower);
    signal ssLoaded       : std_logic := '0';
+   signal frozen_ack_reg : std_logic := '0';
+   signal load_settle    : std_logic := '0';
 
-begin 
-   iREG_Data_H : entity work.eReg generic map ( REG_Data_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), ReadData( 7 downto 0) , WriteData( 7 downto 0), Data_L_written);
-   iREG_Data_L : entity work.eReg generic map ( REG_Data_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), ReadData(15 downto 8) , WriteData(15 downto 8), Data_H_written);
-   iREG_Addr_H : entity work.eReg generic map ( REG_Addr_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(2), Addr( 7 downto 0)     , Addr( 7 downto 0));  
-   iREG_Addr_L : entity work.eReg generic map ( REG_Addr_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(3), Addr(15 downto 8)     , Addr(15 downto 8));  
-   iREG_Cmd    : entity work.eReg generic map ( REG_Cmd    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(4), Status                , Cmd              , Cmd_written);  
+   -- Fixed controller image.  The backing EEPROM contents live in their
+   -- separate v2 payload regions; this vector contains only controller and
+   -- synchronous-RAM pipeline state.
+   --   15:0   WriteData       31:16  ReadData
+   --   47:32  Addr            55:48  Cmd
+   --   58:56  FSM             59     writeEnable
+   --   60     writeProtect    61     readDone
+   --   65:62  readDelay       76:66  size
+   --   87:77  clearCounter    98:88  addrCounter
+   --   114:99 writevalue      115    legacy ssLoaded history
+   --   116    pending RAMWrEn 117    written pulse history
+   --   127:118 reserved zero
+   function encode_state(value : tState) return std_logic_vector is
+   begin
+      case value is
+         when OFF       => return "000";
+         when IDLE      => return "001";
+         when EVALCMD   => return "010";
+         when CLEAR     => return "011";
+         when OVERWRITE => return "100";
+         when WRITEWAIT => return "101";
+         when READWAIT  => return "110";
+         when READONE   => return "111";
+      end case;
+   end function;
+
+   function decode_state(value : std_logic_vector(2 downto 0)) return tState is
+   begin
+      case value is
+         when "000"  => return OFF;
+         when "001"  => return IDLE;
+         when "010"  => return EVALCMD;
+         when "011"  => return CLEAR;
+         when "100"  => return OVERWRITE;
+         when "101"  => return WRITEWAIT;
+         when "110"  => return READWAIT;
+         when others => return READONE;
+      end case;
+   end function;
+
+   function decode_bounded(
+      value : std_logic_vector;
+      limit_value : natural
+   ) return natural is
+      variable decoded : natural;
+   begin
+      decoded := to_integer(unsigned(value));
+      if decoded > limit_value then
+         return limit_value;
+      end if;
+      return decoded;
+   end function;
+
+begin
+   -- A restore is accepted only from an already-quiescent prior cycle.  This
+   -- prevents the first freeze edge (which may still commit RAMWrEn) from also
+   -- replacing the controller pipeline beneath that write.
+   state_load_active <= state_load and state_freeze and frozen_ack_reg;
+   RegBus_wren_active <= RegBus_wren when state_freeze = '0' else '0';
+   -- Device reset interrupts freeze/load and drops frozen_ack in the clocked
+   -- process.  A register-bus-only reset is deferred so an acknowledged
+   -- snapshot cannot mutate; state_load likewise has priority over it.
+   RegBus_rst_active <= reset or
+      (RegBus_rst and not state_freeze and not state_load_active);
+   SSBus_wren_active <= SSBus_wren when state_freeze = '0' else '0';
+   SSBus_rst_active <= SSBus_rst when state_freeze = '0' else '0';
+
+   iREG_Data_H : entity work.eReg generic map ( REG_Data_H ) port map
+      (clk, RegBus_Din, RegBus_Adr, RegBus_wren_active, RegBus_rst_active,
+       reg_wired_or(0), ReadData(7 downto 0), WriteData(7 downto 0),
+       Data_L_written, state_load_active, state_in(7 downto 0));
+   iREG_Data_L : entity work.eReg generic map ( REG_Data_L ) port map
+      (clk, RegBus_Din, RegBus_Adr, RegBus_wren_active, RegBus_rst_active,
+       reg_wired_or(1), ReadData(15 downto 8), WriteData(15 downto 8),
+       Data_H_written, state_load_active, state_in(15 downto 8));
+   iREG_Addr_H : entity work.eReg generic map ( REG_Addr_H ) port map
+      (clk, RegBus_Din, RegBus_Adr, RegBus_wren_active, RegBus_rst_active,
+       reg_wired_or(2), Addr(7 downto 0), Addr(7 downto 0), open,
+       state_load_active, state_in(39 downto 32));
+   iREG_Addr_L : entity work.eReg generic map ( REG_Addr_L ) port map
+      (clk, RegBus_Din, RegBus_Adr, RegBus_wren_active, RegBus_rst_active,
+       reg_wired_or(3), Addr(15 downto 8), Addr(15 downto 8), open,
+       state_load_active, state_in(47 downto 40));
+   iREG_Cmd : entity work.eReg generic map ( REG_Cmd ) port map
+      (clk, RegBus_Din, RegBus_Adr, RegBus_wren_active, RegBus_rst_active,
+       reg_wired_or(4), Status, Cmd, Cmd_written,
+       state_load_active, state_in(55 downto 48));
+
+   written <= written_reg;
+   frozen_ack <= frozen_ack_reg;
+
+   process (all)
+      variable image : std_logic_vector(127 downto 0);
+   begin
+      image := (others => '0');
+      image(15 downto 0)   := WriteData;
+      image(31 downto 16)  := ReadData;
+      image(47 downto 32)  := Addr;
+      image(55 downto 48)  := Cmd;
+      image(58 downto 56)  := encode_state(state);
+      image(59)            := writeEnable;
+      image(60)            := writeProtect;
+      image(61)            := readDone;
+      image(65 downto 62)  := std_logic_vector(to_unsigned(readDelay, 4));
+      image(76 downto 66)  := std_logic_vector(to_unsigned(size, 11));
+      image(87 downto 77)  := std_logic_vector(to_unsigned(clearCounter, 11));
+      image(98 downto 88)  := std_logic_vector(to_unsigned(addrCounter, 11));
+      image(114 downto 99) := writevalue;
+      image(115)           := ssLoaded;
+      image(116)           := RAMWrEn;
+      image(117)           := written_reg;
+      state_out <= image;
+   end process;
    
    process (reg_wired_or)
       variable wired_or : std_logic_vector(7 downto 0);
@@ -201,7 +325,7 @@ begin
    
    wren_b <= '1' when (eeprom_req = '1' and eeprom_rnw = '0') else '0';
    
-   iSS_EEPROM : entity work.eReg_SS generic map ( REG_SAVESTATE_EEPROM ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, SSBUS_Dout, SS_EEPROM_BACK, SS_EEPROM); 
+   iSS_EEPROM : entity work.eReg_SS generic map ( REG_SAVESTATE_EEPROM ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBus_wren_active, SSBus_rst_active, SSBUS_Dout, SS_EEPROM_BACK, SS_EEPROM);
                
    SS_EEPROM_BACK(15 downto  0) <= ReadData;
    SS_EEPROM_BACK(          16) <= writeEnable;       
@@ -209,43 +333,52 @@ begin
    process (clk)
    begin
       if rising_edge(clk) then
-      
-         RAMWrEn <= '0';
-         written <= RAMWrEn;
 
-         if (SSBUS_wren = '1' and
-             SSBUS_Adr = std_logic_vector(to_unsigned(REG_SAVESTATE_EEPROM.Adr, SSBUS_Adr'length))) then
-            ssLoaded <= '1';
-         end if;
-      
+         -- RAM port A observes the old RAMWrEn on this same edge.  Clearing
+         -- the pipeline flag here therefore cannot cancel an already-pending
+         -- write, which is the key freeze-boundary invariant.
+         RAMWrEn <= '0';
+         written_reg <= RAMWrEn;
+
          if (reset = '1') then
-         
+
+            frozen_ack_reg <= '0';
+            load_settle    <= '0';
+            RAMWrEn        <= '0';
+            written_reg    <= '0';
+
             if (isExternal = '0' and preserve_on_reset = '0') then
                state        <= clear;
-               clearCounter <= 0;
             else
                state        <= IDLE;
             end if;
-            
-            ReadData     <= SS_EEPROM(15 downto  0);
+
             readDone     <= '1';
             writeProtect <= '0';
+            readDelay    <= 0;
+            clearCounter <= 0;
+            addrCounter  <= 0;
+            writevalue   <= defaultvalue;
+            ssLoaded     <= '0';
 
-            -- The open bootstrap does not run the retail firmware sequence
-            -- which leaves internal EEPROM writes enabled.  Match that
-            -- post-boot controller state, but consume the saved latch when a
-            -- savestate register load immediately precedes this reset.
-            if (isExternal = '0') then
-               if (ssLoaded = '1') then
-                  writeEnable <= SS_EEPROM(16);
-                  ssLoaded <= '0';
-               else
-                  writeEnable <= '1';
-               end if;
-            else
+            -- Only an explicitly pending legacy load may consult the hidden
+            -- SS_EEPROM register.  Ordinary resets use the declared
+            -- controller defaults, so identical v2 restores cannot diverge
+            -- because of stale legacy state outside state_out.
+            if (ssLoaded = '1') then
+               ReadData <= SS_EEPROM(15 downto 0);
                writeEnable <= SS_EEPROM(16);
+            else
+               ReadData <= REG_SAVESTATE_EEPROM.defval(15 downto 0);
+               if (isExternal = '0') then
+                  -- The open bootstrap starts after the retail firmware's
+                  -- internal-EEPROM write-enable sequence.
+                  writeEnable <= '1';
+               else
+                  writeEnable <= REG_SAVESTATE_EEPROM.defval(16);
+               end if;
             end if;
-         
+
             if (isExternal = '1') then
                case (ramtype) is
                   when x"10"  => size <= 64;
@@ -260,9 +393,87 @@ begin
                   size <= 64;
                end if;
             end if;
-               
+
+         elsif (state_load_active = '1') then
+
+            -- eReg consumes the register fields on this edge as well.  Its
+            -- state-load path explicitly suppresses `written`, so restoring
+            -- Cmd cannot be mistaken for a fresh EEPROM command.
+            ReadData     <= state_in(31 downto 16);
+            state        <= decode_state(state_in(58 downto 56));
+            writeEnable  <= state_in(59);
+            writeProtect <= state_in(60);
+            readDone     <= state_in(61);
+            readDelay    <= decode_bounded(state_in(65 downto 62), 9);
+            size         <= decode_bounded(state_in(76 downto 66), 1024);
+            clearCounter <= decode_bounded(state_in(87 downto 77), 1024);
+            -- clearCounter may retain its inclusive terminal 1024 value;
+            -- addrCounter addresses a 1024-word RAM and is only valid to 1023.
+            -- The outer ABI validator rejects larger images.  Keep this clamp
+            -- as a synthesis-safe last line of defence for direct RTL users.
+            addrCounter  <= decode_bounded(state_in(98 downto 88), 1023);
+            writevalue   <= state_in(114 downto 99);
+            ssLoaded     <= state_in(115);
+            RAMWrEn      <= state_in(116);
+            written_reg  <= state_in(117);
+            frozen_ack_reg <= '0';
+            load_settle    <= '1';
+
+         elsif (load_settle = '1') then
+
+            -- A restored address needs one RAM clock before READONE may use
+            -- q_a.  This settle edge also commits a deliberately restored
+            -- pending RAMWrEn exactly once, then normalizes the pipeline.
+            load_settle <= '0';
+            if (RAMWrEn = '0') then
+               -- No new commit means the restored outgoing pulse history is
+               -- still the exact current value at the acknowledged boundary.
+               written_reg <= written_reg;
+            end if;
+            if (ssLoaded = '1') then
+               -- Canonical v2 images never retain a pending legacy-register
+               -- restore.  Consume all of its architectural latch effects
+               -- before ack, making the hidden legacy register irrelevant.
+               ReadData <= SS_EEPROM(15 downto 0);
+               writeEnable <= SS_EEPROM(16);
+               ssLoaded <= '0';
+               frozen_ack_reg <= '0';
+            elsif (state_freeze = '1') then
+               frozen_ack_reg <= '1';
+            else
+               frozen_ack_reg <= '0';
+            end if;
+
+         elsif (state_freeze = '1') then
+
+            if (ssLoaded = '1') then
+               -- The old savestate path stages ReadData/writeEnable for
+               -- consumption by reset.  A v2 capture consumes those same
+               -- values here so bit 115 can become canonical zero.
+               ReadData <= SS_EEPROM(15 downto 0);
+               writeEnable <= SS_EEPROM(16);
+               ssLoaded <= '0';
+               frozen_ack_reg <= '0';
+            else
+               frozen_ack_reg <= '1';
+            end if;
+            if (frozen_ack_reg = '1' and ssLoaded = '0') then
+               -- Once acknowledged, both the controller image and outgoing
+               -- write history remain stable for an arbitrarily long freeze.
+               RAMWrEn     <= RAMWrEn;
+               written_reg <= written_reg;
+            end if;
+
          else
-            
+
+            frozen_ack_reg <= '0';
+            load_settle    <= '0';
+
+            if (SSBus_wren_active = '1' and
+                SSBUS_Adr = std_logic_vector(to_unsigned(REG_SAVESTATE_EEPROM.Adr, SSBUS_Adr'length))) then
+               ssLoaded <= '1';
+            end if;
+
             case (state) is
             
                when OFF =>
@@ -350,10 +561,10 @@ begin
                      when others => null;
                   end case;
                   
-               when CLEAR => 
-                  addrCounter <= clearCounter;
-                  RAMWrEn     <= '1';
+               when CLEAR =>
                   if ((isExternal = '1' and clearCounter < size) or (isExternal = '0' and clearCounter < 16#43#)) then
+                     addrCounter  <= clearCounter;
+                     RAMWrEn      <= '1';
                      clearCounter <= clearCounter + 1;
                      writevalue   <= defaultvalue;
                      if (isExternal = '0') then
