@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from frame_manifest import accepts_complete_schema
+
 
 BUTTONS = {
     b"x1": 1 << 0,
@@ -151,7 +153,7 @@ def verify_binding(trace: Path, script_path: Path) -> ScriptIdentity:
     identity = parse_script(script_bytes, str(script_path))
     manifest = read_manifest(trace)
 
-    if manifest.get("schema") != "swan-song-trace-manifest-v1":
+    if not accepts_complete_schema(manifest, Path(f"{trace}.manifest.json"), trace):
         raise ValueError("trace manifest schema mismatch")
     if manifest.get("capture_start") != "reset_release":
         raise ValueError("input replay requires capture_start=reset_release")

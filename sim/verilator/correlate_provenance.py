@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, TextIO
 
+from frame_manifest import accepts_complete_schema
 from verify_trace import FIELDS_V4, FIELDS_V5, FIELDS_V6, VRAM_ROLES
 
 
@@ -284,7 +285,7 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
     except OSError as error:
         raise ValueError(f"cannot validate trace binding for {trace}: {error}") from error
     complete = (
-        manifest.get("schema") == "swan-song-trace-manifest-v1"
+        accepts_complete_schema(manifest, path, trace)
         and manifest.get("trace_schema") in {4, 5, 6}
         and binding_matches
         and manifest.get("capture_start") == "reset_release"

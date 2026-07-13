@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, TextIO
 
+from frame_manifest import accepts_complete_schema
 from correlate_provenance import (
     ByteVersion,
     MemorySourceTracker,
@@ -129,7 +130,7 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
         isinstance(value, int) and not isinstance(value, bool) and value > 0
     )
     complete = (
-        manifest.get("schema") == "swan-song-trace-manifest-v1"
+        accepts_complete_schema(manifest, path, trace)
         and manifest.get("trace_schema") in {5, 6}
         and binding_matches
         and manifest.get("capture_start") == "reset_release"

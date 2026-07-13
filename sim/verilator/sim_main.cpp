@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -51,18 +52,68 @@ static std::vector<uint8_t> read_file_limited(const fs::path& path,
   return result;
 }
 
-static void write_rgb(const fs::path& path,
-                      const std::array<uint16_t, 224 * 144>& frame) {
-  std::ofstream stream(path, std::ios::binary);
-  if (!stream) throw std::runtime_error("cannot write " + path.string());
+static unsigned parse_frame_count(const std::string& text) {
+  size_t consumed = 0;
+  uint64_t value = 0;
+  try {
+    value = std::stoull(text, &consumed, 10);
+  } catch (const std::exception&) {
+    throw std::runtime_error("--frames must be a decimal integer");
+  }
+  if (consumed != text.size() || value == 0 ||
+      value > std::numeric_limits<unsigned>::max()) {
+    throw std::runtime_error("--frames must be within 1.." +
+                             std::to_string(std::numeric_limits<unsigned>::max()));
+  }
+  return static_cast<unsigned>(value);
+}
+
+static std::string format_fnv1a64(uint64_t hash) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result(16, '0');
+  for (int index = 15; index >= 0; --index) {
+    result[static_cast<size_t>(index)] = digits[hash & 0xf];
+    hash >>= 4;
+  }
+  return result;
+}
+
+static std::string write_rgb(const fs::path& path,
+                             const std::array<uint16_t, 224 * 144>& frame) {
+  fs::path temp_path = path;
+  temp_path += ".tmp";
+  fs::remove(temp_path);
+  std::ofstream stream(temp_path, std::ios::binary);
+  if (!stream) throw std::runtime_error("cannot write " + temp_path.string());
+  uint64_t hash = UINT64_C(0xcbf29ce484222325);
+  const auto write_byte = [&](uint8_t byte) {
+    stream.put(static_cast<char>(byte));
+    hash ^= byte;
+    hash *= UINT64_C(0x100000001b3);
+  };
   for (uint16_t pixel : frame) {
     const uint8_t r = static_cast<uint8_t>(((pixel >> 8) & 0xf) * 17);
     const uint8_t g = static_cast<uint8_t>(((pixel >> 4) & 0xf) * 17);
     const uint8_t b = static_cast<uint8_t>((pixel & 0xf) * 17);
-    stream.put(static_cast<char>(r));
-    stream.put(static_cast<char>(g));
-    stream.put(static_cast<char>(b));
+    write_byte(r);
+    write_byte(g);
+    write_byte(b);
   }
+  stream.close();
+  if (!stream) throw std::runtime_error("failed to write " + temp_path.string());
+
+  std::error_code rename_error;
+  fs::rename(temp_path, path, rename_error);
+  if (rename_error) {
+    std::error_code remove_error;
+    fs::remove(path, remove_error);
+    if (remove_error) {
+      throw std::runtime_error("cannot replace " + path.string() + ": " +
+                               remove_error.message());
+    }
+    fs::rename(temp_path, path);
+  }
+  return format_fnv1a64(hash);
 }
 
 static std::string json_escape(const std::string& value) {
@@ -88,6 +139,12 @@ static fs::path trace_manifest_path(const fs::path& trace) {
   return path;
 }
 
+static fs::path trace_manifest_temp_path(const fs::path& trace) {
+  fs::path path = trace_manifest_path(trace);
+  path += ".tmp";
+  return path;
+}
+
 static std::string trace_fnv1a64(const fs::path& path) {
   std::ifstream input(path, std::ios::binary);
   if (!input) throw std::runtime_error("cannot hash " + path.string());
@@ -101,13 +158,7 @@ static std::string trace_fnv1a64(const fs::path& path) {
     }
   }
   if (!input.eof()) throw std::runtime_error("failed to hash " + path.string());
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result(16, '0');
-  for (int index = 15; index >= 0; --index) {
-    result[static_cast<size_t>(index)] = digits[hash & 0xf];
-    hash >>= 4;
-  }
-  return result;
+  return format_fnv1a64(hash);
 }
 
 static std::string bytes_fnv1a64(const std::vector<uint8_t>& bytes) {
@@ -116,13 +167,76 @@ static std::string bytes_fnv1a64(const std::vector<uint8_t>& bytes) {
     hash ^= byte;
     hash *= UINT64_C(0x100000001b3);
   }
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result(16, '0');
-  for (int index = 15; index >= 0; --index) {
-    result[static_cast<size_t>(index)] = digits[hash & 0xf];
-    hash >>= 4;
+  return format_fnv1a64(hash);
+}
+
+struct FrameArtifact {
+  unsigned index;
+  uint64_t completion_cycle;
+  fs::path path;
+  uintmax_t size_bytes;
+  std::string fnv1a64;
+};
+
+static fs::path weakly_canonical_or_absolute(const fs::path& path) {
+  std::error_code error;
+  const fs::path canonical = fs::weakly_canonical(path, error);
+  return error ? fs::absolute(path).lexically_normal() : canonical;
+}
+
+static bool generated_frame_path_collision(const fs::path& candidate,
+                                           const fs::path& out_dir,
+                                           unsigned target_frames) {
+  const fs::path parent = candidate.has_parent_path() ? candidate.parent_path() : ".";
+  if (weakly_canonical_or_absolute(parent) != weakly_canonical_or_absolute(out_dir)) {
+    return false;
   }
-  return result;
+  const std::string name = candidate.filename().string();
+  constexpr const char* prefix = "frame-";
+  const size_t prefix_size = 6;
+  size_t suffix_size = 0;
+  if (name.size() > 4 && name.compare(name.size() - 4, 4, ".rgb") == 0) {
+    suffix_size = 4;
+  } else if (name.size() > 8 &&
+             name.compare(name.size() - 8, 8, ".rgb.tmp") == 0) {
+    suffix_size = 8;
+  } else {
+    return false;
+  }
+  if (name.compare(0, prefix_size, prefix) != 0) return false;
+  const std::string index_text =
+      name.substr(prefix_size, name.size() - prefix_size - suffix_size);
+  if (index_text.empty() ||
+      std::any_of(index_text.begin(), index_text.end(),
+                  [](unsigned char character) { return character < '0' || character > '9'; }) ||
+      (index_text.size() > 1 && index_text.front() == '0')) {
+    return false;
+  }
+  try {
+    return std::stoull(index_text) < target_frames;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+static void reject_symlink_output(const fs::path& path, const char* description) {
+  std::error_code error;
+  const fs::file_status status = fs::symlink_status(path, error);
+  if (!error && fs::is_symlink(status)) {
+    throw std::runtime_error(std::string(description) +
+                             " must not be a symlink: " + path.string());
+  }
+}
+
+static std::string manifest_relative_path(const fs::path& artifact,
+                                          const fs::path& manifest) {
+  const fs::path parent = manifest.has_parent_path() ? manifest.parent_path() : ".";
+  const fs::path relative = fs::absolute(artifact).lexically_normal().lexically_relative(
+      fs::absolute(parent).lexically_normal());
+  if (relative.empty()) {
+    throw std::runtime_error("cannot make frame path relative to trace manifest");
+  }
+  return relative.generic_string();
 }
 
 static void write_trace_manifest(const swansong::trace::Config& config,
@@ -130,11 +244,58 @@ static void write_trace_manifest(const swansong::trace::Config& config,
                                  const std::vector<uint8_t>& rom,
                                  const std::vector<uint8_t>& bios,
                                  const swansong::input::Script* input_script,
-                                 size_t applied_input_events) {
+                                 size_t applied_input_events,
+                                 const std::vector<FrameArtifact>* frame_artifacts) {
   const fs::path path = trace_manifest_path(config.output);
+  const fs::path temp_path = trace_manifest_temp_path(config.output);
   if (path.has_parent_path()) fs::create_directories(path.parent_path());
-  std::ofstream output(path, std::ios::out | std::ios::trunc);
-  if (!output) throw std::runtime_error("cannot write " + path.string());
+  if (frame_artifacts && frame_artifacts->size() != frames) {
+    throw std::runtime_error("frame artifact count does not match completed frames");
+  }
+  if (frame_artifacts) {
+    uint64_t previous_cycle = 0;
+    const fs::file_status trace_status = fs::symlink_status(config.output);
+    if (fs::is_symlink(trace_status) || !fs::is_regular_file(trace_status)) {
+      throw std::runtime_error("frame-bound trace is not a regular non-symlink file");
+    }
+    for (size_t position = 0; position < frame_artifacts->size(); ++position) {
+      const FrameArtifact& artifact = (*frame_artifacts)[position];
+      if (artifact.index != position) {
+        throw std::runtime_error("frame artifact indices are not contiguous");
+      }
+      if ((position > 0 && artifact.completion_cycle <= previous_cycle) ||
+          artifact.completion_cycle >= capture_cycles) {
+        throw std::runtime_error("frame artifact cycles are outside the capture order");
+      }
+      previous_cycle = artifact.completion_cycle;
+      const fs::file_status status = fs::symlink_status(artifact.path);
+      if (fs::is_symlink(status) || !fs::is_regular_file(status)) {
+        throw std::runtime_error("frame artifact is not a regular non-symlink file");
+      }
+      if (artifact.size_bytes != 224u * 144u * 3u ||
+          fs::file_size(artifact.path) != artifact.size_bytes) {
+        throw std::runtime_error("frame artifact is not 224x144 RGB888");
+      }
+      if (trace_fnv1a64(artifact.path) != artifact.fnv1a64) {
+        throw std::runtime_error("frame artifact changed after publication");
+      }
+      if (fs::equivalent(artifact.path, config.output)) {
+        throw std::runtime_error("frame artifact aliases the event trace");
+      }
+      for (size_t earlier = 0; earlier < position; ++earlier) {
+        if (fs::equivalent(artifact.path, (*frame_artifacts)[earlier].path)) {
+          throw std::runtime_error("frame artifacts alias one filesystem object");
+        }
+      }
+    }
+    if (frame_artifacts->empty() ||
+        frame_artifacts->back().completion_cycle + 1 != capture_cycles) {
+      throw std::runtime_error("final frame artifact does not end the capture");
+    }
+  }
+  fs::remove(temp_path);
+  std::ofstream output(temp_path, std::ios::out | std::ios::trunc);
+  if (!output) throw std::runtime_error("cannot write " + temp_path.string());
 
   const uintmax_t trace_size = fs::file_size(config.output);
   const std::string trace_hash = trace_fnv1a64(config.output);
@@ -155,7 +316,8 @@ static void write_trace_manifest(const swansong::trace::Config& config,
   const bool has_sprite_row = config.includes(swansong::trace::EventType::SpriteRow);
 
   output << "{\n"
-         << "  \"schema\": \"swan-song-trace-manifest-v1\",\n"
+         << "  \"schema\": \"swan-song-trace-manifest-v"
+         << (frame_artifacts ? 2 : 1) << "\",\n"
          << "  \"trace_schema\": " << (has_sprite_row ? 6 : 5) << ",\n"
          << "  \"trace_file\": \"" << json_escape(config.output.string()) << "\",\n"
          << "  \"trace_size_bytes\": " << trace_size << ",\n"
@@ -163,7 +325,22 @@ static void write_trace_manifest(const swansong::trace::Config& config,
          << "  \"capture_start\": \"reset_release\",\n"
          << "  \"capture_completed\": true,\n"
          << "  \"capture_cycles\": " << capture_cycles << ",\n"
-         << "  \"completed_frames\": " << frames << ",\n"
+         << "  \"completed_frames\": " << frames;
+  if (frame_artifacts) {
+    output << ",\n  \"frames\": [";
+    for (size_t position = 0; position < frame_artifacts->size(); ++position) {
+      const FrameArtifact& artifact = (*frame_artifacts)[position];
+      output << (position == 0 ? "\n" : ",\n")
+             << "    {\"index\": " << artifact.index
+             << ", \"completion_cycle\": " << artifact.completion_cycle
+             << ", \"file\": \""
+             << json_escape(manifest_relative_path(artifact.path, path))
+             << "\", \"size_bytes\": " << artifact.size_bytes
+             << ", \"fnv1a64\": \"" << artifact.fnv1a64 << "\"}";
+    }
+    output << "\n  ]";
+  }
+  output << ",\n"
          << "  \"rom_size\": " << rom.size() << ",\n"
          << "  \"rom_fnv1a64\": \"" << bytes_fnv1a64(rom) << "\",\n"
          << "  \"bios_size\": " << bios.size() << ",\n"
@@ -207,7 +384,10 @@ static void write_trace_manifest(const swansong::trace::Config& config,
     output << ",\n  \"complete_sprite_row_history\": true";
   }
   output << "\n}\n";
-  if (!output) throw std::runtime_error("failed to write " + path.string());
+  output.close();
+  if (!output) throw std::runtime_error("failed to write " + temp_path.string());
+  fs::remove(path);
+  fs::rename(temp_path, path);
 }
 
 static void usage(const char* argv0) {
@@ -222,6 +402,7 @@ static void usage(const char* argv0) {
       << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
+      << "  --trace-frame-artifacts bind raw RGB frames and cycles in manifest v2\n"
       << "  --trace-events LIST     cpu,bank,vram,mem,bg_cell,sprite_row (default: all)\n"
       << "  --trace-pc RANGES       inclusive 20-bit CPU PC range union\n"
       << "  --trace-vram-address R  VRAM ADDR or START-END list (inclusive)\n"
@@ -381,7 +562,7 @@ struct DebugTapAdapter<
   }
 };
 
-int main(int argc, char** argv) {
+static int run_main(int argc, char** argv) {
   Verilated::commandArgs(argc, argv);
   fs::path rom_path;
   fs::path bios_path;
@@ -391,6 +572,7 @@ int main(int argc, char** argv) {
   swansong::trace::Config event_trace_config;
   uint64_t max_cycles = 36'864'000;
   unsigned target_frames = 1;
+  bool trace_frame_artifacts = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -400,11 +582,12 @@ int main(int argc, char** argv) {
     };
     if (arg == "--rom") rom_path = value("--rom");
     else if (arg == "--bios") bios_path = value("--bios");
-    else if (arg == "--frames") target_frames = std::stoul(value("--frames"));
+    else if (arg == "--frames") target_frames = parse_frame_count(value("--frames"));
     else if (arg == "--out") out_dir = value("--out");
     else if (arg == "--input-script") input_script_path = value("--input-script");
     else if (arg == "--trace") trace_path = value("--trace");
     else if (arg == "--event-trace") event_trace_config.output = value("--event-trace");
+    else if (arg == "--trace-frame-artifacts") trace_frame_artifacts = true;
     else if (arg == "--trace-events") {
       event_trace_config.events = swansong::trace::parse_events(value("--trace-events"));
     } else if (arg == "--trace-pc") {
@@ -447,11 +630,35 @@ int main(int argc, char** argv) {
     else throw std::runtime_error("unknown argument: " + arg);
   }
   if (rom_path.empty()) { usage(argv[0]); return 2; }
+  if (trace_frame_artifacts && !event_trace_config.enabled()) {
+    throw std::runtime_error("--trace-frame-artifacts requires --event-trace");
+  }
+  if (trace_frame_artifacts) {
+    reject_symlink_output(event_trace_config.output, "event trace output");
+    if (!trace_path.empty()) reject_symlink_output(trace_path, "VCD output");
+    const std::array<fs::path, 3> trace_outputs = {
+        event_trace_config.output,
+        trace_manifest_path(event_trace_config.output),
+        trace_manifest_temp_path(event_trace_config.output),
+    };
+    for (const fs::path& output : trace_outputs) {
+      if (generated_frame_path_collision(output, out_dir, target_frames)) {
+        throw std::runtime_error("trace output collides with a raw frame path: " +
+                                 output.string());
+      }
+    }
+    if (!trace_path.empty() &&
+        generated_frame_path_collision(trace_path, out_dir, target_frames)) {
+      throw std::runtime_error("VCD output collides with a raw frame path: " +
+                               trace_path.string());
+    }
+  }
 
   // A manifest certifies one successful trace. Invalidate any older
   // certificate before validating inputs that could abort this attempted run.
   if (event_trace_config.enabled()) {
     fs::remove(trace_manifest_path(event_trace_config.output));
+    fs::remove(trace_manifest_temp_path(event_trace_config.output));
   }
 
   std::optional<swansong::input::Script> input_script;
@@ -610,6 +817,7 @@ int main(int argc, char** argv) {
   std::array<uint16_t, 224 * 144> frame{};
   unsigned frames = 0;
   bool wrote_pixel = false;
+  std::vector<FrameArtifact> frame_artifacts;
   std::optional<swansong::input::Replay> input_replay;
   if (input_script) input_replay.emplace(*input_script);
   for (uint64_t cycle_count = 0; cycle_count < max_cycles && frames < target_frames;
@@ -623,8 +831,14 @@ int main(int argc, char** argv) {
       wrote_pixel = true;
       if (top->pixel_out_addr == frame.size() - 1) {
         const fs::path output = out_dir / ("frame-" + std::to_string(frames) + ".rgb");
-        write_rgb(output, frame);
+        const std::string frame_hash = write_rgb(output, frame);
         std::cout << output.string() << '\n';
+        if (trace_frame_artifacts) {
+          // cycle_count is the reset-release trace cycle whose rising edge
+          // produced the last visible pixel in this raw RGB artifact.
+          frame_artifacts.push_back(
+              {frames, cycle_count, output, 224u * 144u * 3u, frame_hash});
+        }
         ++frames;
       }
     }
@@ -646,7 +860,17 @@ int main(int argc, char** argv) {
     event_trace.reset();
     write_trace_manifest(event_trace_config, trace_cycle, frames, rom, bios,
                          input_script ? &*input_script : nullptr,
-                         input_replay ? input_replay->applied_events() : 0);
+                         input_replay ? input_replay->applied_events() : 0,
+                         trace_frame_artifacts ? &frame_artifacts : nullptr);
   }
   return 0;
+}
+
+int main(int argc, char** argv) {
+  try {
+    return run_main(argc, argv);
+  } catch (const std::exception& error) {
+    std::cerr << "error: " << error.what() << '\n';
+    return 2;
+  }
 }
