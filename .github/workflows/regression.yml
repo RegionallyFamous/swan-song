@@ -4,13 +4,25 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  VERILATOR_IMAGE: verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299
+  GHDL_IMAGE: ghdl/ghdl@sha256:8b3ec37c3873b2eee9387759e66c50830c15ae5b7b533badaa97ce007a0f8022
+
 jobs:
   verilator:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CXX: ${{ github.workspace }}/.github/toolchain/cxx
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Verilator
-        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Verify immutable HDL toolchain
+        run: |
+          echo "$GITHUB_WORKSPACE/.github/toolchain" >> "$GITHUB_PATH"
+          .github/toolchain/verify.sh
       - name: Run open-ROM framebuffer regressions
         run: make regression

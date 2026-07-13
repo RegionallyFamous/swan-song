@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Keep the standalone C++ trace tests on the same immutable compiler/runtime
+# image used by Verilator's --build flow.
+EXPECTED_IMAGE="verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299"
+IMAGE="${VERILATOR_IMAGE:-$EXPECTED_IMAGE}"
+
+if [[ "$IMAGE" != "$EXPECTED_IMAGE" ]]; then
+  echo "VERILATOR_IMAGE must equal $EXPECTED_IMAGE" >&2
+  exit 2
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+WORKDIR="$(pwd -P)"
+case "$WORKDIR/" in
+  "$ROOT/"*) ;;
+  *)
+    echo "pinned C++ compiler must run from inside $ROOT" >&2
+    exit 2
+    ;;
+esac
+
+docker_args=(
+  run --rm --network none
+  --user "$(id -u):$(id -g)"
+  --env HOME=/tmp
+  --volume "$ROOT:$ROOT"
+  --workdir "$WORKDIR"
+  --entrypoint /usr/bin/g++
+)
+exec docker "${docker_args[@]}" "$IMAGE" "$@"

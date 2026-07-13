@@ -117,7 +117,7 @@
 
 Requirements:
 
-- Docker (for pinned `ghdl/ghdl:6.0.0-llvm-ubuntu-24.04`)
+- Docker (for the GHDL translation image)
 - Verilator 5.x
 - a C++17 compiler
 - Python 3
@@ -127,6 +127,42 @@ Run the regression suite:
 ```sh
 make regression
 ```
+
+### Exact CI toolchain
+
+The GitHub regression workflow runs the same `make regression` entry point but
+does not install a moving Ubuntu package. It pins:
+
+- [`actions/checkout` v4.3.1](https://github.com/actions/checkout/commit/34e114876b0b11c390a56381ad16ebd13914f8d5)
+  by full commit SHA `34e114876b0b11c390a56381ad16ebd13914f8d5`;
+- the [official Verilator executable container](https://verilator.org/guide/latest/install.html#verilator-executable-docker-container)
+  at version 5.050 and multi-architecture image index
+  `sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299`,
+  including GCC 13.3.0 for both Verilator's model build and the standalone C++
+  trace tests; and
+- the [GHDL-maintained](https://github.com/ghdl/docker) 6.0.0 LLVM/Ubuntu 24.04
+  image at
+  `sha256:8b3ec37c3873b2eee9387759e66c50830c15ae5b7b533badaa97ce007a0f8022`.
+
+`.github/toolchain/verify.sh` pulls only those immutable image identities and
+checks the exact Verilator version, source revision, compiler version, and GHDL
+version before the regression starts. The workflow passes the GHDL digest
+through the existing `GHDL_IMAGE` override and puts the pinned Verilator wrapper
+on `PATH`; local simulation continues to use the host Verilator unless that
+wrapper is selected explicitly.
+
+```sh
+.github/toolchain/verify.sh
+```
+
+On macOS this command verifies the multi-architecture Verilator image and the
+amd64 GHDL image, but a simulator compiled inside the Linux container cannot run
+as a native macOS executable. The complete container-backed regression is
+therefore a Linux CI contract. GitHub's `ubuntu-24.04` host still supplies Bash,
+Make, Docker, and Python 3; their patch releases are platform-managed rather
+than independently image-pinned, while the regression's exact output hashes
+remain the behavioral drift gate. No successful remote run is claimed until
+this branch is pushed to a configured repository.
 
 Run a ROM for six frames and emit PNGs:
 
