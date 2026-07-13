@@ -219,10 +219,10 @@ begin
             SDMA_CTRL <= RegBus_Din(7 downto 6) & '0' & RegBus_Din(4 downto 0);
             if (RegBus_Din(7) = '1' and unsigned(SDMA_LEN_work) = 0) then
                SDMA_CTRL(7) <= '0';
-               if (state = IDLE) then
+               if (state /= SDMA_READ and state /= SDMA_READDONE) then
                   sdma_requestIntern <= '0';
                end if;
-            elsif (RegBus_Din(7) = '0' and state = IDLE) then
+            elsif (RegBus_Din(7) = '0' and state /= SDMA_READ and state /= SDMA_READDONE) then
                sdma_requestIntern <= '0';
             end if;
          end if;
@@ -270,7 +270,9 @@ begin
                   if (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1' and (RegBus_Din(7) = '0' or unsigned(SDMA_LEN_work) = 0)) then
                      sdma_requestIntern <= '0';
                   elsif (sdma_requestIntern = '1') then
-                     if (cpu_idle = '1' or is_simu = '1') then
+                     if (SDMA_CTRL(7) = '0') then
+                        sdma_requestIntern <= '0';
+                     elsif (cpu_idle = '1' or is_simu = '1') then
                         state         <= SDMA_READ;
                      end if;
                   end if;
@@ -372,7 +374,6 @@ begin
      
 
 end architecture;
-
 
 
 
