@@ -31,10 +31,6 @@
           {
             "value": 2,
             "name": "WonderSwan Color"
-          },
-          {
-            "value": 3,
-            "name": "PocketChallenge v2"
           }
         ]
       },
@@ -91,7 +87,7 @@
         ]
       },
       {
-        "name": "Orientation",
+        "name": "Display Orientation",
         "id": 43,
         "type": "list",
         "enabled": true,
@@ -115,7 +111,7 @@
         ]
       },
       {
-        "name": "Flip Horizontal",
+        "name": "Landscape 180°",
         "id": 44,
         "type": "check",
         "enabled": true,
@@ -132,7 +128,7 @@
         "enabled": false
       },
       {
-        "name": "Fast Forward",
+        "name": "Audio in Fast Forward",
         "id": 81,
         "type": "check",
         "enabled": true,

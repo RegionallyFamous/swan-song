@@ -466,7 +466,11 @@ class PocketFirstClassContractTest(unittest.TestCase):
         video = load("video.json")["video"]
         self.assertEqual(video["magic"], "APF_VER_1")
         self.assertLessEqual(len(video["scaler_modes"]), 8)
-        self.assertEqual(len(video["scaler_modes"]), 2)
+        self.assertEqual(len(video["scaler_modes"]), 3)
+        self.assertEqual(
+            [number(mode["rotation"]) for mode in video["scaler_modes"]],
+            [0, 270, 180],
+        )
         self.assertEqual(
             [number(mode["id"]) for mode in video["display_modes"]],
             [0x20, 0x30, 0x40],
@@ -511,32 +515,94 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertNotIn("size_exact", save)
         self.assertEqual(number(save["size_maximum"]), 512 * 1024 + 12)
 
+        # Both boot ROMs are dependencies of the current Chip32 launch path.
+        # Advertise that requirement to APF and reject malformed firmware at
+        # the host definition before the guarded bridge transfer begins.
+        bios_contract = {
+            number(slot["id"]): (
+                slot["required"],
+                slot["filename"],
+                number(slot["parameters"]),
+                number(slot["size_exact"]),
+                number(slot["address"]),
+            )
+            for slot in slots
+            if number(slot["id"]) in (9, 10)
+        }
+        self.assertEqual(
+            bios_contract,
+            {
+                9: (True, "bw.rom", 0x208, 4096, 0x30000000),
+                10: (True, "color.rom", 0x208, 8192, 0x30000000),
+            },
+        )
+
     def test_input_and_interact_limits(self) -> None:
         input_definition = load("input.json")["input"]
+        self.assertEqual(input_definition["magic"], "APF_VER_1")
         controllers = input_definition["controllers"]
-        self.assertLessEqual(len(controllers), 4)
-        allowed_keys = {
-            "pad_btn_a",
-            "pad_btn_b",
-            "pad_btn_x",
-            "pad_btn_y",
-            "pad_trig_l",
-            "pad_trig_r",
-            "pad_btn_start",
-            "pad_btn_select",
-        }
-        for controller in controllers:
-            self.assertEqual(controller["type"], "default")
-            mappings = controller["mappings"]
-            self.assertLessEqual(len(mappings), 8)
-            self.assertEqual(len({number(item["id"]) for item in mappings}), len(mappings))
-            self.assertTrue(all(len(item["name"]) <= 19 for item in mappings))
-            self.assertEqual({item["key"] for item in mappings}, allowed_keys)
+        self.assertEqual(len(controllers), 1)
+        self.assertEqual(controllers[0]["type"], "default")
+        mappings = controllers[0]["mappings"]
+        self.assertEqual(
+            [(number(item["id"]), item["name"], item["key"]) for item in mappings],
+            [
+                (0, "Horz A/Vert X3", "pad_btn_a"),
+                (1, "Horz B/Vert X4", "pad_btn_b"),
+                (2, "Horz Y3/Vert X2", "pad_btn_x"),
+                (3, "Horz Y4/Vert X1", "pad_btn_y"),
+                (10, "Horz Y1/Vert A", "pad_trig_l"),
+                (11, "Horz Y2/Vert B", "pad_trig_r"),
+                (20, "Start", "pad_btn_start"),
+                (30, "Fast Forward", "pad_btn_select"),
+            ],
+        )
+        self.assertTrue(all(len(item["name"]) <= 19 for item in mappings))
+
+        # Bind those user-facing labels to both halves of the production
+        # vertical mapping: wrapper wiring and joypad.vhd's native rotation.
+        swan = compact_hdl(
+            (ROOT / "src/fpga/core/wonderswan.sv").read_text(encoding="utf-8")
+        )
+        joypad = compact_hdl(
+            (ROOT / "src/fpga/core/rtl/joypad.vhd").read_text(encoding="utf-8")
+        ).lower()
+        for expression in (
+            ".keyy1(vertical?button_x:button_trig_l)",
+            ".keyy2(vertical?button_a:button_trig_r)",
+            ".keyy3(vertical?button_b:button_x)",
+            ".keyy4(vertical?button_y:button_y)",
+            ".keyx1(dpad_up)",
+            ".keyx2(dpad_right)",
+            ".keyx3(dpad_down)",
+            ".keyx4(dpad_left)",
+        ):
+            self.assertIn(expression, swan.lower())
+        for expression in (
+            "if(keyy4='1')thenkeypad_read(0)<='1';endif;",
+            "if(keyy1='1')thenkeypad_read(1)<='1';endif;",
+            "if(keyy2='1')thenkeypad_read(2)<='1';endif;",
+            "if(keyy3='1')thenkeypad_read(3)<='1';endif;",
+        ):
+            self.assertIn(expression, joypad)
 
         interact = load("interact.json")["interact"]
         variables = interact["variables"]
         self.assertLessEqual(len(variables), 16)
         self.assertEqual(len({number(item["id"]) for item in variables}), len(variables))
+        variables_by_id = {number(item["id"]): item for item in variables}
+        system_type = variables_by_id[10]
+        self.assertEqual(number(system_type["address"]), 0x100)
+        self.assertEqual(
+            [(number(option["value"]), option["name"]) for option in system_type["options"]],
+            [(0, "Auto"), (1, "WonderSwan"), (2, "WonderSwan Color")],
+        )
+        self.assertEqual(variables_by_id[43]["name"], "Display Orientation")
+        self.assertEqual(number(variables_by_id[43]["address"]), 0x208)
+        self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
+        self.assertEqual(number(variables_by_id[44]["address"]), 0x20C)
+        self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
+        self.assertEqual(number(variables_by_id[81]["address"]), 0x300)
 
     def test_apf_boundary_sources_are_mutation_locked(self) -> None:
         sources = source_bundle()

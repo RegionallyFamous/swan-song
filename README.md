@@ -24,7 +24,7 @@ should be upstreamed after they are verified.
 
 ### Easy mode
 
-I highly recommend the updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven). If you're running Windows, use [the RetroDriven GUI](https://github.com/RetroDriven/Pocket_Updater), or if you prefer the CLI, use [the mattpannella tool](https://github.com/mattpannella/pocket_core_autoupdate_net). Either of these will allow you to automatically download and install openFPGA cores onto your Analogue Pocket. Go donate to them if you can
+The updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven) are excellent for published openFPGA cores. The current Swan Song development branch is not yet a verified updater release; using an updater today may install or restore upstream WonderSwan 1.0.1 instead. Use this route only after a Swan Song release is explicitly listed.
 
 ### Manual mode
 When a verified Swan Song release is available, download its APF ZIP from the
@@ -37,17 +37,39 @@ manually merge the folders.
 
 ## Usage
 
-ROMs should be placed in `/Assets/wonderswan/common/`
+ROMs should be placed in `/Assets/wonderswan/common/`.
 
-You must provide the BIOS files for both the original and WonderSwan Color. The BIOSes should be named `bw.rom` and `color.rom`, and should be placed in `/Assets/wonderswan/common/`.
+You must provide the BIOS files for both the original and WonderSwan Color. The
+BIOSes should be named `bw.rom` and `color.rom`, and should be placed in
+`/Assets/wonderswan/common/`. Both are required data slots, so Pocket can ask
+for a missing file before launch; APF also checks their exact sizes. A BIOS
+chosen in that browser is remembered for the next launch and is cleared by
+Pocket's Reset All to Defaults action.
 
 WonderSwan
+
 * `bw.rom`
 * MD5: 54B915694731CC22E07D3FB8A00EE2DB
 
 WonderSwan Color
+
 * `color.rom`
 * MD5: 880893BD5A7D53FFF826BD76A83D566E
+
+### Supported Pocket boundary
+
+Swan Song currently supports the openFPGA asset-launch path: Pocket loads a
+`.ws` or `.wsc` image plus both user-supplied BIOS files from the SD card, then
+provides its APF video, audio, input, save, menu, and Dock transport. This is
+not Pocket's first-party physical-cartridge or Library launch path. Cartridge
+power remains off, the cartridge and link ports are not used, and no firmware
+or game image is bundled.
+
+The selectable hardware models are Auto, WonderSwan, and WonderSwan Color.
+PocketChallenge v2 is not advertised: the core does not implement that
+machine's pinstrap boot, distinct keypad matrix, absent internal EEPROM, or
+native `.pc2` asset path. Renaming a `.pc2` file does not make this a supported
+configuration.
 
 ### Supported file sizes
 
@@ -104,6 +126,12 @@ Hold the `-` button (default) to run the WonderSwan at 2.5x speed. Tapping the b
 
 The WonderSwan has a lot of buttons for a handheld in an unusual layout. The default button mappings for the Pocket are as close as I can get to the original control layout.
 
+The running console's own orientation signal selects the native WonderSwan
+button matrix shown below. The `Display Orientation` menu changes only how the
+finished frame is presented by Pocket's scaler; forcing it does not override
+the game's native orientation or remap controls. This separation keeps
+game-visible input behavior tied to the emulated hardware.
+
 <table>
 <tr>
   <th>Horizontal</th>
@@ -141,18 +169,18 @@ The WonderSwan has a lot of buttons for a handheld in an unusual layout. The def
 
 ### System Settings
 
-* `System Type` - Choose what type of WonderSwan to boot. Changing this option requires resetting the core
+* `System Type` - Select Auto, WonderSwan, or WonderSwan Color. Changing this option requires resetting the core.
 * `CPU Turbo` - Allows the CPU to perform additional processing per frame, which can be used to eliminate some slowdowns.
 
 ### Video Settings
 
-The WonderSwan has a native refresh rate of 75.4Hz, but the Analogue Pocket doesn't support higher than ~62Hz (and 60Hz on the Dock). This core provides the option to either run the display directly at 60Hz, introducing tearing, or to triple buffer frames at 60Hz, introducing latency and skipping some frames entirely.
+The WonderSwan has a native refresh rate of 75.4Hz, but the Analogue Pocket doesn't support higher than ~62Hz (and 60Hz on the Dock). This core provides the option to either run the display directly at 60Hz, introducing tearing, or to buffer complete frames at 60Hz, introducing latency and skipping some frames entirely. The buffered path uses five physical banks so the writer, a pending frame, and up to three immutable display/blend frames never alias.
 
-* `Triple Buffer` - Triple buffer image to prevent tearing. Please note that this does increase latency and will cause frames to be dropped.
-* `Flickerblend` - Use a combination of 2 or 3 frames of data to perform blending on flickering UI elements. This will decrease the flickering and resolve the flicker into a lighter grey color. Please note that this enables the frame buffer implicitly.
-* `Orientation` - Lock the screen rotation to a particular direction. When set to `Auto`, the core will automatically rotate the display.
-* `Flip Horizontal` - Flips the display whenever the WonderSwan would display in horizontal mode.
+* `Triple Buffer` - Present only complete frames to prevent producer/scanout tearing. This increases latency and drops producer frames when necessary.
+* `Flickerblend` - Blend the newest two or three immutable completed frames with exact rounded RGB levels. History is re-primed after a title/reset, and this option enables buffering implicitly.
+* `Display Orientation` - Select the scaler presentation independently of the emulated console's native input orientation.
+* `Landscape 180°` - Select the 180-degree landscape presentation. This is not a horizontal mirror or control remap.
 
 ### Sound Settings
 
-* `Fast Forward` - If enabled, play sound when fast forward is active.
+* `Audio in Fast Forward` - If enabled, play sound when fast forward is active.

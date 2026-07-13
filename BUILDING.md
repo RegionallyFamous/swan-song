@@ -243,9 +243,17 @@ and lower 32 bits in parameter 1. Read and write requests independently return
 | ID | Purpose | Accepted host operation and size |
 | --- | --- | --- |
 | 0 | Cartridge | Write only; power of two, 64 KiB through 16 MiB |
-| 9 | Mono BIOS | Write only; exactly 4,096 bytes |
-| 10 | Color BIOS | Write only; exactly 8,192 bytes |
+| 9 | Mono BIOS | Required write-only APF asset; exactly 4,096 bytes |
+| 10 | Color BIOS | Required write-only APF asset; exactly 8,192 bytes |
 | 11 | Save | Read becomes ready only after `reset_n=0`, synchronized execution has stopped, and a fixed 31-`clk_74a` drain guard has elapsed, with startup metadata/table/init still valid; write accepts absent (zero), canonical for the current cartridge, or legacy 2,060-byte RTC EEPROM type `10`/`50` |
+
+Slots 9 and 10 use `required: true` and `size_exact` in `data.json`, matching
+the current Chip32 program, which queries and loads both BIOS files on every
+launch. This lets APF surface missing or malformed firmware at its normal file
+boundary instead of advertising an optional asset that the launcher later
+rejects. They are read-only assets with APF's persist-browsed-filename bit, so
+a one-time browser choice is reused until Reset All to Defaults. The exact-size
+RTL guard remains a second, independent check.
 
 Before cartridge metadata is available, a plausible slot-11 write returns `2`
 instead of guessing. Once metadata is ready, type-inconsistent, short,
@@ -280,6 +288,22 @@ anything above 16 MiB. The [Wonderful WonderSwan target
 documentation](https://wonderful.asie.pl/docs/target/wswan/) is the modern
 toolchain reference used by the open generated-ROM validation; it does not
 raise the core's implemented limit.
+
+### Supported Pocket launch boundary
+
+The packaged product is an openFPGA SD-card asset launcher for `.ws` and `.wsc`
+images with both legally obtained BIOS files. It uses APF for data slots,
+video, audio, input, saves, settings, and Dock transport. It does not enable
+Pocket's physical cartridge adapter or link port, does not participate in the
+first-party physical-cartridge/Library launch flow, and does not bundle BIOS or
+commercial game data.
+
+Only Auto, WonderSwan, and WonderSwan Color are exposed as system types.
+PocketChallenge v2 is outside the supported boundary: this core does not
+implement the machine's pinstrap boot, distinct keypad matrix, absent internal
+EEPROM, or native `.pc2` asset path. Separately, the display-presentation menu
+does not replace the console's live orientation signal, which remains the
+authority for the emulated input matrix.
 
 ### Migrating legacy type-01 Pocket saves
 
@@ -626,4 +650,6 @@ ZIP before validating new inputs, so stale output cannot masquerade as success.
 
 For an unpacked SD-card tree, unzip the package at the card root. The user must
 separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in
-`Assets/wonderswan/common/`; they are intentionally never packaged here.
+`Assets/wonderswan/common/`; they are intentionally never packaged here. Both
+BIOS files are required in the APF definition and have exact 4 KiB/8 KiB host
+size checks; the core still independently rejects an invalid transfer length.

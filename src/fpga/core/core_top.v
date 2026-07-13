@@ -200,6 +200,7 @@ module core_top (
     //   [13]   trig_r3
     //   [14]   face_select
     //   [15]   face_start
+    //   [31:28] controller type (1-3 are gamepads)
     // joy values - unsigned
     //   [ 7: 0] lstick_x
     //   [15: 8] lstick_y
@@ -209,10 +210,10 @@ module core_top (
     //   [ 7: 0] ltrig
     //   [15: 8] rtrig
     //
-    input wire [15:0] cont1_key,
-    input wire [15:0] cont2_key,
-    input wire [15:0] cont3_key,
-    input wire [15:0] cont4_key,
+    input wire [31:0] cont1_key,
+    input wire [31:0] cont2_key,
+    input wire [31:0] cont3_key,
+    input wire [31:0] cont4_key,
     input wire [31:0] cont1_joy,
     input wire [31:0] cont2_joy,
     input wire [31:0] cont3_joy,
@@ -356,7 +357,12 @@ module core_top (
         end
 
         32'h100: begin
-          configured_system <= bridge_wr_data[1:0];
+          // Persisted values can outlive a package update.  Encoding 3 was
+          // formerly advertised as PocketChallenge v2 even though its
+          // pinstrap/keypad/EEPROM protocol is not implemented; fail back to
+          // Auto rather than silently booting the wrong machine model.
+          configured_system <=
+              bridge_wr_data[1:0] > 2'd2 ? 2'd0 : bridge_wr_data[1:0];
         end
         32'h110: begin
           use_cpu_turbo <= bridge_wr_data[0];
@@ -369,10 +375,12 @@ module core_top (
           use_triple_buffer <= bridge_wr_data[0];
         end
         32'h204: begin
-          configured_flickerblend <= bridge_wr_data[1:0];
+          configured_flickerblend <=
+              bridge_wr_data[1:0] > 2'd2 ? 2'd0 : bridge_wr_data[1:0];
         end
         32'h208: begin
-          configured_orientation <= bridge_wr_data[1:0];
+          configured_orientation <=
+              bridge_wr_data[1:0] > 2'd2 ? 2'd0 : bridge_wr_data[1:0];
         end
         32'h20C: begin
           use_flip_horizontal <= bridge_wr_data[0];
@@ -1071,17 +1079,17 @@ module core_top (
   reg [31:0] reset_delay = 0;
   wire external_reset = reset_delay > 0;
 
-  reg [1:0] configured_system;
+  reg [1:0] configured_system = 2'd0;
 
-  reg use_cpu_turbo;
+  reg use_cpu_turbo = 1'b0;
   // reg use_rewind_capture;
 
-  reg use_triple_buffer;
-  reg [1:0] configured_flickerblend;
-  reg [1:0] configured_orientation;
-  reg use_flip_horizontal;
+  reg use_triple_buffer = 1'b1;
+  reg [1:0] configured_flickerblend = 2'd0;
+  reg [1:0] configured_orientation = 2'd0;
+  reg use_flip_horizontal = 1'b0;
 
-  reg use_fastforward_sound;
+  reg use_fastforward_sound = 1'b1;
 
   // Reset and download controls are consumed in two clock domains. Keep a
   // dedicated copy in each destination domain; a signal synchronized to the
@@ -1134,10 +1142,18 @@ module core_top (
       clk_sys_36_864
   );
 
-  synch_3 #(
-      .WIDTH(10)
-  ) settings_s (
-      {
+  // Persistent interact settings originate on clk_74a. Legal list changes can
+  // toggle both bits of a field, so a vector synchronizer can expose a torn
+  // intermediate value. Transfer the whole package atomically and keep this
+  // CDC alive through host Reset Enter; only loss of PLL readiness resets it.
+  wire [9:0] settings_snapshot_s;
+  wire settings_update_pending_74a;
+  apf_settings_cdc #(
+      .DEFAULT_SETTINGS(10'h041)
+  ) settings_command_cdc (
+      .reset_n(pll_core_ready_74a),
+      .clk_source(clk_74a),
+      .settings_source({
         configured_system,
         use_cpu_turbo,
         // use_rewind_capture,
@@ -1146,18 +1162,33 @@ module core_top (
         configured_orientation,
         use_flip_horizontal,
         use_fastforward_sound
-      },
-      {
-        configured_system_s,
-        use_cpu_turbo_s,
-        // use_rewind_capture_s,
-        use_triple_buffer_s,
-        configured_flickerblend_s,
-        configured_orientation_s,
-        use_flip_horizontal_s,
-        use_fastforward_sound_s
-      },
-      clk_sys_36_864
+      }),
+      .update_pending_source(settings_update_pending_74a),
+      .clk_destination(clk_sys_36_864),
+      .settings_destination(settings_snapshot_s)
+  );
+
+  assign {
+    configured_system_s,
+    use_cpu_turbo_s,
+    // use_rewind_capture_s,
+    use_triple_buffer_s,
+    configured_flickerblend_s,
+    configured_orientation_s,
+    use_flip_horizontal_s,
+    use_fastforward_sound_s
+  } = settings_snapshot_s;
+
+  // PAD key words carry a controller type in [31:28].  Sanitize the word in
+  // its native clk_74a domain before the multi-bit button state crosses into
+  // clk_sys.  This prevents keyboard modifiers, mouse counters, disconnected
+  // slots, and reserved future packet types from becoming WonderSwan input.
+  wire [15:0] cont1_gamepad_key_74a;
+  apf_gamepad_filter gamepad_filter (
+      .clk(clk_74a),
+      .reset_n(reset_n),
+      .key_word(cont1_key),
+      .buttons(cont1_gamepad_key_74a)
   );
 
   wire [15:0] cont1_key_s;
@@ -1165,7 +1196,7 @@ module core_top (
   synch_3 #(
       .WIDTH(16)
   ) cont1_s (
-      cont1_key,
+      cont1_gamepad_key_74a,
       cont1_key_s,
       clk_sys_36_864
   );
@@ -1217,7 +1248,6 @@ module core_top (
 
       .use_triple_buffer(use_triple_buffer_s),
       .configured_flickerblend(configured_flickerblend_s),
-      .use_flip_horizontal(use_flip_horizontal_s),
 
       .use_fastforward_sound(use_fastforward_sound_s),
 
@@ -1284,10 +1314,10 @@ module core_top (
   wire [23:0] vid_rgb_core;
   wire is_vertical;
 
-  reg video_de_reg;
-  reg video_hs_reg;
-  reg video_vs_reg;
-  reg [23:0] video_rgb_reg;
+  reg video_de_reg = 1'b0;
+  reg video_hs_reg = 1'b0;
+  reg video_vs_reg = 1'b0;
+  reg [23:0] video_rgb_reg = 24'd0;
 
   assign video_rgb_clock = clk_vid_3_75;
   assign video_rgb_clock_90 = clk_vid_3_75_90deg;
@@ -1297,22 +1327,59 @@ module core_top (
   assign video_vs = video_vs_reg;
   assign video_hs = video_hs_reg;
 
-  reg [2:0] hs_delay;
-  reg hs_prev;
-  reg vs_prev;
-  reg de_prev;
+  reg [2:0] hs_delay = 3'd0;
+  reg hs_prev = 1'b0;
+  reg vs_prev = 1'b0;
+  reg de_prev = 1'b0;
 
-  wire de = ~(h_blank || v_blank);
+  // The WonderSwan scan generator runs at 36.864 MHz while the APF video bus
+  // is clocked at 6.144 MHz.  They are phase-related outputs of the same PLL,
+  // but sampling the live RGB/control bundle on the video edge could mix two
+  // system cycles.  Capture the complete bundle on the intervening falling
+  // system edge; TimeQuest then analyzes the related half-cycle transfer.
+  reg [23:0] vid_rgb_sys_half = 24'd0;
+  reg h_blank_sys_half = 1'b1;
+  reg v_blank_sys_half = 1'b1;
+  reg video_hs_sys_half = 1'b0;
+  reg video_vs_sys_half = 1'b0;
+
+  always @(negedge clk_sys_36_864) begin
+    vid_rgb_sys_half  <= vid_rgb_core;
+    h_blank_sys_half <= h_blank;
+    v_blank_sys_half <= v_blank;
+    video_hs_sys_half <= video_hs_core;
+    video_vs_sys_half <= video_vs_core;
+  end
+
+  wire de = ~(h_blank_sys_half || v_blank_sys_half);
   wire [23:0] displaymode_video_rgb;
   apf_grayscale_video displaymode_video (
-      .rgb(vid_rgb_core),
+      .rgb(vid_rgb_sys_half),
       .enabled(displaymode_grayscale_applied),
       .rgb_out(displaymode_video_rgb)
   );
-  // If any vertical orientation, use second slot
-  wire video_orientation = configured_orientation_s == 0 ?  // Auto
-  is_vertical : configured_orientation_s == 2;  // Vertical
-  wire [23:0] video_slot_rgb = {10'b0, video_orientation, 10'b0, 3'b0};
+
+  // Display orientation controls only Pocket presentation.  The emulated
+  // console's live orientation continues to own the X/Y keypad matrix.
+  wire effective_vertical_sys =
+      configured_orientation_s == 2'd2 ? 1'b1 :
+      configured_orientation_s == 2'd1 ? 1'b0 : is_vertical;
+  wire frame_start_video = ~vs_prev && video_vs_sys_half;
+  wire scaler_update_pending_sys;
+  wire [2:0] scaler_slot_video;
+  wire [23:0] video_slot_rgb;
+
+  apf_scaler_selector scaler_selector (
+      .reset_n(reset_n && pll_core_locked),
+      .clk_sys(clk_sys_36_864),
+      .effective_vertical_sys(effective_vertical_sys),
+      .landscape_180_sys(use_flip_horizontal_s),
+      .update_pending_sys(scaler_update_pending_sys),
+      .clk_video(clk_vid_3_75),
+      .frame_start_video(frame_start_video),
+      .scaler_slot_video(scaler_slot_video),
+      .eol_word_video(video_slot_rgb)
+  );
 
   always @(posedge clk_vid_3_75) begin
     video_hs_reg  <= 0;
@@ -1335,18 +1402,18 @@ module core_top (
       video_hs_reg <= 1;
     end
 
-    if (~hs_prev && video_hs_core) begin
+    if (~hs_prev && video_hs_sys_half) begin
       // HSync went high. Delay by 3 cycles to prevent overlapping with VSync
       hs_delay <= 7;
     end
 
     // Set VSync to be high for a single cycle on the rising edge of the VSync coming out of the core
-    video_vs_reg <= ~vs_prev && video_vs_core;
-    if (~vs_prev && video_vs_core) begin
+    video_vs_reg <= frame_start_video;
+    if (frame_start_video) begin
       displaymode_grayscale_applied <= displaymode_grayscale_video;
     end
-    hs_prev <= video_hs_core;
-    vs_prev <= video_vs_core;
+    hs_prev <= video_hs_sys_half;
+    vs_prev <= video_vs_sys_half;
     de_prev <= de;
   end
 

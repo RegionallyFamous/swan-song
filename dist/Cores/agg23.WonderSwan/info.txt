@@ -1,13 +1,22 @@
-Port by agg23. Core by Robert Peip
+Swan Song for Analogue Pocket
+System core by Robert Peip
+Pocket port by agg23
 
-WonderSwan, a handheld console by Bandai, had notably better specs than it's competitor, the Game Boy Color. With a 16-bit processor, 8 shades of grey color (later 241 colors), and long battery life, it stands out as a strong contender to Nintendo's dominance.
+Supported launch path:
+* openFPGA SD-card assets
+* WonderSwan .ws and WonderSwan Color .wsc
+* Required 4 KiB bw.rom and 8 KiB color.rom
 
-Supports:
-* Fast forward - Runs game at 2.5x speed
-* CPU turbo
-* Automatic screen orientation
-* Flickerblending
+PocketChallenge v2 and .pc2 assets are not supported.
+The physical cartridge and link ports are not used.
 
-Memories and Sleep + Wake are disabled pending end-to-end and Pocket validation.
+Features:
+* Fast forward and CPU turbo
+* Automatic or forced display presentation
+* Landscape, portrait, and 180-degree presentation
+* Tear-safe buffering and exact two/three-frame flicker blending
 
-Please report all issues to agg23, as most likely any issues experienced are issues with the port, not the core.
+The game's native orientation still controls its button matrix.
+Display Orientation and Landscape 180 degrees affect presentation only.
+
+Memories and Sleep + Wake remain disabled pending end-to-end Pocket validation.

@@ -81,6 +81,7 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(names, sorted(names))
             self.assertEqual(len(names), len(set(names)))
             self.assertFalse(any(name.endswith(".tmp") for name in names))
+            self.assertFalse(any(name.endswith(".gitkeep") for name in names))
             core_definition = json.loads(
                 archive.read((CORE_DIRECTORY / "core.json").as_posix())
             )
@@ -88,6 +89,10 @@ class PackageCoreTest(unittest.TestCase):
             chip32_name = core_definition["core"]["framework"]["chip32_vm"]
             data_definition = json.loads(
                 archive.read((CORE_DIRECTORY / "data.json").as_posix())
+            )
+            self.assertEqual(
+                archive.read((CORE_DIRECTORY / "input.json").as_posix()),
+                (self.dist / CORE_DIRECTORY / "input.json").read_bytes(),
             )
             slots_by_id = {
                 int(slot["id"]): slot
@@ -98,6 +103,38 @@ class PackageCoreTest(unittest.TestCase):
             # APF_VER_1 documents size_exact and size_maximum, but has no
             # size_minimum field. Minimum ROM validation remains core-owned.
             self.assertNotIn("size_minimum", cartridge_slot)
+            self.assertEqual(
+                {
+                    slot_id: (
+                        slots_by_id[slot_id]["required"],
+                        slots_by_id[slot_id]["filename"],
+                        int(slots_by_id[slot_id]["parameters"], 0),
+                        slots_by_id[slot_id]["size_exact"],
+                    )
+                    for slot_id in (9, 10)
+                },
+                {
+                    9: (True, "bw.rom", 0x208, 4096),
+                    10: (True, "color.rom", 0x208, 8192),
+                },
+            )
+            interact_definition = json.loads(
+                archive.read((CORE_DIRECTORY / "interact.json").as_posix())
+            )
+            variables_by_id = {
+                int(item["id"]): item
+                for item in interact_definition["interact"]["variables"]
+            }
+            self.assertEqual(
+                [(item["value"], item["name"]) for item in variables_by_id[10]["options"]],
+                [(0, "Auto"), (1, "WonderSwan"), (2, "WonderSwan Color")],
+            )
+            self.assertEqual(variables_by_id[43]["name"], "Display Orientation")
+            self.assertEqual(variables_by_id[43]["address"], "0x208")
+            self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
+            self.assertEqual(variables_by_id[44]["address"], "0x20C")
+            self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
+            self.assertEqual(variables_by_id[81]["address"], "0x300")
             self.assertIn((CORE_DIRECTORY / bitstream_name).as_posix(), names)
             self.assertIn((CORE_DIRECTORY / chip32_name).as_posix(), names)
             self.assertEqual(

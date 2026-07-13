@@ -50,7 +50,6 @@ module wonderswan (
 
     input wire use_triple_buffer,
     input wire [1:0] configured_flickerblend,
-    input wire use_flip_horizontal,
 
     input wire use_fastforward_sound,
 
@@ -371,14 +370,14 @@ module wonderswan (
       .turbo      (use_cpu_turbo),
 
       // joystick
-      .KeyY1   (vertical ? button_x : button_trig_l),   // Vert left
-      .KeyY2   (vertical ? button_a : button_trig_r),   // Vert up
-      .KeyY3   (vertical ? button_b : button_x),        // Vert right
-      .KeyY4   (vertical ? button_y : button_y),        // Vert down
-      .KeyX1   (dpad_up),                               // Horz up, vert left
-      .KeyX2   (dpad_right),                            // Horz right, vert up
-      .KeyX3   (dpad_down),                             // Horz down, vert right
-      .KeyX4   (dpad_left),                             // Horz left, vert down
+      .KeyY1   (vertical ? button_x : button_trig_l),   // Vertical X2
+      .KeyY2   (vertical ? button_a : button_trig_r),   // Vertical X3
+      .KeyY3   (vertical ? button_b : button_x),        // Vertical X4
+      .KeyY4   (vertical ? button_y : button_y),        // Vertical X1
+      .KeyX1   (dpad_up),                               // Horizontal up, vertical Y2
+      .KeyX2   (dpad_right),                            // Horizontal right, vertical Y3
+      .KeyX3   (dpad_down),                             // Horizontal down, vertical Y4
+      .KeyX4   (dpad_left),                             // Horizontal left, vertical Y1
       .KeyStart(button_start),
       .KeyA    (~vertical ? button_a : button_trig_l),
       .KeyB    (~vertical ? button_b : button_trig_r),
@@ -420,84 +419,16 @@ module wonderswan (
   wire [11:0] pixel_data;
   wire pixel_we;
 
-  wire buffervideo = use_triple_buffer | configured_flickerblend[1]; // OSD option for buffer or flickerblend on;
-
-  reg [11:0] vram1[32256];
-  reg [11:0] vram2[32256];
-  reg [11:0] vram3[32256];
-  reg [1:0] buffercnt_write = 0;
-  reg [1:0] buffercnt_readnext = 0;
-  reg [1:0] buffercnt_read = 0;
-  reg [1:0] buffercnt_last = 0;
-  reg syncpaused = 0;
-
-
-  always @(posedge clk_sys_36_864) begin
-    if (buffervideo) begin
-      if (pixel_we && pixel_addr == 32255) begin
-        buffercnt_readnext <= buffercnt_write;
-        if (buffercnt_write < 2) begin
-          buffercnt_write <= buffercnt_write + 1'd1;
-        end else begin
-          buffercnt_write <= 0;
-        end
-      end
-    end else begin
-      buffercnt_write    <= 0;
-      buffercnt_readnext <= 0;
-    end
-
-    if (pixel_we) begin
-      if (buffercnt_write == 0) vram1[pixel_addr] <= pixel_data;
-      if (buffercnt_write == 1) vram2[pixel_addr] <= pixel_data;
-      if (buffercnt_write == 2) vram3[pixel_addr] <= pixel_data;
-    end
-
-    if (y > 150) begin
-      syncpaused <= 0;
-    end
-    // We don't have "Sync core to Video" setting
-    // end else if (~fast_forward && status[24] && pixel_we && pixel_addr == 32255) begin
-    //   syncpaused <= 1;
-    // end
-
-  end
-
-  reg [11:0] rgb0;
-  reg [11:0] rgb1;
-  reg [11:0] rgb2;
-
-  always @(posedge clk_sys_36_864) begin
-    rgb0 <= vram1[px_addr];
-    rgb1 <= vram2[px_addr];
-    rgb2 <= vram3[px_addr];
-  end
-
-  reg [14:0] px_addr = 15'd0;
-
-  wire [11:0] rgb_last = (buffercnt_last == 0) ? rgb0 : (buffercnt_last == 1) ? rgb1 : rgb2;
-
-  wire [11:0] rgb_now = (buffercnt_read == 0) ? rgb0 : (buffercnt_read == 1) ? rgb1 : rgb2;
-
-  wire [4:0] r2_5 = rgb_now[11:8] + rgb_last[11:8];
-  wire [4:0] g2_5 = rgb_now[7:4] + rgb_last[7:4];
-  wire [4:0] b2_5 = rgb_now[3:0] + rgb_last[3:0];
-
-  wire [5:0] r3_6 = rgb0[11:8] + rgb1[11:8] + rgb2[11:8];
-  wire [5:0] g3_6 = rgb0[7:4] + rgb1[7:4] + rgb2[7:4];
-  wire [5:0] b3_6 = rgb0[3:0] + rgb1[3:0] + rgb2[3:0];
-
-  wire [7:0] r3_8 = {r3_6, r3_6[5:4]};
-  wire [7:0] g3_8 = {g3_6, g3_6[5:4]};
-  wire [7:0] b3_8 = {b3_6, b3_6[5:4]};
-
-  wire [23:0] r3_mul24 = r3_8 * 16'D21845;
-  wire [23:0] g3_mul24 = g3_8 * 16'D21845;
-  wire [23:0] b3_mul24 = b3_8 * 16'D21845;
-
-  wire [23:0] r3_div24 = r3_mul24 / 16'D16384;
-  wire [23:0] g3_div24 = g3_mul24 / 16'D16384;
-  wire [23:0] b3_div24 = b3_mul24 / 16'D16384;
+  // Menu writes arrive atomically in this clock domain, but applying a new
+  // blend formula or buffer policy mid-scanout would still create a visible
+  // horizontal seam. Latch both only at the outgoing frame boundary below.
+  wire requested_buffervideo =
+      use_triple_buffer | (configured_flickerblend != 2'd0);
+  reg use_triple_buffer_applied = 1'b1;
+  reg [1:0] flickerblend_applied = 2'd0;
+  reg allow_direct_while_priming = 1'b0;
+  wire buffervideo =
+      use_triple_buffer_applied | (flickerblend_applied != 2'd0);
 
   wire vertical;
   reg hs, vs, hbl, vbl, ce_pix;
@@ -509,6 +440,125 @@ module wonderswan (
 
   // TODO: This setting is not exposed for Pocket
   wire use_refresh_rate_75hz = 0;
+  wire scanout_line_end =
+      (x >= 400 && ~use_refresh_rate_75hz) ||
+      (x >= 378 && use_refresh_rate_75hz);
+  wire scanout_frame_boundary = ce_pix && scanout_line_end && y >= 257;
+  wire producer_frame_done = pixel_we && pixel_addr == 32255;
+  wire [2:0] framebank_write;
+  wire [2:0] framebank_newest;
+  wire [2:0] framebank_previous;
+  wire [2:0] framebank_oldest;
+  wire [1:0] framebank_valid_count;
+
+  always @(posedge clk_sys_36_864) begin
+    if (reset) begin
+      // Settings persist through Reset Enter. Keep their coherent values, but
+      // do not expose retained RAM while the new title's history re-primes.
+      use_triple_buffer_applied <= use_triple_buffer;
+      flickerblend_applied <= configured_flickerblend;
+      allow_direct_while_priming <= 1'b0;
+    end else if (scanout_frame_boundary) begin
+      // A runtime direct->buffered transition may show the same direct bank
+      // while the first complete buffered frame is prepared, avoiding a black
+      // flash. history_valid_count changes only at this boundary, so the final
+      // switch to immutable history is frame-atomic.
+      if (!buffervideo && requested_buffervideo)
+        allow_direct_while_priming <= 1'b1;
+      else if (!requested_buffervideo || framebank_valid_count != 2'd0)
+        allow_direct_while_priming <= 1'b0;
+      use_triple_buffer_applied <= use_triple_buffer;
+      flickerblend_applied <= configured_flickerblend;
+    end
+  end
+
+  apf_framebank_arbiter framebank_arbiter (
+      .clk(clk_sys_36_864),
+      .reset(reset),
+      .enable(buffervideo),
+      .producer_frame_done(producer_frame_done),
+      .consumer_frame_boundary(scanout_frame_boundary),
+      .write_bank(framebank_write),
+      .history_newest(framebank_newest),
+      .history_previous(framebank_previous),
+      .history_oldest(framebank_oldest),
+      .history_valid_count(framebank_valid_count)
+  );
+
+  // Five banks provide three immutable blend/history frames, one pending
+  // completed frame, and one live producer frame.  A faster 75 Hz producer can
+  // supersede pending work without ever writing a bank visible to 59 Hz APF
+  // scanout.  Disabling buffering intentionally returns to direct bank zero.
+  reg [11:0] vram1[32256];
+  reg [11:0] vram2[32256];
+  reg [11:0] vram3[32256];
+  reg [11:0] vram4[32256];
+  reg [11:0] vram5[32256];
+  wire syncpaused = 1'b0;
+
+  always @(posedge clk_sys_36_864) begin
+    if (pixel_we) begin
+      if (framebank_write == 0) vram1[pixel_addr] <= pixel_data;
+      if (framebank_write == 1) vram2[pixel_addr] <= pixel_data;
+      if (framebank_write == 2) vram3[pixel_addr] <= pixel_data;
+      if (framebank_write == 3) vram4[pixel_addr] <= pixel_data;
+      if (framebank_write == 4) vram5[pixel_addr] <= pixel_data;
+    end
+  end
+
+  reg [11:0] rgb0;
+  reg [11:0] rgb1;
+  reg [11:0] rgb2;
+  reg [11:0] rgb3;
+  reg [11:0] rgb4;
+
+  always @(posedge clk_sys_36_864) begin
+    rgb0 <= vram1[px_addr];
+    rgb1 <= vram2[px_addr];
+    rgb2 <= vram3[px_addr];
+    rgb3 <= vram4[px_addr];
+    rgb4 <= vram5[px_addr];
+  end
+
+  reg [14:0] px_addr = 15'd0;
+
+  function automatic [11:0] framebank_rgb;
+    input [2:0] bank;
+    begin
+      case (bank)
+        3'd1: framebank_rgb = rgb1;
+        3'd2: framebank_rgb = rgb2;
+        3'd3: framebank_rgb = rgb3;
+        3'd4: framebank_rgb = rgb4;
+        default: framebank_rgb = rgb0;
+      endcase
+    end
+  endfunction
+
+  wire [11:0] buffered_newest =
+      framebank_valid_count >= 1 ? framebank_rgb(framebank_newest) : 12'd0;
+  wire [11:0] buffered_previous =
+      framebank_valid_count >= 2 ? framebank_rgb(framebank_previous) : buffered_newest;
+  wire [11:0] buffered_oldest =
+      framebank_valid_count >= 3 ? framebank_rgb(framebank_oldest) : buffered_previous;
+  wire use_buffered_history = buffervideo && framebank_valid_count != 2'd0;
+  wire [11:0] direct_or_blank =
+      (!buffervideo || allow_direct_while_priming) ? rgb0 : 12'd0;
+  wire [11:0] blend_newest =
+      use_buffered_history ? buffered_newest : direct_or_blank;
+  wire [11:0] blend_previous =
+      use_buffered_history ? buffered_previous : direct_or_blank;
+  wire [11:0] blend_oldest =
+      use_buffered_history ? buffered_oldest : direct_or_blank;
+  wire [23:0] temporal_video_rgb;
+
+  apf_temporal_blend temporal_blend (
+      .mode(flickerblend_applied),
+      .rgb_newest(blend_newest),
+      .rgb_previous(blend_previous),
+      .rgb_oldest(blend_oldest),
+      .rgb_out(temporal_video_rgb)
+  );
 
   always @(posedge clk_sys_36_864) begin
 
@@ -524,19 +574,7 @@ module wonderswan (
     if (!div) begin
       ce_pix <= 1;
 
-      if (configured_flickerblend == 0) begin  // flickerblend off
-        r <= {rgb_now[11:8], rgb_now[11:8]};
-        g <= {rgb_now[7:4], rgb_now[7:4]};
-        b <= {rgb_now[3:0], rgb_now[3:0]};
-      end else if (configured_flickerblend == 1) begin  // flickerblend 2 frames
-        r <= {r2_5, r2_5[4:2]};
-        g <= {g2_5, g2_5[4:2]};
-        b <= {b2_5, b2_5[4:2]};
-      end else begin  // flickerblend 3 frames
-        r <= r3_div24[7:0];
-        g <= g3_div24[7:0];
-        b <= b3_div24[7:0];
-      end
+      {r, g, b} <= temporal_video_rgb;
 
       // Rotation is handled by the Pocket scaler
       if (x == 224 + 31) hbl <= 1;
@@ -560,23 +598,19 @@ module wonderswan (
     if (ce_pix) begin
 
       if (vbl) begin
-        if (use_flip_horizontal) px_addr <= 32255;
-        else px_addr <= 0;
+        px_addr <= 0;
       end else begin
         if (!hbl) begin
-          if (use_flip_horizontal) px_addr <= px_addr - 1'd1;
-          else px_addr <= px_addr + 1'd1;
+          px_addr <= px_addr + 1'd1;
         end
       end
 
       x <= x + 1'd1;
-      if ((x >= 400 && ~use_refresh_rate_75hz) || (x >= 378 && use_refresh_rate_75hz)) begin
+      if (scanout_line_end) begin
         x <= 0;
         if (~&y) y <= y + 1'd1;
         if (y >= 257) begin
-          y              <= 0;
-          buffercnt_read <= buffercnt_readnext;
-          buffercnt_last <= buffercnt_read;
+          y <= 0;
 
           // HShift         <= status[19:16];
           // VShift         <= status[23:20];

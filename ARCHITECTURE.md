@@ -51,9 +51,11 @@ the VHDL below it are the console implementation.
 
 The `clk_vid_3_75` names are historical and do not describe the configured
 frequency; `mf_pllbase_0002.v` is authoritative for the 6.144 MHz outputs. The
-constraints put the related memory/system PLL outputs in one group and declare
-that group, the bridge clock, both 74.25 MHz inputs, and each video output
-asynchronous to one another. `data_loader`, `data_unloader`,
+constraints keep all four outputs of that PLL in one related group and declare
+that group asynchronous to the bridge clock and both 74.25 MHz inputs. The
+36.864 MHz RGB/control bundle is captured on the falling system edge before
+the phase-related 6.144 MHz video edge, so TimeQuest analyzes the transfer
+instead of hiding it behind an asynchronous clock group. `data_loader`, `data_unloader`,
 `save_state_controller`, and `synch_3` instances implement several of the
 explicit clock-domain crossings.
 
@@ -64,21 +66,23 @@ enable cadence rather than the FPGA clock.
 ## Video path
 
 `gpu.vhd` produces linear 224×144 RGB444 pixels (`pixel_out_addr`,
-`pixel_out_data`, `pixel_out_we`). `wonderswan.sv` always writes those pixels
-to one of three 32,256-pixel arrays. With buffering disabled it continually
-reads bank zero; with triple buffering/flicker blend enabled it rotates banks
-on address 32,255.
+`pixel_out_data`, `pixel_out_we`). With buffering disabled,
+`wonderswan.sv` writes and reads one direct 32,256-pixel array. With buffering
+or flicker blending enabled, a five-bank arbiter owns one writer, at most one
+pending completed frame, and up to three immutable scanout/history frames. A
+new producer frame may supersede only the pending frame; it can never acquire
+a bank visible to scanout. Reset/title changes invalidate history, and early
+two/three-frame samples duplicate the newest completed frame while re-priming.
 
 The same wrapper generates the outgoing 60 Hz-compatible raster. Because its
 terminal-count comparisons are inclusive, the default path uses 401 horizontal
 pixel-enable periods at a `/6` divider (about 59.39 Hz over 258 lines); the
 dormant native-rate path uses 379 periods at `/5` (about 75.40 Hz). Frame-bank
-rotation is enabled by `use_triple_buffer` or by bit 1 of
-`configured_flickerblend`; consequently, the two-frame blend setting relies on
-triple buffering also being enabled, while the three-frame setting enables the
-banks itself. Rotation is not performed in RTL: `core_top` writes an orientation
-flag into the blanking stream and APF selects scaler mode 0 or 1 from
-`video.json`.
+buffering is enabled by `use_triple_buffer` or either nonzero flicker-blend
+mode. Exact rounded RGB444 expansion/averaging preserves equal levels and full
+white. Presentation rotation is not performed by reverse framebuffer reads:
+an acknowledged selector applies scaler mode 0, 1, or 2 only at a frame
+boundary for landscape, portrait, or landscape 180 degrees from `video.json`.
 
 ## Data slots and memory map
 
@@ -107,12 +111,12 @@ No BIOS or commercial cartridge image is part of this repository.
 
 ## Controls and rotation
 
-`core_top` synchronizes the Pocket controller bitmap into the system domain.
-`wonderswan.sv` changes the A/B/face/trigger mapping when the console's
-`vertical` signal is active. The D-pad always feeds X1–X4. APF scaler rotation
-is selected independently from `configured_orientation`; this separation is a
-key Phase 2 audit point because forced display rotation and gameplay remapping
-can currently disagree.
+`core_top` retains the full APF controller word, accepts only Pocket and Dock
+gamepad types, then synchronizes the filtered buttons into the system domain.
+When the console's native `vertical` signal is active, the effective matrix
+maps the face buttons to X1–X4, the D-pad to the Y directions, and the triggers
+to A/B. APF scaler presentation is selected independently from that live
+console orientation; forced presentation intentionally never remaps gameplay.
 
 ## Simulation boundary
 

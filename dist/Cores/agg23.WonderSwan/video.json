@@ -17,6 +17,14 @@
         "aspect_h": 9,
         "rotation": 270,
         "mirror": 0
+      },
+      {
+        "width": 224,
+        "height": 144,
+        "aspect_w": 14,
+        "aspect_h": 9,
+        "rotation": 180,
+        "mirror": 0
       }
     ],
     "display_modes": [

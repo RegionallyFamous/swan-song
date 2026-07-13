@@ -98,6 +98,10 @@ def create_package(
     with tempfile.TemporaryDirectory(prefix="swan-song-") as temporary:
         stage = pathlib.Path(temporary)
         shutil.copytree(dist, stage, dirs_exist_ok=True)
+        # Source-control placeholders are not Pocket SD assets.  Preserve the
+        # empty directory entry but never expose .gitkeep in a release ZIP.
+        for placeholder in stage.rglob(".gitkeep"):
+            placeholder.unlink()
         stage_core_directory = stage / "Cores/agg23.WonderSwan"
         bitstream = stage_core_directory / bitstream_name
         bitstream.write_bytes(rbf.read_bytes().translate(REVERSE))

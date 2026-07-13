@@ -298,7 +298,7 @@ def main() -> None:
         ("core_top", "apf_reset_sync core_reset_memory (\n      .clk(clk_mem_110_592)", "apf_reset_sync core_reset_memory (\n      .clk(clk_sys_36_864)", "memory reset synchronizer"),
         ("core_top", ".reset_n_sync(reset_n_sys_s)", ".reset_n_sync(reset_n_mem_s)", "system reset synchronizer"),
         ("core_top", "ext_cart_download_mem_s,\n      clk_mem_110_592", "ext_cart_download_sys_s,\n      clk_mem_110_592", "memory cartridge-download synchronizer"),
-        ("core_top", "clk_sys_36_864\n  );\n\n  synch_3 #(\n      .WIDTH(10)", "clk_mem_110_592\n  );\n\n  synch_3 #(\n      .WIDTH(10)", "system download synchronizer"),
+        ("core_top", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_sys_36_864", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_mem_110_592", "system download synchronizer"),
         ("core_top", ".reset_n_sys(reset_n_sys_s)", ".reset_n_sys(reset_n_mem_s)", "WonderSwan domain controls"),
         ("core_top", ".external_reset(external_reset_sys_s)", ".external_reset(external_reset)", "WonderSwan domain controls"),
         ("core_top", ".ext_cart_download_sys(ext_cart_download_sys_s)", ".ext_cart_download_sys(ext_cart_download_mem_s)", "WonderSwan domain controls"),

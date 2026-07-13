@@ -82,7 +82,15 @@ proc derive_clock_uncertainty {{}} {{}}
 proc get_registers {{args}} {{
   set filter [lindex $args end]
   set result {{}}
-  if {{[string first "metadata_hold" $filter] >= 0}} {{
+  if {{[string first "slot_hold_sys" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_source_$i" }}
+  }} elseif {{[string first "pending_slot_video" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_destination_$i" }}
+  }} elseif {{[string first "settings_hold_source" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_source_$i" }}
+  }} elseif {{[string first "settings_destination" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_destination_$i" }}
+  }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 21}} {{incr i}} {{ lappend result "source_$i" }}
   }} elseif {{[string first "save_size_bytes_74a" $filter] >= 0 &&
               [string first "has_rtc_74a" $filter] >= 0}} {{
