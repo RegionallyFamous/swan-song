@@ -91,7 +91,7 @@ struct Config {
                    static_cast<uint8_t>(EventType::Vram) |
                    static_cast<uint8_t>(EventType::Mem) |
                    static_cast<uint8_t>(EventType::BgCell);
-  std::optional<PcRange> cpu_pc;
+  std::vector<PcRange> cpu_pc;
   std::vector<AddressRange> vram_address;
   uint8_t vram_roles = kAllVramRoles;
   uint8_t mem_initiators = kAllMemInitiators;
@@ -100,7 +100,7 @@ struct Config {
   uint8_t origin_statuses = kAllOriginStatuses;
   std::vector<MemRange> mem_address;
   std::vector<MemRange> mem_offset;
-  std::optional<PcRange> origin_pc;
+  std::vector<PcRange> origin_pc;
   Format format = Format::Auto;
 
   bool enabled() const { return !output.empty(); }
@@ -134,6 +134,14 @@ struct Config {
     return ranges.empty() ||
            std::any_of(ranges.begin(), ranges.end(),
                        [value](const MemRange& range) {
+                         return range.contains(value);
+                       });
+  }
+  static bool includes_pc(const std::vector<PcRange>& ranges,
+                          uint32_t value) {
+    return ranges.empty() ||
+           std::any_of(ranges.begin(), ranges.end(),
+                       [value](const PcRange& range) {
                          return range.contains(value);
                        });
   }
@@ -184,6 +192,24 @@ inline PcRange parse_pc_range(const std::string& text) {
     throw std::runtime_error("CPU PC range start exceeds end: " + text);
   }
   return range;
+}
+
+inline std::vector<PcRange> parse_pc_ranges(const std::string& text) {
+  std::vector<PcRange> ranges;
+  std::istringstream stream(text);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    token = trim(token);
+    if (token.empty()) {
+      throw std::runtime_error("CPU PC range list contains an empty item: " +
+                               text);
+    }
+    ranges.push_back(parse_pc_range(token));
+  }
+  if (ranges.empty() || (!text.empty() && text.back() == ',')) {
+    throw std::runtime_error("CPU PC range list must not be empty: " + text);
+  }
+  return ranges;
 }
 
 inline std::vector<AddressRange> parse_address_ranges(const std::string& text) {
@@ -485,7 +511,7 @@ inline void parse_config(std::istream& input, Config& config,
     try {
       if (key == "output") config.output = value;
       else if (key == "events") config.events = parse_events(value);
-      else if (key == "cpu_pc") config.cpu_pc = parse_pc_range(value);
+      else if (key == "cpu_pc") config.cpu_pc = parse_pc_ranges(value);
       else if (key == "vram_address") config.vram_address = parse_address_ranges(value);
       else if (key == "vram_role") config.vram_roles = parse_vram_roles(value);
       else if (key == "mem_initiator") config.mem_initiators = parse_mem_initiators(value);
@@ -494,7 +520,7 @@ inline void parse_config(std::istream& input, Config& config,
       else if (key == "mem_space") config.mem_spaces = parse_mem_spaces(value);
       else if (key == "mem_offset") config.mem_offset = parse_mem_ranges(value, 0xffffff, "memory offset");
       else if (key == "mem_origin") config.origin_statuses = parse_origin_statuses(value);
-      else if (key == "origin_pc") config.origin_pc = parse_pc_range(value);
+      else if (key == "origin_pc") config.origin_pc = parse_pc_ranges(value);
       else if (key == "format") config.format = parse_format(value);
       else throw std::runtime_error("unknown key: " + key);
     } catch (const std::exception& error) {
@@ -763,7 +789,7 @@ class Logger {
 
   void cpu(uint64_t cycle, uint32_t physical_pc, uint16_t cs, uint16_t ip) {
     if (!config_.includes(EventType::Cpu)) return;
-    if (config_.cpu_pc && !config_.cpu_pc->contains(physical_pc)) return;
+    if (!Config::includes_pc(config_.cpu_pc, physical_pc)) return;
     writer_->write({cycle, EventType::Cpu, physical_pc, cs, ip,
                     std::nullopt, std::nullopt, std::nullopt});
   }
@@ -931,8 +957,8 @@ class Logger {
         (mapped_offset &&
          !Config::includes_range(config_.mem_offset, *mapped_offset)) ||
         (!mapped_offset && !config_.mem_offset.empty()) ||
-        (config_.origin_pc &&
-         (!origin_pc || !config_.origin_pc->contains(*origin_pc)))) {
+        (!config_.origin_pc.empty() &&
+         (!origin_pc || !Config::includes_pc(config_.origin_pc, *origin_pc)))) {
       return;
     }
     writer_->write({cycle, EventType::Mem, std::nullopt, std::nullopt,

@@ -51,12 +51,13 @@ rm -rf "$BUILD/bootstrap"
   --rom "$ROOT/testroms/spritepriority/spritepriority.ws" \
   --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
   --event-trace "$BUILD/bootstrap/events.csv" \
-  --trace-events cpu,vram,mem,bg_cell --trace-pc 0xf0000-0xfffff \
+  --trace-events cpu,vram,mem,bg_cell \
+  --trace-pc 0xf0000-0xf0fff,0xff000-0xfffff \
   >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bootstrap/events.csv" \
   --allowed cpu,vram,mem,bg_cell --require cpu,vram,mem,bg_cell \
-  --pc-range 0xf0000-0xfffff \
+  --pc-range 0xf0000-0xf0fff,0xff000-0xfffff \
   --vram-role all --require-vram-roles all \
   --vram-address 0x0000-0xbfff \
   --require-fetch-values --require-mem-initiators cpu \

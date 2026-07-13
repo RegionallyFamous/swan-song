@@ -67,6 +67,22 @@ int main() {
   assert(!range.contains(0x12344) && !range.contains(0x23457));
   expect_failure([] { swansong::trace::parse_pc_range("0x200-0x100"); });
   expect_failure([] { swansong::trace::parse_pc_range("0-0x100000"); });
+  const auto single_pc_range =
+      swansong::trace::parse_pc_ranges("0x12345-0x23456");
+  assert(single_pc_range.size() == 1 &&
+         single_pc_range.front().first == range.first &&
+         single_pc_range.front().last == range.last);
+  const auto pc_ranges = swansong::trace::parse_pc_ranges(
+      "0x00100-0x001ff, 0xf0000-0xfffff");
+  assert(pc_ranges.size() == 2);
+  assert(swansong::trace::Config::includes_pc(pc_ranges, 0x00180));
+  assert(swansong::trace::Config::includes_pc(pc_ranges, 0xf1234));
+  assert(!swansong::trace::Config::includes_pc(pc_ranges, 0x80000));
+  expect_failure([] { swansong::trace::parse_pc_ranges(""); });
+  expect_failure([] { swansong::trace::parse_pc_ranges("0x100-0x1ff,"); });
+  expect_failure([] {
+    swansong::trace::parse_pc_ranges("0x100-0x1ff,,0x300-0x3ff");
+  });
 
   const auto address_ranges =
       swansong::trace::parse_address_ranges("0x2000-0x2fff, 0x4000, 20481");
@@ -120,7 +136,7 @@ int main() {
       "output = build/sim/game.jsonl\n"
       "format = jsonl\n"
       "events = cpu, vram, bg_cell\n"
-      "cpu_pc = 0x80000-0x8ffff\n"
+      "cpu_pc = 0x80000-0x8ffff,0xf0000-0xfffff\n"
       "vram_address = 0x2000-0x2fff,0x4000\n"
       "vram_role = screen1_map, screen1_tile\n"
       "mem_initiator = cpu,gdma\n"
@@ -129,7 +145,7 @@ int main() {
       "mem_space = iram\n"
       "mem_offset = 0x4000-0x4fff\n"
       "mem_origin = exact\n"
-      "origin_pc = 0xf0000-0xfffff\n");
+      "origin_pc = 0xe0000-0xeffff,0xf0000-0xfffff\n");
   swansong::trace::parse_config(config_text, config, "inline");
   assert(config.output == "build/sim/game.jsonl");
   assert(config.format == Format::Jsonl);
@@ -137,7 +153,8 @@ int main() {
   assert(!config.includes(EventType::Bank));
   assert(config.includes(EventType::Vram));
   assert(config.includes(EventType::BgCell));
-  assert(config.cpu_pc && config.cpu_pc->first == 0x80000);
+  assert(config.cpu_pc.size() == 2 && config.cpu_pc[0].first == 0x80000 &&
+         config.cpu_pc[1].first == 0xf0000);
   assert(config.vram_address.size() == 2);
   assert(config.includes(VramRole::Screen1Map));
   assert(config.includes(VramRole::Screen1Tile));
@@ -149,7 +166,9 @@ int main() {
   assert(!config.includes(MemAccess::Read));
   assert(config.includes(MemSpace::Iram));
   assert(config.mem_address.size() == 1 && config.mem_offset.size() == 1);
-  assert(config.origin_pc && config.origin_pc->first == 0xf0000);
+  assert(config.origin_pc.size() == 2 &&
+         config.origin_pc[0].first == 0xe0000 &&
+         config.origin_pc[1].first == 0xf0000);
   expect_failure([] {
     Config bad;
     std::istringstream text("bogus=yes\n");
@@ -287,11 +306,15 @@ int main() {
   filtered.output = filtered_path;
   filtered.events = static_cast<uint8_t>(EventType::Cpu) |
                     static_cast<uint8_t>(EventType::Vram);
+  filtered.cpu_pc = swansong::trace::parse_pc_ranges(
+      "0x12345-0x12345,0x20000-0x20010");
   filtered.vram_address = swansong::trace::parse_address_ranges("0x2000-0x2fff");
   filtered.vram_roles = swansong::trace::parse_vram_roles("screen1_tile");
   {
     swansong::trace::Logger logger(filtered);
     logger.cpu(1, 0x12345, 0x1234, 5);
+    logger.cpu(2, 0x20005, 0x2000, 5);
+    logger.cpu(3, 0x18000, 0x1800, 0);
     logger.vram(2, 0x2000, VramRole::Screen1Map, 0x1002, false);
     logger.vram(3, 0x1fff, VramRole::Screen1Tile, 0x1003, false);
     logger.vram(4, 0x2000, VramRole::Screen1Tile, 0x1004, false);
@@ -304,6 +327,7 @@ int main() {
   assert(filtered_text ==
          std::string(kV5Header) +
              "1,cpu,74565,4660,5,,,,,,,,,,,,," + empty_bg_fields + "\n" +
+             "2,cpu,131077,8192,5,,,,,,,,,,,,," + empty_bg_fields + "\n" +
              "4,vram,,,,8192,,screen1_tile,,,,,,,,,4100,0" +
              empty_bg_fields + "\n" +
              "5,vram,,,,12287,,screen1_tile,,,,,,,,,4101,1" +
@@ -325,7 +349,8 @@ int main() {
       "0x4000-0x4fff", 0xfffff, "memory address");
   mem_filtered.mem_offset = swansong::trace::parse_mem_ranges(
       "0x4000-0x4fff", 0xffffff, "memory offset");
-  mem_filtered.origin_pc = swansong::trace::parse_pc_range("0xf0000-0xfffff");
+  mem_filtered.origin_pc = swansong::trace::parse_pc_ranges(
+      "0xe0000-0xe00ff,0xf0000-0xf00ff");
   {
     swansong::trace::Logger logger(mem_filtered);
     expect_failure([&logger] {
@@ -345,6 +370,10 @@ int main() {
                OriginStatus::NotApplicable);
     logger.mem(3, MemInitiator::Cpu, MemAccess::Write, 0x4000, 0x1234, 3,
                MemSpace::Iram, 0x4000, 7, 0xf0010, OriginStatus::Exact);
+    logger.mem(4, MemInitiator::Cpu, MemAccess::Write, 0x4002, 0x5678, 3,
+               MemSpace::Iram, 0x4002, 8, 0xe0010, OriginStatus::Exact);
+    logger.mem(5, MemInitiator::Cpu, MemAccess::Write, 0x4004, 0x9abc, 3,
+               MemSpace::Iram, 0x4004, 9, 0xd0010, OriginStatus::Exact);
   }
   std::ifstream mem_filtered_input(mem_filtered_path);
   const std::string mem_filtered_text(
@@ -353,7 +382,11 @@ int main() {
   assert(mem_filtered_text.find(
              "3,mem,,,,16384,4660,,cpu,write,3,iram,16384,7,983056,exact,,") !=
          std::string::npos);
+  assert(mem_filtered_text.find(
+             "4,mem,,,,16386,22136,,cpu,write,3,iram,16386,8,917520,exact,,") !=
+         std::string::npos);
   assert(mem_filtered_text.find("1,mem") == std::string::npos);
   assert(mem_filtered_text.find("2,mem") == std::string::npos);
+  assert(mem_filtered_text.find("5,mem") == std::string::npos);
   std::filesystem::remove(mem_filtered_path);
 }

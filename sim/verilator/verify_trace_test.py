@@ -53,6 +53,16 @@ def main() -> None:
         )
         run(v1, "--allowed", "cpu", "--require", "cpu")
 
+        pc_union = root / "pc-union.csv"
+        pc_union.write_text(
+            "cycle,event,physical_pc,cs,ip,address,value\n"
+            "1,cpu,256,16,0,,\n"
+            "2,cpu,983040,61440,0,,\n",
+            encoding="utf-8",
+        )
+        run(pc_union, "--pc-range", "0x100-0x1ff,0xf0000-0xfffff")
+        run(pc_union, "--pc-range", "0x100-0x1ff", succeeds=False)
+
         v2 = root / "v2.csv"
         v2.write_text(
             "cycle,event,physical_pc,cs,ip,address,value,role\n"
@@ -78,6 +88,16 @@ def main() -> None:
             "not_applicable",
         )
         run(v3, "--require-origin-statuses", "exact", succeeds=False)
+        origin_union = root / "origin-union.csv"
+        origin_union.write_text(
+            "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
+            "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status\n"
+            "3,mem,,,,16384,4660,,cpu,write,3,iram,16384,1,256,exact\n"
+            "4,mem,,,,16386,22136,,cpu,write,3,iram,16386,2,983040,exact\n",
+            encoding="utf-8",
+        )
+        run(origin_union, "--origin-pc", "0x100-0x1ff,0xf0000-0xfffff")
+        run(origin_union, "--origin-pc", "0x100-0x1ff", succeeds=False)
         invalid_origin = root / "invalid-origin.csv"
         invalid_origin.write_text(
             "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"

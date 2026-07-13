@@ -28,8 +28,8 @@ Restrict output to Screen 1 tile-data fetches in the mono 2bpp tile area:
   --trace-vram-address 0x2000-0x3fff
 ```
 
-Capture completed CPU instructions within an inclusive physical address range
-as JSON Lines:
+Capture completed CPU instructions within a union of inclusive physical
+address ranges as JSON Lines:
 
 ```sh
 ./sim/verilator/run.sh \
@@ -37,7 +37,7 @@ as JSON Lines:
   --frames 10 \
   --event-trace build/sim/game.jsonl \
   --trace-events cpu \
-  --trace-pc 0x80000-0x8ffff
+  --trace-pc 0x80000-0x8ffff,0xf0000-0xfffff
 ```
 
 Capture completed GDMA transfers from the linear ROM window into IRAM:
@@ -79,9 +79,10 @@ also requires an exact, unfiltered capture. Every `bg_cell` must match a raw
 Screen 1/2 fetch group; physical read-ahead that has not been promoted when the
 capture ends is counted explicitly rather than mistaken for corruption.
 
-The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` filters
-only `cpu` events; bank and VRAM events remain visible, which makes a mixed
-trace useful even when instruction logging is tightly scoped.
+The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` accepts
+one or more comma-separated inclusive `START-END` ranges and treats them as a
+union. It filters only `cpu` events; bank and VRAM events remain visible, which
+makes a mixed trace useful even when instruction logging is tightly scoped.
 
 `--trace-vram-address` accepts comma-separated 16-bit addresses or inclusive
 ranges. `--trace-vram-role` accepts `screen1_map`, `screen1_tile`,
@@ -94,9 +95,10 @@ and `bg_cell` for complete atomic-cell provenance.
 Memory filters are `--trace-mem-initiator`, `--trace-mem-access`,
 `--trace-mem-address`, `--trace-mem-space`, `--trace-mem-offset`,
 `--trace-mem-origin`, and `--trace-origin-pc`. Lists and ranges form unions;
-different filters combine with AND and affect only `mem` events. `--trace-pc`
-continues to mean completed-CPU PC, while `--trace-origin-pc` means the exact
-first byte of the instruction that owns a memory transaction.
+different filters combine with AND and affect only `mem` events.
+`--trace-origin-pc` accepts the same comma-separated range-union syntax as
+`--trace-pc`, but means the exact first byte of the instruction that owns a
+memory transaction rather than the completed-instruction PC.
 
 For repeatable investigations, copy `trace.example.conf` and pass it with
 `--trace-config FILE`. The accepted keys are `output`, `format`, `events`,
@@ -105,6 +107,8 @@ For repeatable investigations, copy `trace.example.conf` and pass it with
 Settings are applied in command-line order, so options after `--trace-config`
 override the file. `format` is `csv` or `jsonl`; when omitted, a `.jsonl` or
 `.ndjson` output suffix selects JSON Lines and all other suffixes select CSV.
+The `cpu_pc` and `origin_pc` config values accept the same comma-separated
+inclusive range unions as their command-line counterparts.
 
 ## Events and schema
 

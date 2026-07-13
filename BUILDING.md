@@ -77,9 +77,9 @@ generic for this simulator build; the production default leaves it disabled.
   --trace-events bank,vram
 ```
 
-CPU records can be limited to an inclusive 20-bit physical-PC range. The range
-applies only to CPU events, so bank and VRAM activity remains available in a
-mixed trace:
+CPU records can be limited to a union of comma-separated inclusive 20-bit
+physical-PC ranges. These ranges apply only to CPU events, so bank and VRAM
+activity remains available in a mixed trace:
 
 ```sh
 ./sim/verilator/run.sh \
@@ -87,7 +87,7 @@ mixed trace:
   --frames 10 \
   --event-trace build/sim/text-renderer.jsonl \
   --trace-events cpu,bank,vram,mem,bg_cell \
-  --trace-pc 0x80000-0x8ffff \
+  --trace-pc 0x80000-0x8ffff,0xf0000-0xfffff \
   --trace-vram-role screen1_tile \
   --trace-vram-address 0x2000-0x5fff
 ```

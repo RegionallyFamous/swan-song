@@ -116,15 +116,24 @@ mem_space_set = choice_set(MEM_SPACES, "memory space")
 origin_status_set = choice_set(ORIGIN_STATUSES, "origin status")
 
 
-def pc_range(value: str) -> tuple[int, int]:
+def pc_ranges(value: str) -> tuple[tuple[int, int], ...]:
+    ranges: list[tuple[int, int]] = []
     try:
-        first_text, last_text = value.split("-", 1)
-        first, last = int(first_text, 0), int(last_text, 0)
+        for item in value.split(","):
+            item = item.strip()
+            if not item:
+                raise ValueError
+            first_text, last_text = item.split("-", 1)
+            first, last = int(first_text, 0), int(last_text, 0)
+            if not 0 <= first <= last <= 0xFFFFF:
+                raise ValueError
+            ranges.append((first, last))
     except ValueError as error:
-        raise argparse.ArgumentTypeError("PC range must be START-END") from error
-    if not 0 <= first <= last <= 0xFFFFF:
-        raise argparse.ArgumentTypeError("PC range must be ordered within 0x00000..0xfffff")
-    return first, last
+        raise argparse.ArgumentTypeError(
+            "PC filter must be comma-separated START-END ranges within "
+            "0x00000..0xfffff"
+        ) from error
+    return tuple(ranges)
 
 
 def address_ranges(value: str) -> tuple[tuple[int, int], ...]:
@@ -209,7 +218,7 @@ def verify(
     path: Path,
     allowed: set[str],
     required: set[str],
-    pc_filter: tuple[int, int] | None,
+    pc_filter: tuple[tuple[int, int], ...] | None,
     required_bank_addresses: set[int],
     vram_address_filter: tuple[tuple[int, int], ...] | None,
     vram_role_filter: set[str] | None,
@@ -220,7 +229,7 @@ def verify(
     mem_address_filter: tuple[tuple[int, int], ...] | None,
     mem_offset_filter: tuple[tuple[int, int], ...] | None,
     origin_status_filter: set[str] | None,
-    origin_pc_filter: tuple[int, int] | None,
+    origin_pc_filter: tuple[tuple[int, int], ...] | None,
     require_fetch_values: bool,
     reject_fetch_collisions: bool,
     required_mem_initiators: set[str],
@@ -297,7 +306,9 @@ def verify(
                     raise ValueError(
                         f"line {line}: physical_pc {physical_pc} does not match CS:IP ({expected_pc})"
                     )
-                if pc_filter and not pc_filter[0] <= physical_pc <= pc_filter[1]:
+                if pc_filter and not any(
+                    first <= physical_pc <= last for first, last in pc_filter
+                ):
                     raise ValueError(f"line {line}: CPU PC {physical_pc:#x} escaped requested filter")
             elif event == "bank":
                 empty(
@@ -407,7 +418,9 @@ def verify(
                     origin_pc = number(row["origin_pc"], "origin_pc", line, 0xFFFFF)
                     if initiator != "cpu":
                         raise ValueError(f"line {line}: exact origin requires CPU initiator")
-                    if origin_pc_filter and not origin_pc_filter[0] <= origin_pc <= origin_pc_filter[1]:
+                    if origin_pc_filter and not any(
+                        first <= origin_pc <= last for first, last in origin_pc_filter
+                    ):
                         raise ValueError(f"line {line}: origin PC escaped requested filter")
                 else:
                     empty(row, ("instruction_id", "origin_pc"), line)
@@ -540,7 +553,11 @@ def main() -> None:
     parser.add_argument("trace", type=Path)
     parser.add_argument("--allowed", type=event_set, default=EVENTS)
     parser.add_argument("--require", type=event_set, default=set())
-    parser.add_argument("--pc-range", type=pc_range)
+    parser.add_argument(
+        "--pc-range",
+        type=pc_ranges,
+        help="require CPU events to stay within comma-separated PC ranges",
+    )
     parser.add_argument(
         "--vram-address",
         type=address_ranges,
@@ -571,7 +588,11 @@ def main() -> None:
     parser.add_argument("--mem-address", type=mem_address_ranges)
     parser.add_argument("--mem-offset", type=mem_offset_ranges)
     parser.add_argument("--mem-origin", type=origin_status_set)
-    parser.add_argument("--origin-pc", type=pc_range)
+    parser.add_argument(
+        "--origin-pc",
+        type=pc_ranges,
+        help="require exact memory origins to stay within comma-separated PC ranges",
+    )
     parser.add_argument(
         "--require-fetch-values",
         action="store_true",

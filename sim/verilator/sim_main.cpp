@@ -103,7 +103,7 @@ static void write_trace_manifest(const swansong::trace::Config& config,
       config.mem_spaces != swansong::trace::kAllMemSpaces ||
       config.origin_statuses != swansong::trace::kAllOriginStatuses ||
       !config.mem_address.empty() || !config.mem_offset.empty() ||
-      config.origin_pc.has_value();
+      !config.origin_pc.empty();
   const bool display_filters =
       config.vram_roles != swansong::trace::kAllVramRoles ||
       !config.vram_address.empty();
@@ -152,7 +152,7 @@ static void usage(const char* argv0) {
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
       << "  --trace-events LIST     cpu,bank,vram,mem,bg_cell (default: all)\n"
-      << "  --trace-pc START-END    inclusive 20-bit physical CPU PC filter\n"
+      << "  --trace-pc RANGES       inclusive 20-bit CPU PC range union\n"
       << "  --trace-vram-address R  VRAM ADDR or START-END list (inclusive)\n"
       << "  --trace-vram-role LIST  screen1_map,screen1_tile,screen2_map,\n"
          "                            screen2_tile,sprite_table,sprite_tile\n"
@@ -163,7 +163,7 @@ static void usage(const char* argv0) {
          "                            cart_rom_linear,boot_rom,unmapped,absent_sram\n"
       << "  --trace-mem-offset R    resolved 24-bit byte offset/range list\n"
       << "  --trace-mem-origin L    exact,unattributed,not_applicable\n"
-      << "  --trace-origin-pc R     exact memory-owner PC range\n"
+      << "  --trace-origin-pc RANGES exact memory-owner PC range union\n"
       << "  --trace-format FORMAT   csv or jsonl (overrides filename suffix)\n"
       << "  --trace-config FILE     load KEY=VALUE trace settings; later CLI"
          " options win\n"
@@ -318,7 +318,8 @@ int main(int argc, char** argv) {
     else if (arg == "--trace-events") {
       event_trace_config.events = swansong::trace::parse_events(value("--trace-events"));
     } else if (arg == "--trace-pc") {
-      event_trace_config.cpu_pc = swansong::trace::parse_pc_range(value("--trace-pc"));
+      event_trace_config.cpu_pc =
+          swansong::trace::parse_pc_ranges(value("--trace-pc"));
     } else if (arg == "--trace-vram-address") {
       event_trace_config.vram_address =
           swansong::trace::parse_address_ranges(value("--trace-vram-address"));
@@ -345,7 +346,7 @@ int main(int argc, char** argv) {
           swansong::trace::parse_origin_statuses(value("--trace-mem-origin"));
     } else if (arg == "--trace-origin-pc") {
       event_trace_config.origin_pc =
-          swansong::trace::parse_pc_range(value("--trace-origin-pc"));
+          swansong::trace::parse_pc_ranges(value("--trace-origin-pc"));
     } else if (arg == "--trace-format") {
       event_trace_config.format = swansong::trace::parse_format(value("--trace-format"));
     } else if (arg == "--trace-config") {
