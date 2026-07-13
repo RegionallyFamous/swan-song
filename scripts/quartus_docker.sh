@@ -203,7 +203,7 @@ merge_container_evidence() {
   done
 }
 
-build_image() {
+build_image() (
   local archive="${1:-$DEFAULT_ARCHIVE}"
   require_docker
   [[ "${QUARTUS_ACCEPT_EULA:-}" == 1 ]] || fail \
@@ -222,6 +222,8 @@ build_image() {
   docker build \
     --platform linux/amd64 \
     --target runtime \
+    --build-arg TARGETOS=linux \
+    --build-arg TARGETARCH=amd64 \
     --build-arg QUARTUS_ACCEPT_EULA=1 \
     --tag "$IMAGE" \
     --file "$context/Dockerfile" \
@@ -229,7 +231,7 @@ build_image() {
 
   check_image
   echo "built and verified $IMAGE"
-}
+)
 
 build_core() (
   require_docker

@@ -18,6 +18,65 @@ TOOLCHAIN_CHECK = ROOT / "toolchains/quartus-21.1.1/toolchain-check.sh"
 
 class QuartusDockerContractTest(unittest.TestCase):
     @staticmethod
+    def run_fake_failed_image_build() -> tuple[
+        subprocess.CompletedProcess[str], str, list[Path]
+    ]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            contexts = root / "contexts"
+            contexts.mkdir()
+            build_args = root / "build-args"
+            archive = root / "Quartus-lite-21.1.1.850-linux.tar"
+            archive.touch()
+            python3 = fake_bin / "python3"
+            python3.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+[[ "${2:-}" == extract ]]
+mkdir -p "${4:?}"
+: > "${4}/QuartusLiteSetup-21.1.1.850-linux.run"
+: > "${4}/cyclonev-21.1.1.850.qdz"
+"""
+            )
+            python3.chmod(0o755)
+            docker = fake_bin / "docker"
+            docker.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  info) ;;
+  build)
+    printf '%s\n' "$@" > "${FAKE_BUILD_ARGS:?}"
+    exit 37
+    ;;
+  *) exit 98 ;;
+esac
+"""
+            )
+            docker.chmod(0o755)
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "TMPDIR": str(contexts),
+                    "QUARTUS_ACCEPT_EULA": "1",
+                    "FAKE_BUILD_ARGS": str(build_args),
+                }
+            )
+            result = subprocess.run(
+                [str(HOST), "image", str(archive)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            arguments = build_args.read_text() if build_args.exists() else ""
+            leftovers = list(contexts.iterdir())
+            return result, arguments, leftovers
+
+    @staticmethod
     def run_fake_image_check(overrides: dict[str, Path] | None = None) -> subprocess.CompletedProcess[str]:
         payloads = {
             "FAKE_CONTAINER_BUILD": CONTAINER_BUILD,
@@ -354,6 +413,15 @@ esac
         self.assertNotIn("QuartusHelpSetup", dockerfile)
         for excluded in ("arria_lite-", "cyclone10lp-", "max10-", "max-"):
             self.assertNotIn(excluded, dockerfile)
+
+    def test_image_build_pins_platform_args_and_cleans_context_on_failure(self) -> None:
+        result, arguments, leftovers = self.run_fake_failed_image_build()
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertNotIn("unbound variable", result.stderr)
+        self.assertIn("--platform\nlinux/amd64\n", arguments)
+        self.assertIn("--build-arg\nTARGETOS=linux\n", arguments)
+        self.assertIn("--build-arg\nTARGETARCH=amd64\n", arguments)
+        self.assertEqual(leftovers, [])
 
     def test_runtime_is_offline_and_source_is_read_only(self) -> None:
         host = HOST.read_text()
