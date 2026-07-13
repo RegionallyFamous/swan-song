@@ -20,7 +20,7 @@ set_clock_groups -asynchronous \
 # falling edge of counter 1 and captured on counter 2; retain the generated-clock
 # relationship so setup/hold analysis covers that half-system-cycle boundary.
 
-# Pocket interact settings are a ten-bit acknowledged bundled-data CDC.
+# Pocket interact settings are an eleven-bit acknowledged bundled-data CDC.
 # settings_hold_source is frozen before its request toggle enters the console-side
 # synchronizer and remains frozen until settings_destination captures the whole
 # package and acknowledges it. Bound both delay and skew so legal 01 <-> 10 menu
@@ -30,11 +30,11 @@ set settings_source_registers [get_registers -nowarn -no_duplicates \
 set settings_destination_registers [get_registers -nowarn -no_duplicates \
   {ic|settings_command_cdc|settings_destination[*]}]
 
-if {[get_collection_size $settings_source_registers] != 10} {
-  error "settings CDC constraint expected 10 settings_hold_source registers"
+if {[get_collection_size $settings_source_registers] != 11} {
+  error "settings CDC constraint expected 11 settings_hold_source registers"
 }
-if {[get_collection_size $settings_destination_registers] != 10} {
-  error "settings CDC constraint expected 10 settings_destination registers"
+if {[get_collection_size $settings_destination_registers] != 11} {
+  error "settings CDC constraint expected 11 settings_destination registers"
 }
 
 set_net_delay -max \

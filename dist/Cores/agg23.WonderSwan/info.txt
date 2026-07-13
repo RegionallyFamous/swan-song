@@ -16,7 +16,8 @@ Features:
 * Fast forward and CPU turbo
 * Automatic or forced display presentation
 * Landscape, portrait, and 180-degree presentation
-* Tear-safe buffering and exact two/three-frame flicker blending
+* Tear-safe buffering and source-pinned LCD response options
+* Raw RGB444 or optional ares color profile
 
 The game's native orientation still controls its button matrix.
 Display Orientation and Landscape 180 degrees affect presentation only.

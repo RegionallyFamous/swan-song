@@ -219,6 +219,17 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(variables_by_id[43]["address"], "0x208")
             self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
             self.assertEqual(variables_by_id[44]["address"], "0x20C")
+            self.assertEqual(variables_by_id[42]["name"], "LCD Response")
+            self.assertEqual(
+                [(item["value"], item["name"]) for item in variables_by_id[42]["options"]],
+                [(0, "Off"), (1, "2-Frame Blend"), (2, "Persistence")],
+            )
+            self.assertEqual(variables_by_id[45]["name"], "Color Profile")
+            self.assertEqual(variables_by_id[45]["address"], "0x210")
+            self.assertEqual(
+                [(item["value"], item["name"]) for item in variables_by_id[45]["options"]],
+                [(0, "Raw RGB444"), (1, "Color LCD (ares)")],
+            )
             self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
             self.assertEqual(variables_by_id[81]["address"], "0x300")
             self.assertIn((CORE_DIRECTORY / bitstream_name).as_posix(), names)

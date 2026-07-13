@@ -29,7 +29,7 @@ apf_top (APF pins and bridge)
     │   │   ├── rtc
     │   │   ├── savestates
     │   │   └── statemanager
-    │   └── three 224×144 RGB444 frame stores
+    │   └── five 224×144 RGB444 frame stores
     └── sound_i2s
 ```
 
@@ -84,9 +84,17 @@ The same wrapper generates the outgoing 60 Hz-compatible raster. Because its
 terminal-count comparisons are inclusive, the default path uses 401 horizontal
 pixel-enable periods at a `/6` divider (about 59.39 Hz over 258 lines); the
 dormant native-rate path uses 379 periods at `/5` (about 75.40 Hz). Frame-bank
-buffering is enabled by `use_triple_buffer` or either nonzero flicker-blend
-mode. Exact rounded RGB444 expansion/averaging preserves equal levels and full
-white. Presentation rotation is not performed by reverse framebuffer reads:
+buffering is enabled by `use_triple_buffer` or either nonzero LCD-response
+mode. The default color path expands each native RGB444 channel exactly by
+`×17`, matching Mednafen 1.32.1. For color-system output, an optional
+pinned-ares profile applies its cross-channel Color/SwanCrystal matrix before
+temporal processing; mono WonderSwan grayscale remains neutral/full-range. The legacy
+two-frame mode retains rounded averaging; the persistence mode uses a
+project-designed finite `1/2, 1/4, 1/4` approximation of ares' recursive
+interframe response. All transforms preserve constant inputs; only raw full
+white reaches 255 because the ares profile deliberately maps `0xFFF` to
+`0xF0F0F0`. Profile/formula changes apply at a scanout frame boundary.
+Presentation rotation is not performed by reverse framebuffer reads:
 an acknowledged selector applies scaler mode 0, 1, or 2 only at a frame
 boundary for landscape, portrait, or landscape 180 degrees from `video.json`.
 

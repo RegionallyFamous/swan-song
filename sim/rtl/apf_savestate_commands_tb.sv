@@ -267,16 +267,36 @@ module apf_savestate_commands_tb;
         end
         expect_query_fields(16'h00A4);
 
-        // Unsupported is exposed in the response field without altering status.
-        set_result_flags(16'h00A4, 1'b0, 1'b0, 1'b0);
+        // Unsupported is exposed in the response field and fails closed even
+        // if a hostile host skips the query and sets Request Start/Load. Stale
+        // controller flags must not leak a busy/done/error result either.
         savestate_supported = 1'b0;
+        set_result_flags(16'h00A0, 1'b1, 1'b1, 1'b1);
+        issue_command(16'h00A0, 1'b1);
+        repeat (7) @(posedge clk);
+        expect_status(16'h0000);
+        if (savestate_start !== 1'b0 || savestate_load !== 1'b0) begin
+            $fatal(1, "unsupported A0 request reached the controller");
+        end
+        expect_query_fields(16'h00A0);
+
+        set_result_flags(16'h00A4, 1'b1, 1'b1, 1'b1);
+        issue_command(16'h00A4, 1'b1);
+        repeat (7) @(posedge clk);
+        expect_status(16'h0000);
+        if (savestate_start !== 1'b0 || savestate_load !== 1'b0) begin
+            $fatal(1, "unsupported A4 request reached the controller");
+        end
+        expect_query_fields(16'h00A4);
+
+        set_result_flags(16'h00A4, 1'b0, 1'b0, 1'b0);
         issue_command(16'h00A4, 1'b0);
         repeat (4) @(posedge clk);
         expect_status(16'h0000);
         expect_query_fields(16'h00A4);
 
         $display(
-            "PASS APF savestate A0/A4 query-fields precedence=err>ok>busy requests=hold-until-ack+deassert"
+            "PASS APF savestate A0/A4 query-fields precedence=err>ok>busy requests=hold-until-ack+unsupported-fail-closed"
         );
         $finish;
     end

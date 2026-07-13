@@ -276,6 +276,32 @@ The manifest therefore certifies artifact publication, path, size, and content;
 it does not relabel that host observation as VBlank or infer that every trace
 event in the preceding interval causally contributed a visible pixel.
 
+The screen-authenticity path was reviewed in the brief's required order. The
+inherited Pocket/pinned MiSTer baseline exposes native RGB444 and only finite
+equal-weight blend formulas. Pinned ares supplies the optional
+[Color/SwanCrystal matrix](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/color.cpp#L1-L29)
+and enables its generic recursive
+[interframe average](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/node/video/screen.cpp#L251-L266).
+The official
+[Mednafen 1.32.1 source archive](https://mednafen.github.io/releases/),
+SHA-256 `de7eb94ab66212ae7758376524368a8ab208234b33796625ca630547dbc83832`,
+was downloaded under untracked `build/research/` and its
+`src/wswan/gfx.cpp::WSwan_SetPixelFormat()` maps every channel by exactly
+`nibble * 17`; no WonderSwan temporal filter or alternate panel matrix was
+found there. WSdev's pinned
+[palette research](https://ws.nesdev.org/w/index.php?title=Display/Palette&oldid=514)
+states that the models have no canonical shared palette and identifies their
+panel families, but publishes no WonderSwan Color or SwanCrystal temporal
+constants. Analogue's official
+[`video.json` contract](https://www.analogue.co/developer/docs/core-definition-files/video-json)
+recommends generic LCD modes and likewise defines no WonderSwan-specific
+profile. Consequently raw x17 remains default, the exact ares matrix is
+explicitly optional, and the 50/25/25 response is documented as a
+project-designed finite approximation of ares' recursive weights rather than
+measured panel behavior. No Mednafen, ares, WSdev, or Analogue source bytes are
+copied into the RTL or tests; formulas are independently expressed and
+exhaustively checked in `sim/rtl/apf_temporal_blend_tb.sv`.
+
 The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
 Wonderful build of project source plus six unmodified 8×8 rows from Misaki
 Gothic. Its local README pins the author's official PNG and BDF archives and

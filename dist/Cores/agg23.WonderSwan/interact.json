@@ -63,7 +63,7 @@
         "value": 1
       },
       {
-        "name": "Flickerblend",
+        "name": "LCD Response",
         "id": 42,
         "type": "list",
         "enabled": true,
@@ -78,11 +78,11 @@
           },
           {
             "value": 1,
-            "name": "2 Frames"
+            "name": "2-Frame Blend"
           },
           {
             "value": 2,
-            "name": "3 Frames"
+            "name": "Persistence"
           }
         ]
       },
@@ -120,6 +120,26 @@
         "writeonly": true,
         "defaultval": 0,
         "value": 1
+      },
+      {
+        "name": "Color Profile",
+        "id": 45,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "writeonly": true,
+        "address": "0x210",
+        "defaultval": 0,
+        "options": [
+          {
+            "value": 0,
+            "name": "Raw RGB444"
+          },
+          {
+            "value": 1,
+            "name": "Color LCD (ares)"
+          }
+        ]
       },
       {
         "name": "Sound",

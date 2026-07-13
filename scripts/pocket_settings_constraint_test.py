@@ -43,14 +43,14 @@ def main() -> None:
         raise AssertionError("settings CDC incorrectly uses host reset_n")
 
     require(
-        r"parameter\s*\[9:0\]\s+DEFAULT_SETTINGS\s*=\s*10'h041",
+        r"parameter\s*\[10:0\]\s+DEFAULT_SETTINGS\s*=\s*11'h081",
         cdc,
         "settings CDC defaults do not match interact.json",
     )
     require(
-        r"reg\s*\[9:0\]\s+settings_hold_source\s*;",
+        r"reg\s*\[10:0\]\s+settings_hold_source\s*;",
         cdc,
-        "settings payload is not ten bits",
+        "settings payload is not eleven bits",
     )
     require(
         r"ASYNC_REG[^\n]*reg\s+request_meta_destination\s*;.*"
@@ -68,8 +68,10 @@ def main() -> None:
         sdc,
         "constraint does not select the exact settings destination payload",
     )
-    if len(re.findall(r"settings CDC constraint expected 10 .* registers", sdc)) != 2:
-        raise AssertionError("constraint does not fail closed on both ten-bit collections")
+    if len(re.findall(r"settings CDC constraint expected 11 .* registers", sdc)) != 2:
+        raise AssertionError(
+            "constraint does not fail closed on both eleven-bit collections"
+        )
     require(
         r"set_net_delay\s+-max\s+.*"
         r"-get_value_from_clock_period\s+dst_clock_period\s+.*"
@@ -103,9 +105,9 @@ proc get_registers {{args}} {{
   set filter [lindex $args end]
   set result {{}}
   if {{[string first "settings_hold_source" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_source_$i" }}
+    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_source_$i" }}
   }} elseif {{[string first "settings_destination" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_destination_$i" }}
+    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_destination_$i" }}
   }} elseif {{[string first "slot_hold_sys" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_source_$i" }}
   }} elseif {{[string first "pending_slot_video" $filter] >= 0}} {{
@@ -145,7 +147,7 @@ puts "PASS Tcl source"
         raise AssertionError("settings SDC Tcl source did not reach its PASS marker")
 
     print(
-        "PASS settings CDC constraint endpoints=10 delay=dst-period "
+        "PASS settings CDC constraint endpoints=11 delay=dst-period "
         "skew=min-period pll-reset no-payload-false-path"
     )
 

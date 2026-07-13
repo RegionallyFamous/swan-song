@@ -50,6 +50,7 @@ module wonderswan (
 
     input wire use_triple_buffer,
     input wire [1:0] configured_flickerblend,
+    input wire configured_color_profile,
 
     input wire use_fastforward_sound,
 
@@ -420,12 +421,14 @@ module wonderswan (
   wire pixel_we;
 
   // Menu writes arrive atomically in this clock domain, but applying a new
-  // blend formula or buffer policy mid-scanout would still create a visible
-  // horizontal seam. Latch both only at the outgoing frame boundary below.
+  // blend formula, color profile, or buffer policy mid-scanout would create a
+  // visible horizontal seam. Latch all three only at the outgoing frame
+  // boundary below.
   wire requested_buffervideo =
       use_triple_buffer | (configured_flickerblend != 2'd0);
   reg use_triple_buffer_applied = 1'b1;
   reg [1:0] flickerblend_applied = 2'd0;
+  reg color_profile_applied = 1'b0;
   reg allow_direct_while_priming = 1'b0;
   wire buffervideo =
       use_triple_buffer_applied | (flickerblend_applied != 2'd0);
@@ -457,6 +460,7 @@ module wonderswan (
       // do not expose retained RAM while the new title's history re-primes.
       use_triple_buffer_applied <= use_triple_buffer;
       flickerblend_applied <= configured_flickerblend;
+      color_profile_applied <= configured_color_profile && isColor;
       allow_direct_while_priming <= 1'b0;
     end else if (scanout_frame_boundary) begin
       // A runtime direct->buffered transition may show the same direct bank
@@ -469,6 +473,7 @@ module wonderswan (
         allow_direct_while_priming <= 1'b0;
       use_triple_buffer_applied <= use_triple_buffer;
       flickerblend_applied <= configured_flickerblend;
+      color_profile_applied <= configured_color_profile && isColor;
     end
   end
 
@@ -577,6 +582,7 @@ module wonderswan (
 
   apf_temporal_blend temporal_blend (
       .mode(flickerblend_applied),
+      .color_profile(color_profile_applied),
       .rgb_newest(blend_newest),
       .rgb_previous(blend_previous),
       .rgb_oldest(blend_oldest),

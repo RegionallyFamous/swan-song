@@ -622,6 +622,23 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(number(variables_by_id[43]["address"]), 0x208)
         self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
         self.assertEqual(number(variables_by_id[44]["address"]), 0x20C)
+        self.assertEqual(variables_by_id[42]["name"], "LCD Response")
+        self.assertEqual(
+            [
+                (number(option["value"]), option["name"])
+                for option in variables_by_id[42]["options"]
+            ],
+            [(0, "Off"), (1, "2-Frame Blend"), (2, "Persistence")],
+        )
+        self.assertEqual(variables_by_id[45]["name"], "Color Profile")
+        self.assertEqual(number(variables_by_id[45]["address"]), 0x210)
+        self.assertEqual(
+            [
+                (number(option["value"]), option["name"])
+                for option in variables_by_id[45]["options"]
+            ],
+            [(0, "Raw RGB444"), (1, "Color LCD (ares)")],
+        )
         self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
         self.assertEqual(number(variables_by_id[81]["address"]), 0x300)
 

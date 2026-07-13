@@ -414,11 +414,16 @@ always @(posedge clk) begin
             host_48 <= savestate_size;
             
             host_resultcode <= 0;
-            if(savestate_start_busy) host_resultcode <= 1;
-            if(savestate_start_ok) host_resultcode <= 2;
-            if(savestate_start_err) host_resultcode <= 3;
+            if(savestate_supported) begin
+                if(savestate_start_busy) host_resultcode <= 1;
+                if(savestate_start_ok) host_resultcode <= 2;
+                if(savestate_start_err) host_resultcode <= 3;
+            end
             
-            if(host_20[0]) begin
+            // APF queries support before requesting a Memory.  Also reject an
+            // adversarial request in hardware when this title/core has denied
+            // support, rather than entering an uncertified controller path.
+            if(host_20[0] && savestate_supported) begin
                 // Request Start!
                 savestate_start <= 1;
                 // stay in this state until ack'd
@@ -436,11 +441,13 @@ always @(posedge clk) begin
             host_48 <= savestate_maxloadsize;
             
             host_resultcode <= 0;
-            if(savestate_load_busy) host_resultcode <= 1;
-            if(savestate_load_ok) host_resultcode <= 2;
-            if(savestate_load_err) host_resultcode <= 3;
+            if(savestate_supported) begin
+                if(savestate_load_busy) host_resultcode <= 1;
+                if(savestate_load_ok) host_resultcode <= 2;
+                if(savestate_load_err) host_resultcode <= 3;
+            end
             
-            if(host_20[0]) begin
+            if(host_20[0] && savestate_supported) begin
                 // Request Load!
                 savestate_load <= 1;
                 // stay in this state until ack'd

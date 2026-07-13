@@ -87,9 +87,9 @@ proc get_registers {{args}} {{
   }} elseif {{[string first "pending_slot_video" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_destination_$i" }}
   }} elseif {{[string first "settings_hold_source" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_source_$i" }}
+    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_source_$i" }}
   }} elseif {{[string first "settings_destination" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 10}} {{incr i}} {{ lappend result "settings_destination_$i" }}
+    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_destination_$i" }}
   }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 21}} {{incr i}} {{ lappend result "source_$i" }}
   }} elseif {{[string first "save_size_bytes_74a" $filter] >= 0 &&

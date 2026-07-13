@@ -92,8 +92,23 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("settings_command_cdc(", top)
         self.assertIn(".reset_n(pll_core_ready_74a)", top)
         self.assertIn(".settings_destination(settings_snapshot_s)", top)
+        self.assertIn("wire[10:0]settings_snapshot_s;", top)
+        self.assertIn(".DEFAULT_SETTINGS(11'h081)", top)
+        self.assertIn(
+            ".settings_source({configured_system,use_cpu_turbo,"
+            "use_triple_buffer,configured_flickerblend,configured_orientation,"
+            "use_flip_horizontal,configured_color_profile,use_fastforward_sound})",
+            top,
+        )
+        self.assertIn(
+            "assign{configured_system_s,use_cpu_turbo_s,use_triple_buffer_s,"
+            "configured_flickerblend_s,configured_orientation_s,"
+            "use_flip_horizontal_s,configured_color_profile_s,"
+            "use_fastforward_sound_s}=settings_snapshot_s;",
+            top,
+        )
         self.assertNotIn("settings_s(", top)
-        self.assertIn("reg[9:0]settings_hold_source;", settings_cdc)
+        self.assertIn("reg[10:0]settings_hold_source;", settings_cdc)
         self.assertIn("settings_destination<=settings_hold_source;", settings_cdc)
 
         self.assertIn("if(frame_start_video&&!request_arrived_video)begin", selector)
@@ -104,6 +119,7 @@ class PocketVideoContractTest(unittest.TestCase):
         )
 
     def test_exact_temporal_blend_integration(self) -> None:
+        top = compact(read("src/fpga/core/core_top.v"))
         swan = compact(read("src/fpga/core/wonderswan.sv"))
         blend = compact(read("src/fpga/core/apf_temporal_blend.sv"))
 
@@ -118,6 +134,20 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("apf_temporal_blendtemporal_blend(", swan)
         self.assertIn(".mode(flickerblend_applied)", swan)
         self.assertNotIn(".mode(configured_flickerblend)", swan)
+        self.assertIn(".color_profile(color_profile_applied)", swan)
+        self.assertNotIn(".color_profile(configured_color_profile)", swan)
+        self.assertIn(
+            "color_profile_applied<=configured_color_profile&&isColor;",
+            swan,
+        )
+        self.assertIn(
+            "32'h210:beginconfigured_color_profile<=bridge_wr_data[0];end",
+            top,
+        )
+        self.assertIn(
+            ".configured_color_profile(configured_color_profile_s)",
+            top,
+        )
         self.assertIn("elseif(scanout_frame_boundary)begin", swan)
         self.assertIn("{r,g,b}<=temporal_video_rgb;", swan)
         self.assertNotIn("px_addr<=32255", swan)
@@ -125,10 +155,32 @@ class PocketVideoContractTest(unittest.TestCase):
         for obsolete in ("r2_5", "r3_mul24", "r3_div24"):
             self.assertNotIn(obsolete, swan)
 
-        self.assertIn("expanded_sum=sample_sum*10'd17;", blend)
-        self.assertIn("(expanded_sum+10'd1)>>1", blend)
-        self.assertIn("(expanded_sum+10'd1)/10'd3", blend)
-        self.assertIn("blend_channel={newest,newest};", blend)
+        self.assertIn(
+            "red_sum=sample[11:8]*9'd26+sample[7:4]*9'd4+sample[3:0]*9'd2;",
+            blend,
+        )
+        self.assertIn(
+            "green_sum=sample[7:4]*9'd24+sample[3:0]*9'd8;",
+            blend,
+        )
+        self.assertIn(
+            "blue_sum=sample[11:8]*9'd6+sample[7:4]*9'd4+sample[3:0]*9'd22;",
+            blend,
+        )
+        self.assertIn(
+            "transform_color={red_sum[8:1],green_sum[8:1],blue_sum[8:1]};",
+            blend,
+        )
+        self.assertIn(
+            "weighted_sum={2'b00,newest}+{2'b00,previous}+10'd1;",
+            blend,
+        )
+        self.assertIn(
+            "weighted_sum={1'b0,newest,1'b0}+{2'b00,previous}+{2'b00,oldest};",
+            blend,
+        )
+        self.assertIn("blend_channel=weighted_sum[9:2];", blend)
+        self.assertIn("blend_channel=newest;", blend)
 
     def test_immutable_framebank_ownership_and_history_priming(self) -> None:
         swan = compact(read("src/fpga/core/wonderswan.sv"))

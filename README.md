@@ -39,18 +39,31 @@ manually merge the folders.
 
 ROMs should be placed in `/Assets/wonderswan/common/`.
 
-Pocket remembers the last cartridge selected and reloads it on the next launch,
-so reopening Swan Song—or selecting it from openFPGA Recent on Analogue OS
-2.6—returns directly to that title. Use **Core Settings > Cartridge** to switch
-games. **Reset to Defaults** clears the remembered browser choices; framework
-2.3 is the minimum because that release fixed browser-history reset behavior.
+Optional per-game Pocket presets can provide each ROM with its own documented
+Interact defaults and Controls definition through APF's path-mirrored
+`Presets` folders. Pocket owns the actual saved control remaps, whose storage
+format is not public; Pocket behavior still needs hardware verification. The
+offline generator does not read or catalogue ROMs; see
+[PER_GAME_PRESETS.md](PER_GAME_PRESETS.md).
+
+For the shortest supported boot path, choose **Startup Action > openFPGA** in
+Pocket Settings. This opens openFPGA at power-on; it does not add Swan Song or
+individual games to Analogue Library and does not select a title by itself.
+
+APF is configured to remember the last cartridge selected and reuse it on the
+next normal launch. Reopening Swan Song from openFPGA—including through
+**Recent** on Analogue OS 2.6—is therefore expected to return to that title,
+but this direct-title flow remains pending Pocket verification. Use **Core
+Settings > Cartridge** to switch games. **Reset all to defaults** clears the
+remembered browser choices; framework 2.3 is the minimum because that release
+fixed browser-history reset behavior.
 
 You must provide the BIOS files for both the original and WonderSwan Color. The
 BIOSes should be named `bw.rom` and `color.rom`, and should be placed in
 `/Assets/wonderswan/common/`. Both are required data slots, so Pocket can ask
 for a missing file before launch; APF also checks their exact sizes. A BIOS
 chosen in that browser is remembered for the next launch and is cleared by
-Pocket's Reset All to Defaults action.
+Pocket's **Reset all to defaults** action.
 
 WonderSwan
 
@@ -121,8 +134,10 @@ documentation.
 ### Save States/Sleep + Wake
 
 Memories and Sleep + Wake are disabled in this development tree. The APF
-command handler is covered in focused simulation, but the complete state
-controller and physical Pocket lifecycle have not passed the release gate yet.
+command handler now rejects unsupported requests in hardware, and a tested
+magic/version/length envelope defines the future blob. Full staging storage,
+the complete state controller, and the physical Pocket lifecycle have not
+passed the release gate; see [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md).
 
 ### Fast Forward
 
@@ -183,9 +198,10 @@ game-visible input behavior tied to the emulated hardware.
 The WonderSwan has a native refresh rate of 75.4Hz, but the Analogue Pocket doesn't support higher than ~62Hz (and 60Hz on the Dock). This core provides the option to either run the display directly at 60Hz, introducing tearing, or to buffer complete frames at 60Hz, introducing latency and skipping some frames entirely. The buffered path uses five physical banks so the writer, a pending frame, and up to three immutable display/blend frames never alias.
 
 * `Triple Buffer` - Present only complete frames to prevent producer/scanout tearing. This increases latency and drops producer frames when necessary.
-* `Flickerblend` - Blend the newest two or three immutable completed frames with exact rounded RGB levels. History is re-primed after a title/reset, and this option enables buffering implicitly.
+* `LCD Response` - `2-Frame Blend` retains the exact rounded two-frame filter. `Persistence` uses a finite 50/25/25 response derived from ares' recursive interframe blending, with the older tail collapsed onto the oldest of the three available complete frames. It is an emulator-derived approximation, not measured WonderSwan Color or SwanCrystal panel data. Either nonzero choice enables buffering implicitly, so it intentionally retains prior image content and inherits buffered delivery latency; it does not add an input-processing stage.
 * `Display Orientation` - Select the scaler presentation independently of the emulated console's native input orientation.
 * `Landscape 180°` - Select the 180-degree landscape presentation. This is not a horizontal mirror or control remap.
+* `Color Profile` - `Raw RGB444` is the neutral default and expands every native channel by exactly 17, matching Mednafen. For color-system output, `Color LCD (ares)` applies the pinned ares WonderSwan Color/SwanCrystal cross-channel matrix before LCD response processing; mono WonderSwan grayscale remains raw and full-range. This optional profile is reproducible but is not a claim of measured panel calibration; Pocket's generic LCD display modes remain separate host-side choices.
 
 ### Sound Settings
 

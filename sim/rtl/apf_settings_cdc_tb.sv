@@ -1,24 +1,24 @@
 `timescale 1ns/1ps
 
 module apf_settings_cdc_tb;
-    localparam [9:0] DEFAULT_SETTINGS = 10'h041;
+    localparam [10:0] DEFAULT_SETTINGS = 11'h081;
     localparam integer EXPECTED_CAPACITY = 64;
 
     reg reset_n = 1'b0;
     reg clk_source = 1'b0;
     reg clk_destination = 1'b0;
-    reg [9:0] settings_source = DEFAULT_SETTINGS;
+    reg [10:0] settings_source = DEFAULT_SETTINGS;
 
     wire update_pending_source;
-    wire [9:0] settings_destination;
+    wire [10:0] settings_destination;
 
-    reg [9:0] expected [0:EXPECTED_CAPACITY-1];
+    reg [10:0] expected [0:EXPECTED_CAPACITY-1];
     integer accepted_count = 0;
     integer delivered_count = 0;
     integer destination_change_count = 0;
     integer seed_index;
     integer timeout;
-    reg [9:0] destination_previous = DEFAULT_SETTINGS;
+    reg [10:0] destination_previous = DEFAULT_SETTINGS;
     reg request_previous = 1'b0;
 
     // Deliberately unrelated 7 ns and 11 ns periods.
@@ -78,7 +78,7 @@ module apf_settings_cdc_tb;
         end
     end
 
-    task automatic set_and_wait(input [9:0] value);
+    task automatic set_and_wait(input [10:0] value);
         begin
             @(negedge clk_source);
             settings_source = value;
@@ -108,27 +108,29 @@ module apf_settings_cdc_tb;
         end
 
         // Exact interact.json defaults unpack to Auto, normal CPU, triple
-        // buffer on, blend off, orientation Auto, landscape-180 off, sound on.
-        if (settings_destination[9:8] !== 2'd0 ||
-            settings_destination[7] !== 1'b0 ||
-            settings_destination[6] !== 1'b1 ||
-            settings_destination[5:4] !== 2'd0 ||
-            settings_destination[3:2] !== 2'd0 ||
+        // buffer on, response off, orientation Auto, landscape-180 off, raw
+        // color, and sound on.
+        if (settings_destination[10:9] !== 2'd0 ||
+            settings_destination[8] !== 1'b0 ||
+            settings_destination[7] !== 1'b1 ||
+            settings_destination[6:5] !== 2'd0 ||
+            settings_destination[4:3] !== 2'd0 ||
+            settings_destination[2] !== 1'b0 ||
             settings_destination[1] !== 1'b0 ||
             settings_destination[0] !== 1'b1) begin
             $fatal(1, "default bundle does not match interact.json");
         end
 
         // Exercise every field and both legal nonzero two-bit encodings.
-        set_and_wait(10'b01_1_0_01_01_1_0);
-        set_and_wait(10'b10_0_1_10_10_0_1);
+        set_and_wait(11'b01_1_0_01_01_1_1_0);
+        set_and_wait(11'b10_0_1_10_10_0_0_1);
         set_and_wait(DEFAULT_SETTINGS);
 
         // Adversarial 01 -> 10 transitions change both bits of system,
         // flicker, and orientation at once. Poison the live source repeatedly
         // while the first snapshot is in flight; the held payload cannot tear.
         @(negedge clk_source);
-        settings_source = 10'b01_1_1_01_01_1_1;
+        settings_source = 11'b01_1_1_01_01_1_1_1;
         @(posedge clk_source);
         #1ps;
         if (!update_pending_source) begin
@@ -137,13 +139,13 @@ module apf_settings_cdc_tb;
         for (seed_index = 0; seed_index < 12; seed_index = seed_index + 1) begin
             @(negedge clk_source);
             case (seed_index % 4)
-                0: settings_source = 10'b10_0_0_10_10_0_0;
-                1: settings_source = 10'b01_0_1_10_01_0_1;
-                2: settings_source = 10'b10_1_0_01_10_1_0;
-                default: settings_source = 10'b10_1_1_10_10_1_1;
+                0: settings_source = 11'b10_0_0_10_10_0_0_0;
+                1: settings_source = 11'b01_0_1_10_01_0_1_1;
+                2: settings_source = 11'b10_1_0_01_10_1_0_0;
+                default: settings_source = 11'b10_1_1_10_10_1_1_1;
             endcase
         end
-        settings_source = 10'b10_1_1_10_10_1_1;
+        settings_source = 11'b10_1_1_10_10_1_1_1;
 
         timeout = 0;
         while ((update_pending_source ||
@@ -153,7 +155,7 @@ module apf_settings_cdc_tb;
             timeout = timeout + 1;
         end
         if (update_pending_source ||
-            settings_destination !== 10'b10_1_1_10_10_1_1) begin
+            settings_destination !== 11'b10_1_1_10_10_1_1_1) begin
             $fatal(1, "rapid settings did not converge on final complete bundle");
         end
 
@@ -162,14 +164,14 @@ module apf_settings_cdc_tb;
         // interval and proves the destination does not revert to defaults.
         repeat (24) @(posedge clk_destination);
         #1ps;
-        if (settings_destination !== 10'b10_1_1_10_10_1_1) begin
+        if (settings_destination !== 11'b10_1_1_10_10_1_1_1) begin
             $fatal(1, "stable settings changed without loss of PLL readiness");
         end
 
         // Loss of PLL readiness is the only reset contract. An in-flight update
         // is discarded and both domains return to the package defaults.
         @(negedge clk_source);
-        settings_source = 10'b01_0_0_01_01_0_0;
+        settings_source = 11'b01_0_0_01_01_0_1_0;
         @(posedge clk_source);
         #1ps;
         if (!update_pending_source) begin

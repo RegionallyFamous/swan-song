@@ -167,8 +167,13 @@
   notification as an explicit no-op. `pocket_control_cdc_contract_test.py`
   mutation-locks independent memory/system reset and download copies, including
   async-assert/synchronous-release save-clear staging into the system domain.
-  Another bench locks A0/A4 query fields, idle/busy/done/error precedence, and
-  save/load request hold-through-acknowledgement behavior.
+  Another bench locks A0/A4 query fields, idle/busy/done/error precedence,
+  save/load request hold-through-acknowledgement behavior, and fail-closed
+  unsupported requests. The save-state envelope bench locks the source-derived
+  `0x90300` payload, `SWAN`/version/length header, exact `0x90320` total, payload
+  forwarding offsets, and 15 malformed/short/long/order adversaries. This is a
+  staging-format foundation only; [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md)
+  explains why the inherited FIFOs cannot yet meet APF's complete-blob order.
   RTC command delivery now uses an acknowledged bundled-data CDC; its
   asynchronous-clock bench proves six coherent ordered epochs, one destination
   pulse per accepted event, and explicit busy rejection. Source contracts also
@@ -252,7 +257,7 @@ the current Chip32 program, which queries and loads both BIOS files on every
 launch. This lets APF surface missing or malformed firmware at its normal file
 boundary instead of advertising an optional asset that the launcher later
 rejects. They are read-only assets with APF's persist-browsed-filename bit, so
-a one-time browser choice is reused until Reset All to Defaults. The exact-size
+a one-time browser choice is reused until **Reset all to defaults**. The exact-size
 RTL guard remains a second, independent check.
 
 Slot 0 uses APF parameter `0x309`: user-browsable, read-only, full-core reload,
@@ -260,7 +265,7 @@ and persisted browsed filename. This makes a normal launch reuse the last title
 while **Core Settings > Cartridge** remains the explicit game switcher. The
 full-reload path performs normal shutdown first, allowing slot 11 to flush the
 old title before Chip32 derives and loads the new title's save. Framework 2.3
-is the minimum because its Reset to Defaults behavior correctly clears this
+is the minimum because its **Reset all to defaults** behavior correctly clears this
 browser history.
 
 Before cartridge metadata is available, a plausible slot-11 write returns `2`

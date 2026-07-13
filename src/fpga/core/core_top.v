@@ -385,6 +385,9 @@ module core_top (
         32'h20C: begin
           use_flip_horizontal <= bridge_wr_data[0];
         end
+        32'h210: begin
+          configured_color_profile <= bridge_wr_data[0];
+        end
 
         32'h300: begin
           use_fastforward_sound <= bridge_wr_data[0];
@@ -524,10 +527,9 @@ module core_top (
   // controller is not yet safe to advertise to Pocket for Memories/sleep.
   wire savestate_supported = 0;
   wire [31:0] savestate_addr = 32'h40000000;
-  // TODO: Change size of save state based on memory size
-  wire [31:0] savestate_size = 32'h90_200;
-  // Add buffer of 0x1000 for extra data that we'll just discard on loading
-  wire [31:0] savestate_maxloadsize = savestate_size + 32'h1_000;
+  // MiSTer's exact 0x90300-byte payload plus the versioned 32-byte envelope.
+  wire [31:0] savestate_size = 32'h9_0320;
+  wire [31:0] savestate_maxloadsize = 32'h9_0320;
 
   wire savestate_start;
   wire savestate_start_ack;
@@ -1088,6 +1090,7 @@ module core_top (
   reg [1:0] configured_flickerblend = 2'd0;
   reg [1:0] configured_orientation = 2'd0;
   reg use_flip_horizontal = 1'b0;
+  reg configured_color_profile = 1'b0;
 
   reg use_fastforward_sound = 1'b1;
 
@@ -1111,6 +1114,7 @@ module core_top (
   wire [1:0] configured_flickerblend_s;
   wire [1:0] configured_orientation_s;
   wire use_flip_horizontal_s;
+  wire configured_color_profile_s;
 
   wire use_fastforward_sound_s;
 
@@ -1146,10 +1150,10 @@ module core_top (
   // toggle both bits of a field, so a vector synchronizer can expose a torn
   // intermediate value. Transfer the whole package atomically and keep this
   // CDC alive through host Reset Enter; only loss of PLL readiness resets it.
-  wire [9:0] settings_snapshot_s;
+  wire [10:0] settings_snapshot_s;
   wire settings_update_pending_74a;
   apf_settings_cdc #(
-      .DEFAULT_SETTINGS(10'h041)
+      .DEFAULT_SETTINGS(11'h081)
   ) settings_command_cdc (
       .reset_n(pll_core_ready_74a),
       .clk_source(clk_74a),
@@ -1161,6 +1165,7 @@ module core_top (
         configured_flickerblend,
         configured_orientation,
         use_flip_horizontal,
+        configured_color_profile,
         use_fastforward_sound
       }),
       .update_pending_source(settings_update_pending_74a),
@@ -1176,6 +1181,7 @@ module core_top (
     configured_flickerblend_s,
     configured_orientation_s,
     use_flip_horizontal_s,
+    configured_color_profile_s,
     use_fastforward_sound_s
   } = settings_snapshot_s;
 
@@ -1248,6 +1254,7 @@ module core_top (
 
       .use_triple_buffer(use_triple_buffer_s),
       .configured_flickerblend(configured_flickerblend_s),
+      .configured_color_profile(configured_color_profile_s),
 
       .use_fastforward_sound(use_fastforward_sound_s),
 
