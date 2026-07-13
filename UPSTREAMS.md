@@ -7,6 +7,12 @@ Pinned on 2026-07-12:
 | Pocket baseline | https://github.com/agg23/openfpga-wonderswan | `073213a2e5992cff23b174d17763cb6354ee862b` | Top-level file contains GPL v2 text; file notices vary |
 | WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | `WonderSwan.sv` grants GPL v2-or-later; top-level file contains GPL v2 text; file notices vary |
 | APF utility reference | https://github.com/agg23/analogue-pocket-utils | `78482d1b363606336f4535aa0adc2e957bc20558` | MIT |
+| Official APF core template | https://github.com/open-fpga/core-template | `da3a021b1eaf742604d86d8dc9b33a6666263e6a` | Analogue APF notice; individual generated/vendor notices vary |
+| Pocket NES Memories comparison | https://github.com/agg23/openfpga-nes (`savestates2`) | `c427ab08a91af43d2eab2073d0a7b1656972dd13` | Top-level file contains GPL v2 text; file notices vary |
+| Pocket GB Memories comparison | https://github.com/budude2/openfpga-GBC (`Save-States`) | `0be702f55eb864b532835f30b11790e4ba61170d` | No top-level license file in the pinned tree; file notices vary |
+| Pocket SNES video-mode comparison | https://github.com/agg23/openfpga-snes (`videomodes`) | `b8aa593f93b5df993a911302a74145e958eba553` | Top-level file contains GPL v2 text; file notices vary |
+| openFPGA core inventory | https://github.com/openfpga-cores-inventory/analogue-pocket | `dfc9af340d4b2104bdc771831f7e08aa4df4e20f` | MIT |
+| Pupdate distribution reference | https://github.com/mattpannella/pupdate | `07452a17af897d7c6d041fcc4dcad5100df67e48` | MIT |
 | Official Chip32 assembler/image reference | https://github.com/open-fpga/bass-chip32 | `f3ad17dfd541e67b527298808ebef131e979ded4` / `v1.0.0` | MIT |
 | Wonderful open test reference | https://github.com/asiekierka/ws-test-suite | `7dfa0e2e869d08386b685d6a56df0bcfaf181b47` | MIT |
 | Wonderful native example reference | https://github.com/WonderfulToolchain/target-wswan-examples | `811b739ab1f0203336a08da8db34365d29869617` | CC0-1.0 example scaffold; linked libraries use zlib terms |
@@ -17,6 +23,19 @@ Pinned on 2026-07-12:
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
 the original WonderSwan FPGA core author. The following findings come from the
 checked-in history, not from repository-host license classification:
+
+- A whitespace-insensitive comparison against the pinned official APF template
+  finds `src/fpga/apf/apf_top.v` behaviorally identical. The project-specific
+  `io_pad_controller.v` divergence clears every controller snapshot after a
+  PAD timeout or reset so stale held inputs cannot survive link recovery.
+- The pinned Pocket NES and GB save-state branches use the same small-FIFO
+  controller family inherited by the WonderSwan port. They are useful protocol
+  comparisons, but they do not establish that a 590,624-byte WonderSwan blob
+  may be restored before the complete APF payload is staged and validated.
+- The public openFPGA inventory still describes the 2023 WonderSwan 1.0.1
+  release as supporting Memories. Swan Song deliberately reports Memories and
+  sleep unsupported until complete-blob staging, fit/timing, and Pocket
+  save/sleep/wake tests pass; future inventory metadata must match that state.
 
 - MiSTer's first source-bearing commit (`2cebac3`, 2021-06-12) has a
   program-level notice in `WonderSwan.sv` granting GPL v2-or-later. The same

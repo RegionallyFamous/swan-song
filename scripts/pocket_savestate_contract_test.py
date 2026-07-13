@@ -76,6 +76,17 @@ class PocketSavestateContract(unittest.TestCase):
         controller = source("src/fpga/core/save_state_controller.sv")
         self.assertNotIn("apf_savestate_envelope", controller)
 
+        # The protected full-blob coordinator is an isolated integration
+        # contract. It must remain outside production RTL until its SDRAM and
+        # clock-domain adapters exist and pass the documented gates.
+        staging = compact(source("src/fpga/core/apf_savestate_staging.sv"))
+        self.assertIn("load_staged_bytes==PAYLOAD_BYTES", staging)
+        self.assertIn("outputregrestore_start", staging)
+        self.assertIn("outputwirerestore_read_permitted", staging)
+        self.assertNotIn("apf_savestate_staging", top)
+        qsf = source("src/fpga/ap_core.qsf")
+        self.assertNotIn("core/apf_savestate_staging.sv", qsf)
+
     def test_build_and_regression_include_the_contract(self) -> None:
         qsf = source("src/fpga/ap_core.qsf")
         self.assertIn(
@@ -84,6 +95,7 @@ class PocketSavestateContract(unittest.TestCase):
         )
         regression = source("scripts/regression.sh")
         self.assertIn('"$ROOT/sim/rtl/run_apf_savestate_envelope_tb.sh"', regression)
+        self.assertIn('"$ROOT/sim/rtl/run_apf_savestate_staging_tb.sh"', regression)
         self.assertIn('python3 "$ROOT/scripts/pocket_savestate_contract_test.py"', regression)
 
 

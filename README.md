@@ -135,9 +135,13 @@ documentation.
 
 Memories and Sleep + Wake are disabled in this development tree. The APF
 command handler now rejects unsupported requests in hardware, and a tested
-magic/version/length envelope defines the future blob. Full staging storage,
-the complete state controller, and the physical Pocket lifecycle have not
-passed the release gate; see [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md).
+magic/version/length envelope defines the future blob. An isolated control
+plane now proves that no live restore can begin until every payload byte is
+validated and accepted by a full-size backend, but its required SDRAM/CDC
+storage path is deliberately not connected. The complete state controller and
+physical Pocket lifecycle have not passed the release gate; see
+[`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md) and
+[`MEMORIES_STAGING.md`](MEMORIES_STAGING.md).
 
 ### Fast Forward
 
@@ -195,7 +199,7 @@ game-visible input behavior tied to the emulated hardware.
 
 ### Video Settings
 
-The WonderSwan has a native refresh rate of 75.4Hz, but the Analogue Pocket doesn't support higher than ~62Hz (and 60Hz on the Dock). This core provides the option to either run the display directly at 60Hz, introducing tearing, or to buffer complete frames at 60Hz, introducing latency and skipping some frames entirely. The buffered path uses five physical banks so the writer, a pending frame, and up to three immutable display/blend frames never alias.
+The WonderSwan's native raster is approximately 75.472Hz, while APF accepts 47Hz to approximately 61Hz. This core generates a measured-by-construction 59.984769Hz APF raster (397x258 at 6.144MHz). It can either display the producer directly, which may tear, or present only complete frames, which adds delivery latency and skips producer frames. The buffered path uses five physical banks so the writer, a pending frame, and up to three immutable display/blend frames never alias. Exact cadence, phase-parameterized frame-age, and drop-rate derivations are recorded in `FRAME_DELIVERY.md`. A researched beam-race path is not exposed because programmable WonderSwan frame length and current bank ownership admit concrete stale/reused-bank failures; `BEAM_RACE_ANALYSIS.md` records the opportunity and rejection proof.
 
 * `Triple Buffer` - Present only complete frames to prevent producer/scanout tearing. This increases latency and drops producer frames when necessary.
 * `LCD Response` - `2-Frame Blend` retains the exact rounded two-frame filter. `Persistence` uses a finite 50/25/25 response derived from ares' recursive interframe blending, with the older tail collapsed onto the oldest of the three available complete frames. It is an emulator-derived approximation, not measured WonderSwan Color or SwanCrystal panel data. Either nonzero choice enables buffering implicitly, so it intentionally retains prior image content and inherits buffered delivery latency; it does not add an input-processing stage.

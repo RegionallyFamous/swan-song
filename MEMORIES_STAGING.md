@@ -1,0 +1,122 @@
+# Pocket Memories staging architecture
+
+Status: **isolated control plane implemented and adversarially tested; no
+production integration, fit, or hardware support is claimed.** `savestate_supported`
+and `sleep_supported` remain false. `apf_savestate_staging.sv` is intentionally
+absent from `ap_core.qsf` until its SDRAM and clock-domain adapters exist.
+
+## Why a complete staging image is mandatory
+
+Analogue's documented order is unambiguous:
+
+- For [`00A0 Savestate: Start/Query`](https://www.analogue.co/developer/docs/host-target-commands),
+  Pocket requests creation, polls until the core reports done, and only then
+  copies the blob out.
+- For [`00A4 Savestate: Load/Query`](https://www.analogue.co/developer/docs/host-target-commands),
+  Pocket first discovers the destination, copies the complete blob into the
+  core, and only then sends Request Load. The
+  [Core Boot Process](https://www.analogue.co/developer/docs/core-boot-process)
+  states the same ordering.
+
+The inherited controller does the opposite on load: it asserts the live
+MiSTer restore as soon as its input FIFO becomes nonempty. That FIFO contains
+4,096 32-bit words, only 16 KiB, while its save FIFO contains four 64-bit
+words, only 32 bytes. The checked reference branches use the same streaming
+pattern: pinned agg23 NES commit
+[`c427ab0`](https://github.com/agg23/openfpga-nes/blob/c427ab08a91af43d2eab2073d0a7b1656972dd13/src/fpga/core/rtl/mister_top/save_state_controller.sv)
+and pinned budude2 GBC commit
+[`0be702f`](https://github.com/budude2/openfpga-GBC/blob/0be702f55eb864b532835f30b11790e4ba61170d/src/gb/save_state_controller.sv).
+Those implementations are useful provenance, but their early-restore FIFO
+behavior is not a safe APF Memories contract for Swan Song.
+
+`apf_savestate_staging.sv` instead establishes these invariants:
+
+1. A4 copy-in writes only an isolated staging backend.
+2. The exact sequential `0x90320` SWAN blob must finish structurally valid.
+3. Every one of the `0x90300` payload bytes must be accepted successfully by
+   the backend before `restore_start` can pulse.
+4. Only `restore_start` and restore-authorized reads may reach the live state
+   engine. Bad magic/version/length/format, short or gapped input, backend
+   failure, misalignment, or an unacknowledged final word cannot reach either.
+5. A0 cannot authorize header or payload reads until the state engine has
+   supplied every exact payload word and the backend has accepted them.
+6. Payload reads are bounded and aligned independently for the A0 and restore
+   phases. A new A4 offset-zero transaction invalidates the previous A0 image.
+
+The compact RTL bench models the staging memory and treats `restore_start` as
+the sole live-mutation edge. It covers short A0 capture, backend backpressure,
+exact A0 publication, header/payload bounds, bad-magic/short/gapped/backend-error
+A4 loads, simultaneous A0/A4 start, finalize with an unhandshaken valid, a
+Request Load received while the final backend word is pending, legal held-valid
+backpressure, bounded restore reads, and exactly one successful restore pulse.
+All malformed cases leave the modeled live state untouched.
+
+## Resource and address decision
+
+The target `5CEBA4F23C8` is a Cyclone V E A4 device. Intel's current
+[Cyclone V product table](https://cdrdv2-public.intel.com/714207/cyclone-v-product-table.pdf)
+specifies 308 M10K blocks / 3,080 Kb, or 394,240 raw bytes, for the entire
+device. The exact Memories blob is 590,624 bytes before any implementation
+overhead, so it cannot fit in all device M10Ks even if the rest of the core
+used none. The five framebuffer banks already target 200 M10Ks; the nominal
+108-block remainder is only 138,240 raw bytes. MLAB capacity does not close
+that gap, and a Quartus fitter report—not arithmetic—is still authoritative
+for realized usage.
+
+Pocket supplies this core a 512-Mbit ×16 SDRAM, 64 MiB, and the existing
+controller exposes a 25-bit word address. The current byte ranges are:
+
+| Range | Owner |
+| --- | --- |
+| `0x0000000..0x0ffffff` | Cartridge ROM, maximum implemented 16 MiB |
+| `0x1000000..0x107ffff` | Maximum 512 KiB cartridge SRAM |
+| `0x1100000..0x119031f` | Proposed exact Memories staging reservation |
+
+The proposed staging base leaves a 512 KiB guard gap after maximum cartridge
+SRAM and consumes only one protected `0x90320`-byte region. It must be encoded
+once as a shared address-map constant and compile-time checked against every
+ROM/save/staging maximum; the literal is not yet present in production RTL.
+
+## Required production integration
+
+The isolated module is a control-plane contract, not a storage implementation.
+Integration requires all of the following:
+
+1. Add a fourth, low-priority client to `sdram.sv`, with explicit byte-lane
+   behavior, request completion, refresh fairness, and no alias with channels
+   1–3. A4 staging must coexist with a running machine; A0/restore may pause it.
+2. Add lossless `clk_74a` ↔ `clk_mem_110_592` request/response crossings.
+   Analogue's checked-in bridge peripheral says consecutive bridge words are
+   at worst 88 clocks apart at 74.25 MHz, but the integration must still prove
+   its maximum SDRAM arbitration latency and make any FIFO overflow observable.
+   The physical bridge has no ready wire with which this module can stall
+   Pocket, so a bare ready/valid connection is not sufficient.
+3. Adapt the MiSTer manager's 64-bit, byte-enabled stream to exact 32-bit
+   staging words without changing its payload ordering or silently discarding
+   byte enables. Resolve and lock bridge/SDRAM/state-engine endianness.
+4. Give A0 bridge reads a read-ahead cache matching APF's buffered-read timing;
+   synthesize the 32-byte header and fetch payload words from SDRAM only after
+   `save_ready`.
+5. Route A4 through the staged restore gate. No current `fifo_load_empty`
+   shortcut may remain, and Reset Enter, title reload, menu interruption, PLL
+   loss, or a new transaction must cancel safely without a delayed restore.
+6. Add compatibility identity and payload-integrity protection before enabling
+   the feature. Version 1 proves structure and exact transport length, but it
+   does not yet bind a state to its cartridge/BIOS/settings or checksum all
+   payload bytes. A future format revision must fail closed on those mismatches.
+
+## Evidence still required before enabling
+
+- Focused CDC and SDRAM-arbiter simulation at worst-case ROM/SRAM/state traffic,
+  including refresh, bridge-rate bursts, stalls, resets, and injected errors.
+- Compiled full-wrapper tests for A0 save/copy, A4 copy/request/restore, repeated
+  cycles, duplicate bridge reads, interruption, and old/new-format rejection.
+- Quartus Prime Lite 21.1.1 fit and TimeQuest evidence for M10K/MLAB/ALM changes,
+  all clocks/crossings, no unexpected critical warnings, and nonnegative timing.
+- Pocket and Dock validation across mono/Color, every cartridge RAM/EEPROM size,
+  RTC, both orientations, active audio, turbo/fast-forward, title switching, and
+  repeated Memories plus at least 50 distributed Sleep + Wake cycles.
+
+Until every gate is satisfied, the correct first-class behavior is to keep
+Memories and Sleep + Wake unavailable rather than expose a state path capable
+of partially restoring or corrupting a running game.
