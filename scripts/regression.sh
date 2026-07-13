@@ -56,6 +56,27 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --allowed bank --require bank \
   --require-bank-addresses 0xc0,0xc1,0xc2,0xc3
 
+# Reusing a trace path for a failed capture must not leave the preceding
+# success manifest beside a newly truncated trace.
+test -f "$BUILD/bank-probe/events.csv.manifest.json"
+if "$SIM" \
+  --rom "$BUILD/bank-probe/bank_probe.ws" \
+  --frames 1 --max-cycles 1 --out "$BUILD/bank-probe/failed-frames" \
+  --event-trace "$BUILD/bank-probe/events.csv" \
+  --trace-events bank >/dev/null 2>&1; then
+  echo "one-cycle manifest invalidation probe unexpectedly completed" >&2
+  exit 1
+fi
+test ! -e "$BUILD/bank-probe/events.csv.manifest.json"
+if python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+  "$BUILD/bank-probe/events.csv" \
+  --output "$BUILD/bank-probe/failed-provenance.csv" \
+  --require-complete-coverage >/dev/null 2>&1; then
+  echo "failed capture retained complete-coverage authority" >&2
+  exit 1
+fi
+echo "PASS failed capture invalidates trace completeness manifest"
+
 # Generate an open WSC probe that copies two known words from mapped ROM into
 # IRAM. The exact completed GDMA read/write sequence proves resolved-offset and
 # value capture without relying on a commercial game.

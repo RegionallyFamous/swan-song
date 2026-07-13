@@ -71,6 +71,16 @@ class ByteVersion:
 POWERUP_ZERO = ByteVersion(0, None)
 
 
+def trace_fnv1a64(path: Path) -> str:
+    value = 0xCBF29CE484222325
+    with path.open("rb") as source:
+        while chunk := source.read(16384):
+            for byte in chunk:
+                value ^= byte
+                value = (value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return f"{value:016x}"
+
+
 def parse_range(value: str, maximum: int) -> tuple[int, int]:
     try:
         if "-" in value:
@@ -93,13 +103,33 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid trace manifest {path}: {error}") from error
+    events = manifest.get("events")
+    positive_integer = lambda value: (
+        isinstance(value, int) and not isinstance(value, bool) and value > 0
+    )
+    try:
+        binding_matches = (
+            manifest.get("trace_size_bytes") == trace.stat().st_size
+            and manifest.get("trace_fnv1a64") == trace_fnv1a64(trace)
+        )
+    except OSError as error:
+        raise ValueError(f"cannot validate trace binding for {trace}: {error}") from error
     complete = (
         manifest.get("schema") == "swan-song-trace-manifest-v1"
         and manifest.get("trace_schema") == 4
+        and binding_matches
         and manifest.get("capture_start") == "reset_release"
         and manifest.get("capture_completed") is True
+        and positive_integer(manifest.get("capture_cycles"))
+        and positive_integer(manifest.get("completed_frames"))
+        and positive_integer(manifest.get("rom_size"))
         and manifest.get("complete_memory_history") is True
         and manifest.get("complete_display_history") is True
+        and manifest.get("memory_filters_active") is False
+        and manifest.get("display_filters_active") is False
+        and isinstance(events, dict)
+        and events.get("mem") is True
+        and events.get("vram") is True
         and manifest.get("savestate_inputs_asserted") is False
         and manifest.get("iram_initial_state") == "zero"
     )

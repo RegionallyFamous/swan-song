@@ -58,14 +58,44 @@ static std::string json_escape(const std::string& value) {
   return escaped;
 }
 
+static fs::path trace_manifest_path(const fs::path& trace) {
+  fs::path path = trace;
+  path += ".manifest.json";
+  return path;
+}
+
+static std::string trace_fnv1a64(const fs::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("cannot hash " + path.string());
+  uint64_t hash = UINT64_C(0xcbf29ce484222325);
+  std::array<char, 16384> buffer{};
+  while (input) {
+    input.read(buffer.data(), buffer.size());
+    for (std::streamsize index = 0; index < input.gcount(); ++index) {
+      hash ^= static_cast<unsigned char>(buffer[static_cast<size_t>(index)]);
+      hash *= UINT64_C(0x100000001b3);
+    }
+  }
+  if (!input.eof()) throw std::runtime_error("failed to hash " + path.string());
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result(16, '0');
+  for (int index = 15; index >= 0; --index) {
+    result[static_cast<size_t>(index)] = digits[hash & 0xf];
+    hash >>= 4;
+  }
+  return result;
+}
+
 static void write_trace_manifest(const swansong::trace::Config& config,
                                  uint64_t capture_cycles, unsigned frames,
                                  size_t rom_size) {
-  fs::path path = config.output;
-  path += ".manifest.json";
+  const fs::path path = trace_manifest_path(config.output);
   if (path.has_parent_path()) fs::create_directories(path.parent_path());
   std::ofstream output(path, std::ios::out | std::ios::trunc);
   if (!output) throw std::runtime_error("cannot write " + path.string());
+
+  const uintmax_t trace_size = fs::file_size(config.output);
+  const std::string trace_hash = trace_fnv1a64(config.output);
 
   const bool memory_filters =
       config.mem_initiators != swansong::trace::kAllMemInitiators ||
@@ -84,6 +114,8 @@ static void write_trace_manifest(const swansong::trace::Config& config,
          << "  \"schema\": \"swan-song-trace-manifest-v1\",\n"
          << "  \"trace_schema\": 4,\n"
          << "  \"trace_file\": \"" << json_escape(config.output.string()) << "\",\n"
+         << "  \"trace_size_bytes\": " << trace_size << ",\n"
+         << "  \"trace_fnv1a64\": \"" << trace_hash << "\",\n"
          << "  \"capture_start\": \"reset_release\",\n"
          << "  \"capture_completed\": true,\n"
          << "  \"capture_cycles\": " << capture_cycles << ",\n"
@@ -317,6 +349,9 @@ int main(int argc, char** argv) {
   }
   std::unique_ptr<swansong::trace::Logger> event_trace;
   if (event_trace_config.enabled()) {
+    // A manifest is a success certificate for one exact trace. Invalidate any
+    // older certificate before Logger truncates/replaces that trace.
+    fs::remove(trace_manifest_path(event_trace_config.output));
     event_trace = std::make_unique<swansong::trace::Logger>(event_trace_config);
   }
   std::unique_ptr<VerilatedVcdC> trace;
@@ -442,6 +477,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   if (event_trace) {
+    event_trace.reset();
     write_trace_manifest(event_trace_config, trace_cycle, frames, rom.size());
   }
   return 0;

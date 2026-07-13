@@ -182,7 +182,10 @@ standalone verifier currently validates CSV only.
 Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame
 target, included unfiltered `mem` and `vram` history, avoided save-state input,
-and can therefore use the defined zero power-up state of IRAM. The correlator
+and can therefore use the defined zero power-up state of IRAM. Its byte length
+and FNV-1a digest bind that certificate to the exact trace file; starting a new
+capture at the same path invalidates the old manifest before truncating the
+trace. The correlator
 only labels coverage `complete_from_reset` when all of those conditions hold;
 otherwise it reports `observed_only` and never treats an absent write as zero.
 

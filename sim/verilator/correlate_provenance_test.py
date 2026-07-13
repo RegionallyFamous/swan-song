@@ -9,7 +9,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from correlate_provenance import correlate
+from correlate_provenance import correlate, trace_fnv1a64
 from verify_trace import FIELDS_V4
 
 
@@ -155,8 +155,16 @@ def main() -> None:
         manifest = {
             "schema": "swan-song-trace-manifest-v1",
             "trace_schema": 4,
+            "trace_size_bytes": trace.stat().st_size,
+            "trace_fnv1a64": trace_fnv1a64(trace),
             "capture_start": "reset_release",
             "capture_completed": True,
+            "capture_cycles": 7,
+            "completed_frames": 1,
+            "rom_size": 65536,
+            "events": {"cpu": False, "bank": False, "vram": True, "mem": True},
+            "memory_filters_active": False,
+            "display_filters_active": False,
             "complete_memory_history": True,
             "complete_display_history": True,
             "savestate_inputs_asserted": False,
@@ -173,6 +181,15 @@ def main() -> None:
         complete_rows = list(csv.DictReader(io.StringIO(complete.getvalue())))
         assert complete_rows[2]["writer_summary"] == "initial_powerup"
         assert complete_rows[2]["coverage_status"] == "complete_from_reset"
+
+        with trace.open("a", encoding="utf-8") as output:
+            output.write("\n")
+        try:
+            correlate(trace, io.StringIO(), require_complete_coverage=True)
+        except ValueError as error:
+            assert "does not prove complete" in str(error)
+        else:
+            raise AssertionError("modified trace retained complete coverage")
 
     print("PASS display provenance correlator")
 

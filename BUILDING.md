@@ -109,6 +109,8 @@ and WSC GDMA probes. The latter requires two known ROM words to appear in the
 ordered completed read/write events at their resolved ROM and IRAM offsets.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
 memory/display capture and fails on any non-collision fetched-word mismatch.
+The capture manifest is bound to that exact trace by size and digest; regression
+also proves a failed same-path rerun removes the preceding success certificate.
 
 Generated VHDL-to-Verilog files, binaries, traces, raw RGB frames, and PNGs live
 under `build/` and are ignored by Git.
