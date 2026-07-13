@@ -19,11 +19,13 @@ from typing import Iterable, TextIO
 
 from correlate_provenance import (
     ByteVersion,
+    MemorySourceTracker,
     POWERUP_ZERO,
     ROM_SPACES,
     TraceRow,
     byte_fields,
     summarize_versions,
+    source_lane,
     trace_fnv1a64,
 )
 from verify_trace import BG_FIELDS as BG_CELL_FIELDS
@@ -229,12 +231,19 @@ def summarize_row(versions: list[ByteVersion | None]) -> tuple[str, str, str]:
     else:
         writer = "mixed"
     sources = [version.source_read for version in known]
+    known_sources = [source for source in sources if source is not None]
+    source_initiators = {source.values["initiator"] for source in known_sources}
     if all(source is None for source in sources):
         source_summary = "cpu_write" if initiators == {"cpu"} else "none"
     elif all(source is not None and source.values["space"] in ROM_SPACES for source in sources):
-        source_summary = "gdma_rom"
+        if source_initiators == {"cpu"}:
+            source_summary = "cpu_rom_movsb"
+        elif source_initiators == {"gdma"}:
+            source_summary = "gdma_rom"
+        else:
+            source_summary = "mixed_or_partial_sources"
     elif any(source is not None for source in sources):
-        source_summary = "mixed_or_partial_dma_sources"
+        source_summary = "mixed_or_partial_sources"
     else:
         source_summary = "none"
     return "match", writer, source_summary
@@ -352,10 +361,13 @@ def correlate(
         "raw_superseded": 0,
         "raw_unpromoted": 0,
         "raw_inflight": 0,
+        "cpu_rom_movsb_cells": 0,
+        "cpu_rom_movsb_bytes": 0,
+        "cpu_rom_movsb_origins": 0,
     }
     building: dict[str, FetchGroup | None] = {"screen1": None, "screen2": None}
     completed: dict[str, deque[FetchGroup]] = {"screen1": deque(), "screen2": deque()}
-    pending_gdma_read: TraceRow | None = None
+    source_tracker = MemorySourceTracker()
 
     with trace.open(newline="", encoding="utf-8") as source:
         for cycle, rows_iter in itertools.groupby(iter_rows(source), key=lambda item: item.cycle):
@@ -450,22 +462,13 @@ def correlate(
                 counts["cells"] += 1
                 counts[layer] += 1
                 counts[f"bpp{row.values['bpp']}"] += 1
+                if row_source == "cpu_rom_movsb":
+                    counts["cpu_rom_movsb_cells"] += 1
 
             for row in (item for item in rows if item.values["event"] == "mem"):
                 values = row.values
-                initiator, access = values["initiator"], values["access"]
-                if initiator == "gdma" and access == "read":
-                    pending_gdma_read = row
-                    continue
-                source_read: TraceRow | None = None
-                if initiator == "gdma" and access == "write":
-                    if (
-                        pending_gdma_read is not None
-                        and pending_gdma_read.values["value"] == values["value"]
-                        and pending_gdma_read.values["byte_enable"] == values["byte_enable"]
-                    ):
-                        source_read = pending_gdma_read
-                    pending_gdma_read = None
+                access = values["access"]
+                source_read = source_tracker.observe(row)
                 if access != "write" or values["space"] != "iram":
                     continue
                 address = decimal(row, "address", 0xFFFF)
@@ -477,7 +480,10 @@ def correlate(
                         if target > 0xFFFF:
                             raise ValueError(f"line {row.line}: IRAM write crosses 0xffff")
                         iram[target] = ByteVersion(
-                            (value >> (8 * lane)) & 0xFF, row, source_read, lane
+                            (value >> (8 * lane)) & 0xFF,
+                            row,
+                            source_read,
+                            source_lane(source_read, lane),
                         )
 
     for layer in ("screen1", "screen2"):
@@ -490,6 +496,8 @@ def correlate(
             # Only the newest FETCHDONE buffer is still awaiting promotion.
             counts["raw_superseded"] += len(completed[layer]) - 1
             counts["raw_unpromoted"] += 1
+    counts["cpu_rom_movsb_bytes"] = source_tracker.cpu_rom_movsb_bytes
+    counts["cpu_rom_movsb_origins"] = len(source_tracker.cpu_rom_movsb_origins)
     return counts
 
 

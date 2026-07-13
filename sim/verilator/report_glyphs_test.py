@@ -126,7 +126,7 @@ def make_occurrence(
                 "contributing_raw_cycles": str(start + order - 2),
                 "row_scoreboard_status": "match",
                 "row_writer_summary": "mixed" if mixed and visual_row == 3 else "gdma",
-                "row_source_summary": "mixed_or_partial_dma_sources"
+                "row_source_summary": "mixed_or_partial_sources"
                 if mixed and visual_row == 3
                 else "gdma_rom",
             }

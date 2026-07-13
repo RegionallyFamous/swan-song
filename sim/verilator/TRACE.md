@@ -159,7 +159,7 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `mapped_offset` | exact resolved byte offset within the backing space, including address bit 0; cartridge offsets include the active mask; null for unmapped/absent SRAM |
 | `instruction_id` | monotonic CPU instruction-chain identity for exact CPU-owned `mem` and `bank` events; required to be nonzero on v5 `bank` |
 | `origin_pc` | first byte of the owning instruction, including its first prefix, for exact CPU-owned `mem` and `bank` events |
-| `origin_status` | always `exact` for `bank`; `exact`, `unattributed` for CPU prefetch/IRQ traffic, or `not_applicable` for DMA on `mem` |
+| `origin_status` | always `exact` for `bank`; `exact`, `unattributed` for CPU traffic not bound to a decoded instruction (including observed prefetch/IRQ traffic), or `not_applicable` for DMA on `mem`; `unattributed` alone is not proof that a read was prefetch |
 | `fetch_value` | completed 16-bit display-read word for `vram` |
 | `fetch_collision` | 1 when the CPU/DMA write port addressed the same IRAM word on the display-read edge; otherwise 0 |
 | `bg_layer` | 1 for Screen 1 or 2 for Screen 2 on `bg_cell` |
@@ -207,6 +207,27 @@ nearest instruction-complete event. CPU read events deliberately report
 forwarding that signal on a read would expose stale state from an earlier
 write. GDMA's word transfers continue to report the raw bus mask. Do not infer
 the width of a CPU read from this field.
+
+CPU ROM-to-IRAM source classification is deliberately narrower than instruction
+ownership. The correlator first requires an unattributed ROM read at the exact
+instruction origin whose raw little-endian word contains the trace-observed
+`F3 A4` (`REP MOVSB`) signature. It then accepts only an immediate ROM-read/
+IRAM-byte-write pair with the same exact instruction ID and origin, the exact
+mapped destination address, and the same low byte. Any intervening completed
+memory row breaks the pair and retires the active chain. This is an observed
+signature plus exact transfer; opcode signatures and successive transfers also
+expire after 4,096 trace cycles to prevent stale instruction identities from
+being reused. This evidence does not claim that `unattributed` by itself proves
+prefetch, and it does not
+generalize the evidence to `MOVSW` or other copy loops.
+
+The bootstrap regression additionally runs `verify_cpu_rep_movsb.py`. That
+fixture-specific verifier binds the canonical open ROM and complete v5
+manifest, then requires the two complete instruction chains to alternate exact
+ROM reads and IRAM byte writes without interleaved memory traffic. It checks
+every address, mapped offset, lane, low-byte value, and canonical ROM byte and
+rejects additional exact CPU instruction chains that both read ROM and write
+IRAM.
 
 The integrated top currently instantiates the DMA engine with its hardware
 path enabled, so `sdma` events are runtime-reachable in the translated model.
@@ -287,9 +308,10 @@ The atomic correlator additionally requires `events.bg_cell=true` and
 `--require-complete-coverage` and never treats an absent write as zero.
 
 `correlate_provenance.py` maintains IRAM per byte, respects partial and odd
-writes, preserves exact CPU origins, and pairs GDMA reads/writes only in
-protocol order with matching value and byte enable. For every display read it
-compares the returned word with the independently reconstructed bytes and
+writes, preserves exact CPU origins, pairs GDMA reads/writes only in protocol
+order with matching value and byte enable, and applies the conservative
+`REP MOVSB` rule above to CPU ROM-to-IRAM byte copies. For every display read
+it compares the returned word with the independently reconstructed bytes and
 reports the low/high writer and any mapped ROM source. A collision produces
 `unspecified_collision`, while a non-collision disagreement produces
 `mismatch`. Confirmation runs use `--require-exact-fetches`, which fails on
@@ -371,6 +393,17 @@ The six-frame display-provenance regression requires 78,940/78,940
 non-collision physical display reads to match the complete-from-reset IRAM
 scoreboard: 78,750 are tied to exact CPU writer instructions and 190 pre-enable
 prefetches to the defined power-up value. Any value mismatch fails regression.
+Within that bootstrap trace, the conservative CPU classifier observes exactly
+two 2,048-byte chains: ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` at
+origin `0xf00a4`, and ROM `0x00a52..0x01251` to IRAM `0x2000..0x27ff` at
+origin `0xf0100`. The resulting totals are 4,096 accepted source bytes, two
+origins, 52,512 `cpu_rom_movsb` display words, and 26,222
+`cpu_rom_movsb` atomic cells whose contributing tile-row bytes are
+MOVSB-sourced (their map bytes remain separately classified). The
+extended-range and Shift-JIS fixtures each
+report zero CPU-ROM-MOVSB bytes, origins, display words, and atomic cells; the
+classification is therefore not applied merely because CPU ROM traffic is
+unattributed.
 The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
 the extended-range Color fixture adds 5,176 Screen 1 cells and the Shift-JIS
 fixture adds 8,307. Of the latter, 96 records are the two complete promotions

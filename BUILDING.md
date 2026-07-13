@@ -28,7 +28,18 @@
   resolved mapper offsets, completion-aligned display words/collision status,
   and all six screen-map/tile and sprite-table/tile roles.
   A byte-lane correlator independently reconstructs all 78,940 fetched words
-  from complete IRAM history. The suite also generates build-only
+  from complete IRAM history. In that bootstrap trace, its conservative CPU
+  ROM-to-IRAM classifier requires a trace-observed `F3 A4` origin signature
+  plus an immediate exact same-instruction byte transfer. It accepts two
+  2,048-byte chains—ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` and ROM
+  `0x00a52..0x01251` to IRAM `0x2000..0x27ff`—for 4,096 bytes, two origins,
+  52,512 display words, and 26,222 atomic cells whose contributing tile-row
+  bytes are MOVSB-sourced. The extended-range and
+  Shift-JIS fixtures report zero in all four categories; `unattributed` alone
+  is not treated as proven prefetch. A dedicated verifier binds the open ROM,
+  complete v5 manifest, opcode bytes, uninterrupted alternating transaction
+  chains, address progression, byte lanes, and every copied byte. The suite
+  also generates build-only
   ROMs that verify all C0-C3 bank writes with their owning instruction IDs/PCs,
   including both accepted byte writes from one word `OUT`, and an exact GDMA
   ROM-to-IRAM chain.
@@ -162,6 +173,13 @@ transition at identical physical addresses.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
 memory/display capture and requires every fetched word to be exact: no value
 mismatch, mixed-port collision, partial word, or unobserved byte is accepted.
+For CPU ROM sources, instruction ownership is only a prerequisite: the
+correlator also requires the observed `F3 A4` origin signature and an immediate
+same-instruction ROM-read/IRAM-byte-write pair with an exact destination and
+matching low byte. It does not infer prefetch from an `unattributed` row alone.
+`verify_cpu_rep_movsb.py` separately locks the bootstrap claim to the canonical
+open ROM and rejects incomplete, interleaved, discontinuous, or extra
+ROM-to-IRAM instruction chains.
 The v5 path additionally runs `correlate_bg_cells.py`: it independently groups
 Screen 1/2 map and tile reads, validates each promoted atomic background cell,
 and preserves the writers observed on the raw-fetch edge rather than consulting

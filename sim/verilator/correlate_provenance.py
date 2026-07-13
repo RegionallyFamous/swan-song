@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Correlate v4/v5 display reads with observed IRAM writers and DMA ROM sources."""
+"""Correlate v4/v5 display reads with observed IRAM writers and ROM sources."""
 
 from __future__ import annotations
 
@@ -69,6 +69,175 @@ class ByteVersion:
 
 
 POWERUP_ZERO = ByteVersion(0, None)
+REP_MOVSB_WORD = 0xA4F3
+REP_OPCODE_MAX_AGE = 4096
+REP_TRANSFER_MAX_AGE = 4096
+
+
+class MemorySourceTracker:
+    """Conservatively pair DMA and opcode-bound CPU source transfers.
+
+    CPU instruction ownership alone is not dataflow proof.  A CPU source is
+    therefore accepted only after a trace-observed F3 A4 origin signature and
+    one immediate exact same-instruction ROM-read/IRAM-byte-write pair.  An
+    unattributed row alone is not proof of prefetch.  Any intervening memory
+    row retires the active CPU chain, as does an excessive signature or
+    transfer age.  CPU reads expose a raw 16-bit bus value with byte_enable=0,
+    so MOVSB consumes only its low byte at the exact mapped offset; this
+    deliberately does not generalize to MOVSW.
+    """
+
+    def __init__(self) -> None:
+        self.pending_gdma_read: TraceRow | None = None
+        self.pending_cpu_read: TraceRow | None = None
+        self.rep_opcode_signatures: dict[int, TraceRow] = {}
+        self.active_rep_identity: tuple[int, int] | None = None
+        self.active_rep_last_cycle: int | None = None
+        self.cpu_rom_movsb_bytes = 0
+        self.cpu_rom_movsb_origins: set[int] = set()
+
+    @staticmethod
+    def _identity(row: TraceRow) -> tuple[int, int] | None:
+        values = row.values
+        if values["origin_status"] != "exact":
+            return None
+        try:
+            instruction_id = int(values["instruction_id"])
+            origin_pc = int(values["origin_pc"])
+        except ValueError:
+            return None
+        if instruction_id <= 0 or not 0 <= origin_pc <= 0xFFFFF:
+            return None
+        return instruction_id, origin_pc
+
+    def _remember_opcode_signature(self, row: TraceRow) -> None:
+        values = row.values
+        if (
+            values["initiator"] != "cpu"
+            or values["access"] != "read"
+            or values["origin_status"] != "unattributed"
+            or values["space"] not in ROM_SPACES
+            or values["byte_enable"] != "0"
+            or not values["mapped_offset"]
+        ):
+            return
+        address = int(values["address"])
+        mapped_offset = int(values["mapped_offset"])
+        if (
+            not (address & 1)
+            and not (mapped_offset & 1)
+            and int(values["value"]) == REP_MOVSB_WORD
+        ):
+            self.rep_opcode_signatures[address] = row
+        else:
+            self.rep_opcode_signatures.pop(address, None)
+
+    def _is_rep_movsb_read(self, row: TraceRow, identity: tuple[int, int]) -> bool:
+        _, origin_pc = identity
+        values = row.values
+        if (
+            values["access"] != "read"
+            or values["space"] not in ROM_SPACES
+            or values["byte_enable"] != "0"
+            or not values["mapped_offset"]
+        ):
+            return False
+        if self.active_rep_identity == identity:
+            return (
+                self.active_rep_last_cycle is not None
+                and 0 < row.cycle - self.active_rep_last_cycle <= REP_TRANSFER_MAX_AGE
+            )
+        signature = self.rep_opcode_signatures.get(origin_pc)
+        if signature is None or not 0 < row.cycle - signature.cycle <= REP_OPCODE_MAX_AGE:
+            return False
+        self.rep_opcode_signatures.pop(origin_pc)
+        self.active_rep_identity = identity
+        self.active_rep_last_cycle = None
+        return True
+
+    def _retire_cpu_chain(self) -> None:
+        self.active_rep_identity = None
+        self.active_rep_last_cycle = None
+
+    @staticmethod
+    def _matches_cpu_byte_write(
+        read: TraceRow, write: TraceRow, identity: tuple[int, int]
+    ) -> bool:
+        values = write.values
+        return (
+            MemorySourceTracker._identity(read) == identity
+            and values["access"] == "write"
+            and values["space"] == "iram"
+            and values["byte_enable"] == "1"
+            and values["mapped_offset"] == values["address"]
+            and int(values["value"]) <= 0xFF
+            and 0 < write.cycle - read.cycle <= REP_TRANSFER_MAX_AGE
+            and (int(read.values["value"]) & 0xFF) == int(values["value"])
+        )
+
+    def observe(self, row: TraceRow) -> TraceRow | None:
+        """Observe one completed mem row and return its exact source read."""
+
+        values = row.values
+        initiator, access = values["initiator"], values["access"]
+
+        # An active CPU chain must alternate exact source reads and matching
+        # byte writes in the completed memory stream.  Retiring the whole
+        # chain on an interruption prevents a stale instruction ID from
+        # authorizing later traffic without a fresh opcode signature.
+        pending_cpu = self.pending_cpu_read
+        self.pending_cpu_read = None
+
+        identity = self._identity(row) if initiator == "cpu" else None
+        if pending_cpu is not None:
+            if (
+                identity is not None
+                and self.active_rep_identity == identity
+                and self._matches_cpu_byte_write(pending_cpu, row, identity)
+            ):
+                self.cpu_rom_movsb_bytes += 1
+                self.cpu_rom_movsb_origins.add(identity[1])
+                self.active_rep_last_cycle = row.cycle
+                return pending_cpu
+            self._retire_cpu_chain()
+
+        if initiator == "gdma":
+            self._retire_cpu_chain()
+            if access == "read":
+                self.pending_gdma_read = row
+                return None
+            if access == "write":
+                source = self.pending_gdma_read
+                self.pending_gdma_read = None
+                if (
+                    source is not None
+                    and source.values["value"] == values["value"]
+                    and source.values["byte_enable"] == values["byte_enable"]
+                ):
+                    return source
+            return None
+
+        if initiator != "cpu":
+            self._retire_cpu_chain()
+            return None
+
+        self._remember_opcode_signature(row)
+        if identity is None:
+            self._retire_cpu_chain()
+            return None
+        if self.active_rep_identity is not None and self.active_rep_identity != identity:
+            self._retire_cpu_chain()
+        if self._is_rep_movsb_read(row, identity):
+            self.pending_cpu_read = row
+            return None
+        self._retire_cpu_chain()
+        return None
+
+
+def source_lane(source_read: TraceRow | None, write_lane: int) -> int | None:
+    if source_read is None:
+        return None
+    return 0 if source_read.values["initiator"] == "cpu" else write_lane
 
 
 def trace_fnv1a64(path: Path) -> str:
@@ -205,15 +374,26 @@ def summarize_versions(
         writer = "mixed"
 
     source_reads = [version.source_read for version in (low, high)]
+    known_sources = [source for source in source_reads if source is not None]
+    source_initiators = {source.values["initiator"] for source in known_sources}
     if source_reads[0] is not None and source_reads[0] is source_reads[1]:
         source = source_reads[0]
-        source_summary = (
-            "gdma_rom_same_transfer"
-            if source.values["space"] in ROM_SPACES
-            else "gdma_nonrom_same_transfer"
-        )
+        if source.values["initiator"] == "cpu" and source.values["space"] in ROM_SPACES:
+            source_summary = "cpu_rom_movsb"
+        else:
+            source_summary = (
+                "gdma_rom_same_transfer"
+                if source.values["space"] in ROM_SPACES
+                else "gdma_nonrom_same_transfer"
+            )
+    elif (
+        len(known_sources) == 2
+        and source_initiators == {"cpu"}
+        and all(source.values["space"] in ROM_SPACES for source in known_sources)
+    ):
+        source_summary = "cpu_rom_movsb"
     elif any(source_reads):
-        source_summary = "mixed_or_partial_dma_sources"
+        source_summary = "mixed_or_partial_sources"
     elif initiators == {"gdma"}:
         source_summary = "gdma_unpaired"
     elif initiators == {"cpu"}:
@@ -268,10 +448,13 @@ def correlate(
         "cpu_exact": 0,
         "initial_powerup": 0,
         "gdma_rom": 0,
+        "cpu_rom_movsb": 0,
+        "cpu_rom_movsb_bytes": 0,
+        "cpu_rom_movsb_origins": 0,
     }
     writer = csv.DictWriter(output, fieldnames=OUTPUT_FIELDS, lineterminator="\n")
     writer.writeheader()
-    pending_gdma_read: TraceRow | None = None
+    source_tracker = MemorySourceTracker()
     fetch_index = 0
 
     with trace.open(newline="", encoding="utf-8") as source:
@@ -333,6 +516,8 @@ def correlate(
                     counts["initial_powerup"] += 1
                 if source_summary == "gdma_rom_same_transfer":
                     counts["gdma_rom"] += 1
+                if source_summary == "cpu_rom_movsb":
+                    counts["cpu_rom_movsb"] += 1
 
                 selected = (
                     (roles is None or values["role"] in roles)
@@ -352,21 +537,8 @@ def correlate(
                 values = row.values
                 if values["event"] != "mem":
                     continue
-                initiator = values["initiator"]
                 access = values["access"]
-                if initiator == "gdma" and access == "read":
-                    pending_gdma_read = row
-                    continue
-                source_read: TraceRow | None = None
-                if initiator == "gdma" and access == "write":
-                    if (
-                        pending_gdma_read is not None
-                        and pending_gdma_read.values["value"] == values["value"]
-                        and pending_gdma_read.values["byte_enable"]
-                        == values["byte_enable"]
-                    ):
-                        source_read = pending_gdma_read
-                    pending_gdma_read = None
+                source_read = source_tracker.observe(row)
                 if access != "write" or values["space"] != "iram":
                     continue
                 address = int(values["address"])
@@ -379,7 +551,12 @@ def correlate(
                     if target > 0xFFFF:
                         raise ValueError(f"line {row.line}: IRAM write crosses 0xffff")
                     byte_value = (value >> (8 * lane)) & 0xFF
-                    iram[target] = ByteVersion(byte_value, row, source_read, lane)
+                    iram[target] = ByteVersion(
+                        byte_value, row, source_read, source_lane(source_read, lane)
+                    )
+
+    counts["cpu_rom_movsb_bytes"] = source_tracker.cpu_rom_movsb_bytes
+    counts["cpu_rom_movsb_origins"] = len(source_tracker.cpu_rom_movsb_origins)
 
     if require_exact_fetches:
         uncertain = {
@@ -432,6 +609,9 @@ def expected_count(value: str) -> tuple[str, int]:
         "cpu_exact",
         "initial_powerup",
         "gdma_rom",
+        "cpu_rom_movsb",
+        "cpu_rom_movsb_bytes",
+        "cpu_rom_movsb_origins",
     }
     if name not in valid or count < 0:
         raise argparse.ArgumentTypeError(f"invalid expected count: {value}")

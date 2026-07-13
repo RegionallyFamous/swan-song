@@ -9,7 +9,13 @@ import json
 import tempfile
 from pathlib import Path
 
-from correlate_provenance import correlate, trace_fnv1a64
+from correlate_provenance import (
+    MemorySourceTracker,
+    TraceRow,
+    correlate,
+    source_lane,
+    trace_fnv1a64,
+)
 from verify_trace import FIELDS_V4
 
 
@@ -18,6 +24,245 @@ def event(cycle: int, kind: str, **values: object) -> dict[str, object]:
     row.update({"cycle": cycle, "event": kind})
     row.update(values)
     return row
+
+
+def trace_row(line: int, cycle: int, **values: object) -> TraceRow:
+    raw = event(cycle, "mem", **values)
+    return TraceRow(
+        line,
+        {field: "" if value == "" else str(value) for field, value in raw.items()},
+    )
+
+
+def cpu_copy_rows(
+    *,
+    opcode: int = 0xA4F3,
+    read_cycle: int = 2,
+    read_id: int = 20,
+    write_id: int = 20,
+    write_origin: int = 0xF0100,
+    write_be: int = 1,
+    write_value: int = 0xAA,
+    source_space: str = "cart_rom_linear",
+) -> tuple[TraceRow, TraceRow, TraceRow]:
+    prefetch = trace_row(
+        2,
+        1,
+        address=0xF0100,
+        value=opcode,
+        initiator="cpu",
+        access="read",
+        byte_enable=0,
+        space="cart_rom_linear",
+        mapped_offset=0x100,
+        origin_status="unattributed",
+    )
+    read = trace_row(
+        3,
+        read_cycle,
+        address=0xF0200,
+        value=0xBBAA,
+        initiator="cpu",
+        access="read",
+        byte_enable=0,
+        space=source_space,
+        mapped_offset=0x200,
+        instruction_id=read_id,
+        origin_pc=0xF0100,
+        origin_status="exact",
+    )
+    write = trace_row(
+        4,
+        read_cycle + 1,
+        address=0x4000,
+        value=write_value,
+        initiator="cpu",
+        access="write",
+        byte_enable=write_be,
+        space="iram",
+        mapped_offset=0x4000,
+        instruction_id=write_id,
+        origin_pc=write_origin,
+        origin_status="exact",
+    )
+    return prefetch, read, write
+
+
+def test_cpu_source_tracker() -> None:
+    prefetch, read, write = cpu_copy_rows()
+    tracker = MemorySourceTracker()
+    assert tracker.observe(prefetch) is None
+    # Later sequential unattributed fetches do not erase a different origin's
+    # signature before the first exact operand read arrives.
+    sequential = trace_row(
+        5,
+        1,
+        address=0xF0102,
+        value=0x9090,
+        initiator="cpu",
+        access="read",
+        byte_enable=0,
+        space="cart_rom_linear",
+        mapped_offset=0x102,
+        origin_status="unattributed",
+    )
+    assert tracker.observe(sequential) is None
+    assert tracker.observe(read) is None
+    assert tracker.observe(write) is read
+    assert source_lane(read, 1) == 0
+    assert tracker.cpu_rom_movsb_bytes == 1
+    assert tracker.cpu_rom_movsb_origins == {0xF0100}
+
+    def rejected(**changes: object) -> None:
+        candidate = cpu_copy_rows(**changes)
+        local = MemorySourceTracker()
+        assert local.observe(candidate[0]) is None
+        assert local.observe(candidate[1]) is None
+        assert local.observe(candidate[2]) is None
+        assert local.cpu_rom_movsb_bytes == 0
+
+    rejected(opcode=0xA5F3)
+    rejected(read_cycle=5000)
+    rejected(read_id=20, write_id=21)
+    rejected(write_origin=0xF0102)
+    rejected(write_be=3)
+    rejected(write_value=0x01AA)
+    rejected(write_value=0xAB)
+    rejected(source_space="iram")
+
+    def rejected_rows(
+        candidate: tuple[TraceRow, TraceRow, TraceRow], *, include_signature: bool = True
+    ) -> None:
+        local = MemorySourceTracker()
+        if include_signature:
+            assert local.observe(candidate[0]) is None
+        assert local.observe(candidate[1]) is None
+        assert local.observe(candidate[2]) is None
+        assert local.cpu_rom_movsb_bytes == 0
+
+    candidate = cpu_copy_rows()
+    candidate[0].values["origin_status"] = "exact"
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[0].values["mapped_offset"] = ""
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[0].values["address"] = str(0xF0101)
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[1].values["byte_enable"] = "1"
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[1].values["origin_status"] = "unattributed"
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[2].values["space"] = "vram"
+    rejected_rows(candidate)
+
+    candidate = cpu_copy_rows()
+    candidate[2].values["cycle"] = "5000"
+    rejected_rows(candidate)
+
+    rejected_rows(cpu_copy_rows(), include_signature=False)
+
+    # A signature is single-use: it cannot authorize a later instruction ID.
+    prefetch, read, write = cpu_copy_rows()
+    tracker = MemorySourceTracker()
+    for row in (prefetch, read, write):
+        tracker.observe(row)
+    later = cpu_copy_rows(read_id=21, write_id=21)
+    assert tracker.observe(later[1]) is None
+    assert tracker.observe(later[2]) is None
+    assert tracker.cpu_rom_movsb_bytes == 1
+
+    # Even without an intervening memory row, an unbounded silent interval
+    # retires the prior iteration instead of trusting a stale reused identity.
+    prefetch, read, write = cpu_copy_rows()
+    tracker = MemorySourceTracker()
+    for row in (prefetch, read, write):
+        tracker.observe(row)
+    stale = cpu_copy_rows(read_cycle=100000)
+    assert tracker.observe(stale[1]) is None
+    assert tracker.observe(stale[2]) is None
+    assert tracker.cpu_rom_movsb_bytes == 1
+
+    # Retiring an active chain prevents later reuse of its old ID/origin from
+    # inheriting the consumed opcode signature.
+    prefetch, read, write = cpu_copy_rows()
+    tracker = MemorySourceTracker()
+    for row in (prefetch, read, write):
+        tracker.observe(row)
+    different_identity = trace_row(
+        10,
+        10,
+        address=0x1234,
+        value=0,
+        initiator="cpu",
+        access="read",
+        byte_enable=0,
+        space="iram",
+        mapped_offset=0x1234,
+        instruction_id=21,
+        origin_pc=0xF0200,
+        origin_status="exact",
+    )
+    assert tracker.observe(different_identity) is None
+    reused = cpu_copy_rows(read_cycle=100000)
+    assert tracker.observe(reused[1]) is None
+    assert tracker.observe(reused[2]) is None
+    assert tracker.cpu_rom_movsb_bytes == 1
+
+    prefetch, read, write = cpu_copy_rows()
+    interrupted = trace_row(
+        9,
+        3,
+        address=0x1234,
+        value=0,
+        initiator="cpu",
+        access="read",
+        byte_enable=0,
+        space="iram",
+        mapped_offset=0x1234,
+        origin_status="unattributed",
+    )
+    tracker = MemorySourceTracker()
+    for row in (prefetch, read, interrupted):
+        assert tracker.observe(row) is None
+    assert tracker.observe(write) is None
+
+    gdma_read = trace_row(
+        20,
+        20,
+        address=0xF0200,
+        value=0x1234,
+        initiator="gdma",
+        access="read",
+        byte_enable=3,
+        space="cart_rom_linear",
+        mapped_offset=0x200,
+        origin_status="not_applicable",
+    )
+    for value, byte_enable in ((0x1235, 3), (0x1234, 1)):
+        gdma_write = trace_row(
+            21,
+            21,
+            address=0x4000,
+            value=value,
+            initiator="gdma",
+            access="write",
+            byte_enable=byte_enable,
+            space="iram",
+            mapped_offset=0x4000,
+            origin_status="not_applicable",
+        )
+        tracker = MemorySourceTracker()
+        assert tracker.observe(gdma_read) is None
+        assert tracker.observe(gdma_write) is None
 
 
 def write_trace(path: Path, fetch_collision: int = 1) -> None:
@@ -114,6 +359,7 @@ def write_trace(path: Path, fetch_collision: int = 1) -> None:
 
 
 def main() -> None:
+    test_cpu_source_tracker()
     with tempfile.TemporaryDirectory(prefix="swansong-correlator-") as directory:
         trace = Path(directory) / "events.csv"
         write_trace(trace)
@@ -132,6 +378,9 @@ def main() -> None:
             "cpu_exact": 0,
             "initial_powerup": 0,
             "gdma_rom": 1,
+            "cpu_rom_movsb": 0,
+            "cpu_rom_movsb_bytes": 0,
+            "cpu_rom_movsb_origins": 0,
         }
         assert rows[0]["scoreboard_status"] == "match"
         assert rows[0]["source_summary"] == "gdma_rom_same_transfer"

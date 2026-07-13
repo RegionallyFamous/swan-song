@@ -126,6 +126,103 @@ def rows(
     return result
 
 
+def cpu_copy_cell_rows() -> list[dict[str, object]]:
+    instruction_id = 50
+    origin = 0xF0100
+    return [
+        mem(1, 0x1000, 0, 0x101),
+        event(
+            1,
+            "mem",
+            address=origin,
+            value=0xA4F3,
+            initiator="cpu",
+            access="read",
+            byte_enable=0,
+            space="cart_rom_linear",
+            mapped_offset=0x100,
+            origin_status="unattributed",
+        ),
+        event(
+            2,
+            "mem",
+            address=0xF0200,
+            value=0x3412,
+            initiator="cpu",
+            access="read",
+            byte_enable=0,
+            space="cart_rom_linear",
+            mapped_offset=0x200,
+            instruction_id=instruction_id,
+            origin_pc=origin,
+            origin_status="exact",
+        ),
+        event(
+            3,
+            "mem",
+            address=0x2000,
+            value=0x12,
+            initiator="cpu",
+            access="write",
+            byte_enable=1,
+            space="iram",
+            mapped_offset=0x2000,
+            instruction_id=instruction_id,
+            origin_pc=origin,
+            origin_status="exact",
+        ),
+        event(
+            4,
+            "mem",
+            address=0xF0201,
+            value=0x0034,
+            initiator="cpu",
+            access="read",
+            byte_enable=0,
+            space="cart_rom_linear",
+            mapped_offset=0x201,
+            instruction_id=instruction_id,
+            origin_pc=origin,
+            origin_status="exact",
+        ),
+        event(
+            5,
+            "mem",
+            address=0x2001,
+            value=0x34,
+            initiator="cpu",
+            access="write",
+            byte_enable=1,
+            space="iram",
+            mapped_offset=0x2001,
+            instruction_id=instruction_id,
+            origin_pc=origin,
+            origin_status="exact",
+        ),
+        raw(10, "screen1_map", 0x1000, 0),
+        raw(10, "screen1_tile", 0x2000, 0x3412),
+        raw(10, "screen1_tile", 0x2002, 0),
+        cell(
+            11,
+            "screen1",
+            map_address=0x1000,
+            map_value=0,
+            map_x=0,
+            map_y=0,
+            tile_bank_enabled=1,
+            tile_index=0,
+            palette=0,
+            hflip=0,
+            vflip=0,
+            bpp=2,
+            tile_row=0,
+            tile_row_address=0x2000,
+            tile_row_bytes=2,
+            tile_row_value=0x3412,
+        ),
+    ]
+
+
 def write_trace(path: Path, trace_rows: list[dict[str, object]], manifest: bool = True) -> None:
     with path.open("w", newline="", encoding="utf-8") as output:
         writer = csv.DictWriter(output, fieldnames=FIELDS_V5, lineterminator="\n")
@@ -139,7 +236,7 @@ def write_trace(path: Path, trace_rows: list[dict[str, object]], manifest: bool 
             "trace_fnv1a64": trace_fnv1a64(path),
             "capture_start": "reset_release",
             "capture_completed": True,
-            "capture_cycles": 7,
+            "capture_cycles": max(int(row["cycle"]) for row in trace_rows),
             "completed_frames": 1,
             "rom_size": 65536,
             "events": {"mem": True, "vram": True, "bg_cell": True},
@@ -179,6 +276,9 @@ def main() -> None:
             "raw_superseded": 0,
             "raw_unpromoted": 0,
             "raw_inflight": 0,
+            "cpu_rom_movsb_cells": 0,
+            "cpu_rom_movsb_bytes": 0,
+            "cpu_rom_movsb_origins": 0,
         }
         records = list(csv.DictReader(io.StringIO(output.getvalue())))
         assert [record["bg_layer"] for record in records] == ["screen1", "screen2"]
@@ -191,6 +291,23 @@ def main() -> None:
         assert records[1]["row_b2_origin_pc"] == str(0x203)
         assert records[1]["map_lo_origin_pc"] == str(0x201)
         assert records[0]["coverage_status"] == "complete_from_reset"
+
+        cpu_copy_trace = root / "cpu-copy.csv"
+        write_trace(cpu_copy_trace, cpu_copy_cell_rows())
+        cpu_copy_output = io.StringIO()
+        cpu_copy_counts = correlate(
+            cpu_copy_trace, cpu_copy_output, require_complete_coverage=True
+        )
+        assert cpu_copy_counts["cpu_rom_movsb_cells"] == 1
+        assert cpu_copy_counts["cpu_rom_movsb_bytes"] == 2
+        assert cpu_copy_counts["cpu_rom_movsb_origins"] == 1
+        cpu_copy_record = next(
+            csv.DictReader(io.StringIO(cpu_copy_output.getvalue()))
+        )
+        assert cpu_copy_record["row_source_summary"] == "cpu_rom_movsb"
+        assert cpu_copy_record["row_b0_source_offset"] == str(0x200)
+        assert cpu_copy_record["row_b1_source_offset"] == str(0x201)
+        assert cpu_copy_record["row_b0_origin_pc"] == str(0xF0100)
 
         superseded_trace = root / "superseded.csv"
         superseded_rows = sorted(

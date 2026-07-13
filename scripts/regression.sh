@@ -15,6 +15,7 @@ echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
+python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
@@ -66,13 +67,19 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   --vram-address 0x0000-0xbfff \
   --require-fetch-values --require-mem-initiators cpu \
   --require-origin-statuses exact,unattributed
+python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb.py" \
+  "$ROOT/testroms/spritepriority/spritepriority.ws" \
+  "$BUILD/bootstrap/events.csv"
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=78940 --expect-count match=78940 \
   --expect-count collision=0 --expect-count cpu_exact=78750 \
-  --expect-count initial_powerup=190 --expect-count gdma_rom=0
+  --expect-count initial_powerup=190 --expect-count gdma_rom=0 \
+  --expect-count cpu_rom_movsb=52512 \
+  --expect-count cpu_rom_movsb_bytes=4096 \
+  --expect-count cpu_rom_movsb_origins=2
 BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/bg-cells.csv" \
@@ -81,7 +88,9 @@ echo "$BOOTSTRAP_BG_SUMMARY"
 require_bg_layers "$BOOTSTRAP_BG_SUMMARY" screen1 screen2
 require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
   cells=26224 screen1=13112 screen2=13112 bpp2=26224 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+  cpu_rom_movsb_cells=26222 cpu_rom_movsb_bytes=4096 \
+  cpu_rom_movsb_origins=2
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see
@@ -240,7 +249,10 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=25111 --expect-count match=25111 \
   --expect-count collision=0 --expect-count cpu_exact=24729 \
-  --expect-count initial_powerup=190 --expect-count gdma_rom=192
+  --expect-count initial_powerup=190 --expect-count gdma_rom=192 \
+  --expect-count cpu_rom_movsb=0 \
+  --expect-count cpu_rom_movsb_bytes=0 \
+  --expect-count cpu_rom_movsb_origins=0
 SJIS_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/bg-cells.csv" \
   --require-complete-coverage)"
@@ -248,7 +260,9 @@ echo "$SJIS_BG_SUMMARY"
 require_bg_layers "$SJIS_BG_SUMMARY" screen1
 require_bg_counts "$SJIS_BG_SUMMARY" \
   cells=8307 screen1=8307 screen2=0 bpp2=8307 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+  cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
+  cpu_rom_movsb_origins=0
 python3 "$ROOT/sim/verilator/report_glyphs.py" \
   "$SJIS_OUT/bg-cells.csv" \
   --csv "$SJIS_OUT/glyph-epochs.csv" \
@@ -313,7 +327,10 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
   --expect-count fetches=15794 --expect-count match=15794 \
   --expect-count collision=0 --expect-count cpu_exact=15608 \
-  --expect-count initial_powerup=186 --expect-count gdma_rom=0
+  --expect-count initial_powerup=186 --expect-count gdma_rom=0 \
+  --expect-count cpu_rom_movsb=0 \
+  --expect-count cpu_rom_movsb_bytes=0 \
+  --expect-count cpu_rom_movsb_origins=0
 EXT_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/bg-cells.csv" \
   --require-complete-coverage)"
@@ -321,7 +338,9 @@ echo "$EXT_BG_SUMMARY"
 require_bg_layers "$EXT_BG_SUMMARY" screen1
 require_bg_counts "$EXT_BG_SUMMARY" \
   cells=5176 screen1=5176 screen2=0 bpp2=5176 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+  cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
+  cpu_rom_movsb_origins=0
 python3 "$ROOT/sim/verilator/verify_extended_range.py" \
   "$EXT_ROM" "$EXT_OUT/events.csv" "$EXT_OUT/frame-1.rgb"
 check_case tile-screen-extended-range \
