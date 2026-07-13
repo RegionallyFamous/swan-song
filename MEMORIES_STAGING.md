@@ -115,37 +115,42 @@ write selection, and lack of a drain acknowledgement are not copied here.
 ## Required production integration
 
 The isolated module is a control-plane contract, not a storage implementation.
-Integration requires all of the following:
+The current `0x90300` version-1 payload is also only a transport fixture: its
+variable producer and omitted EEPROM/RTC/PPU/APU state cannot become a
+production Memory. Integration requires all of the following:
 
-1. Add a cooperative console pause boundary and consume the new SDRAM
+1. Define and implement a new fixed-size payload-format revision with complete
+   mutable machine state, deterministic padding, title/model/BIOS/settings
+   identity, and payload integrity. Explicitly reject the version-1 experiment.
+2. Add a cooperative console pause boundary and consume the new SDRAM
    quiescence/completion observations in an acknowledged ownership coordinator.
    A0 must first let the inherited state engine reach `system_idle`; asserting
    external pause before that point can strand a mid-instruction CPU forever.
    Replace the state engine's current refresh-counter/fixed-delay SRAM heuristic
    with real channel-3 completion before staging is enabled.
-2. Add lossless `clk_74a` ↔ `clk_mem_110_592` request/response crossings.
+3. Add lossless `clk_74a` ↔ `clk_mem_110_592` request/response crossings.
    Analogue's checked-in bridge peripheral says consecutive bridge words are
    at worst 88 clocks apart at 74.25 MHz, but the integration must still prove
    its maximum SDRAM arbitration latency and make any FIFO overflow observable.
    The physical bridge has no ready wire with which this module can stall
    Pocket, so a bare ready/valid connection is not sufficient.
-3. Adapt the MiSTer manager's 64-bit, byte-enabled stream to exact 32-bit
+4. Adapt the MiSTer manager's 64-bit, byte-enabled stream to exact 32-bit
    staging words without changing its payload ordering or silently discarding
    byte enables. Serialize each state-engine word completely through channel 1
    before acknowledging it, so staging can never overlap the following
    channel-3 SRAM access. Deterministically zero-pad smaller RAM-type captures
-   to the advertised maximum `0x90300` payload and lock endianness.
-4. Give A0 bridge reads a bounded cache matching APF's buffered-read timing;
+   to the new fixed payload size and lock endianness.
+5. Give A0 bridge reads a bounded cache matching APF's buffered-read timing;
    synthesize the 32-byte header and fetch payload words from SDRAM only after
    `save_ready`. Read-ahead must stop before it can overlap a live channel-3
    state-engine operation.
-5. Route A4 through the staged restore gate. No current `fifo_load_empty`
+6. Route A4 through the staged restore gate. No current `fifo_load_empty`
    shortcut may remain, and Reset Enter, title reload, menu interruption, PLL
    loss, or a new transaction must cancel safely without a delayed restore.
-6. Add compatibility identity and payload-integrity protection before enabling
-   the feature. Version 1 proves structure and exact transport length, but it
-   does not yet bind a state to its cartridge/BIOS/settings or checksum all
-   payload bytes. A future format revision must fail closed on those mismatches.
+7. Define terminal success/failure behavior. A completed restore must flush and
+   deterministically re-prime Pocket frame history; a pre-mutation failure may
+   release pause, while an error after live mutation begins must remain safely
+   stopped until a clean title reset.
 
 ## Evidence still required before enabling
 

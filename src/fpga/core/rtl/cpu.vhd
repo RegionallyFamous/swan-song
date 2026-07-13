@@ -464,7 +464,9 @@ begin
    SS_CPU_BACK3(47 downto 32) <= std_logic_vector(regs.reg_cs);
    SS_CPU_BACK3(63 downto 48) <= std_logic_vector(regs.reg_ss);
    SS_CPU_BACK4(15 downto  0) <= std_logic_vector(regs.reg_ds);
-   SS_CPU_BACK4(31 downto 16) <= std_logic_vector(Reg_f);      
+   SS_CPU_BACK4(18 downto 16) <= std_logic_vector(Reg_f(2 downto 0));
+   SS_CPU_BACK4(REG_SAVESTATE_CPU4_HALT_BIT) <= halt;
+   SS_CPU_BACK4(31 downto 20) <= std_logic_vector(Reg_f(15 downto 4));
    
    process (clk)
       variable varPrefetchCount  : integer range 0 to 15;
@@ -570,7 +572,7 @@ begin
             regs.FlagOvf <= SS_CPU4(27); --'0';
             regs.FlagMod <= SS_CPU4(31); --'1';
             
-            halt            <= '0';
+            halt            <= SS_CPU4(REG_SAVESTATE_CPU4_HALT_BIT);
             cpustage        <= CPUSTAGE_IDLE;
             opcodebyte      <= (others => '0');
             
@@ -2959,9 +2961,6 @@ begin
    cpu_export.opcodebyte_last  <= opcodebyte;        
 
 end architecture;
-
-
-
 
 
 

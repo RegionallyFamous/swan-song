@@ -12,7 +12,11 @@ package pReg_savestates is
    constant REG_SAVESTATE_CPU1        : savestate_type := (  0,   63,      0,        1, x"0000000000000000"); -- DX_CX_AX_IP
    constant REG_SAVESTATE_CPU2        : savestate_type := (  1,   63,      0,        1, x"0000000020000000"); -- SI_BP_SP_BX
    constant REG_SAVESTATE_CPU3        : savestate_type := (  2,   63,      0,        1, x"0000FFFF00000000"); -- SS_CS_ES_DI
-   constant REG_SAVESTATE_CPU4        : savestate_type := (  3,   31,      0,        1, x"00000000F0020000"); -- F_DS
+   constant REG_SAVESTATE_CPU4        : savestate_type := (  3,   31,      0,        1, x"00000000F0020000"); -- F_DS; FLAGS bit 3 carries HALT in the state image
+   -- CPU4 bits 31:16 otherwise mirror the architectural FLAGS word. FLAGS bit
+   -- 3 is fixed low by the CPU, was zero in every legacy state, and is ignored
+   -- when FLAGS are restored, making this a backwards-compatible HALT slot.
+   constant REG_SAVESTATE_CPU4_HALT_BIT : natural := 19;
    
    constant REG_SAVESTATE_IRQ         : savestate_type := (  5,    7,      0,        1, x"0000000000000000");
    

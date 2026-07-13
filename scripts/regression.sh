@@ -28,6 +28,7 @@ python3 "$ROOT/sim/verilator/generate_non_power_two_probe.py" \
 echo "PASS compact-ROM host mapping and negative mutations"
 "$ROOT/sim/rtl/run_dma_pending_tb.sh"
 "$ROOT/sim/rtl/run_dma_savestate_tb.sh"
+"$ROOT/sim/rtl/run_cpu_halt_savestate_tb.sh"
 "$ROOT/sim/rtl/run_apf_crc64_ecma32_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_sdram_writer_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_sdram_reader_tb.sh"

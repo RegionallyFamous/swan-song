@@ -3,6 +3,34 @@
 Status: **format contract implemented and tested; Memories and Sleep + Wake
 remain disabled.**
 
+## Production completeness audit
+
+Version 1 is a transport/envelope experiment, not a complete WonderSwan machine
+state and must never be enabled as Pocket Memories. A July 2026 RTL audit found
+that the inherited MiSTer payload varies with cartridge RAM type and omits CPU
+prefetch/interrupt-inhibit state, external and internal EEPROM backing,
+RTC protocol/time phase, substantial PPU fetch/sprite phase, and substantial
+APU phase. HALT is now preserved in the legacy-zero FLAGS bit 3 and the
+save-idle predicate accepts a halted CPU while still rejecting a pending IRQ,
+so an A0 request cannot wait forever solely because a title executed `HLT`.
+
+Production therefore requires a new fixed-size payload-format revision, exact
+zero padding for every unused region, complete mutable-state coverage, and
+wrong-title/model/BIOS/settings plus payload-integrity rejection before any live
+mutation. Loading a version-1 experiment as that future format is forbidden;
+the version/format gate must reject it explicitly. The disabled top-level flags
+make this the safe time to break format compatibility rather than ship a Memory
+that resumes with different CPU, EEPROM, RTC, video, or audio behavior.
+
+Reference coverage is consistent with this decision: pinned
+[ares system serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/system/serialization.cpp#L40-L49)
+includes CPU, PPU, APU, system EEPROM, cartridge, IRAM, and serial state, while
+its [cartridge serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/serialization.cpp)
+includes SRAM, EEPROM, RTC protocol/timing, and mapper state. Pinned
+[Mesen WonderSwan serialization](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsConsole.cpp#L449-L489)
+also covers both EEPROM memories/controllers and rejects model mismatch. These
+are behavioral references, not byte-layout compatibility targets.
+
 Analogue's documented runtime order is decisive here. For `00A0`, Pocket polls
 until the core says the complete blob is ready and only then copies it out. For
 `00A4`, Pocket copies the complete blob into the core before issuing Request

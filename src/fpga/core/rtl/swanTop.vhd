@@ -1106,7 +1106,10 @@ begin
       SSBUS_Dout <= wired_or;
    end process;
    
-   system_idle <= '1' when (cpu_idle = '1' and cpu_halt = '0' and dma_active = '0' and sdma_active = '0' and cpu_irqrequest = '0' and cpu_prefix = '0') else '0';
+   -- HLT leaves the CPU stage idle, so do not reject that stable boundary. A
+   -- pending IRQ still blocks capture and wakes the CPU through the normal
+   -- path; every non-idle CPU stage remains ineligible.
+   system_idle <= '1' when (cpu_idle = '1' and dma_active = '0' and sdma_active = '0' and cpu_irqrequest = '0' and cpu_prefix = '0') else '0';
 
    isavestates : entity work.savestates
    port map
