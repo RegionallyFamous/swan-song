@@ -21,6 +21,8 @@ SOURCE_PATHS = {
     "startup": "src/fpga/core/apf_startup_sequencer.sv",
     "save_init": "src/fpga/core/pocket_save_init.sv",
     "wonderswan": "src/fpga/core/wonderswan.sv",
+    "rom_loader": "src/fpga/core/apf_rom_loader_adapter.sv",
+    "chip32": "src/support/chip32.asm",
     "qsf": "src/fpga/ap_core.qsf",
     "regression": "scripts/regression.sh",
 }
@@ -68,6 +70,8 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     save_compact = compact_hdl(sources["save_init"])
     wonderswan = strip_hdl_comments(sources["wonderswan"])
     wonderswan_compact = compact_hdl(sources["wonderswan"])
+    rom_loader_compact = compact_hdl(sources["rom_loader"])
+    chip32_compact = compact_hdl(sources["chip32"])
 
     # Host command 0082 carries a 48-bit byte count: parameter 0 upper half is
     # size[47:32], parameter 1 is size[31:0], and parameter 0 lower half is ID.
@@ -412,8 +416,116 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     if core_top_compact.count("datatable_wren<=1'b1;") != 1:
         errors.append("save-size table must have one 008F-qualified write source")
 
+    # A LOADF word can be presented before the accepted-size CDC pulse. The
+    # adapter must hold acknowledgement and SDRAM request low until the plan
+    # for this external download is active. Prefix progress must be guaranteed
+    # under a continuously held stream, and the Color flag must be sampled only
+    # during the real LOADF window, never its reset/validation extension.
+    compact_rom_requirements = (
+        (
+            "wireactivate_plan=cart_download&&(!plan_loaded||download_rise)&&"
+            "(plan_valid||staged_plan_valid);",
+            "compact ROM loader must activate a staged plan per download",
+        ),
+        (
+            "assignraw_write_complete=!plan_active?1'b0:",
+            "compact ROM loader must stall the first word until plan arrival",
+        ),
+        (
+            "assignsdram_req=!plan_active?1'b0:",
+            "compact ROM loader must not write SDRAM before plan arrival",
+        ),
+        (
+            "if(raw_write_data[11:8]!=4'd0)",
+            "compact footer must validate the reserved low nibble of byte 5",
+        ),
+        (
+            "if(fill_active&&(fill_due||!raw_write_en))beginstate<=STATE_FILL;end"
+            "elseif(raw_write_en)beginstate<=STATE_RAW;",
+            "compact loader must interleave a due prefix word before the next raw word",
+        ),
+        (
+            "if(sdram_ready)beginfill_due<=fill_active;state<=STATE_GAP;end",
+            "each accepted compact raw word must schedule prefix progress",
+        ),
+        (
+            "plan_non_power_of_two&&(fill_active||!load_end_seen||!validation_passed)",
+            "compact reset hold must not glitch before falling-edge validation",
+        ),
+    )
+    for expression, error in compact_rom_requirements:
+        if expression not in rom_loader_compact:
+            errors.append(error)
+    if "raw_write_data[15:12]!=4'd0" in rom_loader_compact:
+        errors.append("compact footer must not reject legal upper maintenance flags")
+    if (
+        "if(cart_download_sys_external)begin"
+        "colorcart_downloaded<=colorcart_download_sys;end"
+        not in wonderswan_compact
+    ):
+        errors.append("Color model must latch only during the external LOADF window")
+
+    validation_status_requirements = (
+        (
+            core_top_compact,
+            "32'h00000014:beginbridge_rd_data<=rom_validation_status_74a;end",
+            "Chip32 must receive compact-ROM validation at PMP 0x14",
+        ),
+        (
+            core_top_compact,
+            "rom_validation_state_74a[1]?32'd2:"
+            "rom_validation_state_74a[0]?32'd1:32'd0",
+            "compact-ROM validation status must encode pending/ready/fail",
+        ),
+        (
+            core_top_compact,
+            "synch_3#(.WIDTH(2))rom_validation_to_bridge("
+            "{rom_validation_failed_mem,rom_image_ready_mem},"
+            "rom_validation_state_74a,clk_74a);",
+            "compact-ROM terminal status must cross atomically to the PMP domain",
+        ),
+        (
+            wonderswan_compact,
+            ".image_ready(rom_image_ready_mem),"
+            ".validation_failed(rom_validation_failed_mem)",
+            "compact-ROM terminal status must leave the memory domain",
+        ),
+        (
+            chip32_compact,
+            "constantrom_validation_status_addr=0x14",
+            "Chip32 validation status address must match the RTL",
+        ),
+        (
+            chip32_compact,
+            "constantrom_validation_timeout=0x00100000",
+            "Chip32 timeout must use the reviewed instruction guard",
+        ),
+        (
+            chip32_compact,
+            "rom_validation_poll:pmprr1,r2cmpr2,#1jpz,rom_validation_ready"
+            "cmpr2,#2jpz,rom_validation_rejected",
+            "Chip32 must distinguish ready from rejected compact ROMs",
+        ),
+        (
+            chip32_compact,
+            "ldr4,#rom_validation_timeoutrom_validation_poll:",
+            "Chip32 compact-ROM polling must start a bounded timeout",
+        ),
+        (
+            chip32_compact,
+            "subr4,#1jpnz,rom_validation_poll"
+            "ldr14,#rom_validation_timeout_msgjpprint_error_and_exit",
+            "Chip32 compact-ROM timeout must fail closed with a visible error",
+        ),
+    )
+    for source, expression, error in validation_status_requirements:
+        if expression not in source:
+            errors.append(error)
+
     project_lines = {
         "core/apf_dataslot_guard.sv": "Quartus must compile the data-slot guard",
+        "core/apf_rom_loader_adapter.sv": "Quartus must compile the compact-ROM loader",
+        "core/apf_rom_plan_cdc.sv": "Quartus must compile the ROM-plan CDC",
         "core/apf_save_metadata_cdc.sv": "Quartus must compile the metadata CDC",
         "core/apf_startup_sequencer.sv": "Quartus must compile the startup sequencer",
     }
@@ -424,6 +536,8 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
 
     runner_lines = {
         "run_apf_dataslot_guard_tb.sh": "regression must run the data-slot guard bench",
+        "run_apf_rom_loader_adapter_tb.sh": "regression must run the compact-ROM loader bench",
+        "run_apf_rom_plan_cdc_tb.sh": "regression must run the ROM-plan CDC bench",
         "run_apf_save_metadata_cdc_tb.sh": "regression must run the metadata CDC bench",
         "run_apf_startup_sequencer_tb.sh": "regression must run the startup sequencer bench",
     }
@@ -621,6 +735,32 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(number(save["address"]), 0x20000000)
         self.assertNotIn("size_exact", save)
         self.assertEqual(number(save["size_maximum"]), 512 * 1024 + 12)
+
+        console_eeprom_contract = {
+            number(slot["id"]): (
+                slot["required"],
+                slot["filename"],
+                number(slot["parameters"]),
+                slot["nonvolatile"],
+                number(slot["size_exact"]),
+                number(slot["size_maximum"]),
+                number(slot["address"]),
+            )
+            for slot in slots
+            if number(slot["id"]) in (12, 13)
+        }
+        self.assertEqual(
+            console_eeprom_contract,
+            {
+                12: (False, "mono.eeprom", 0x02, True, 128, 128, 0x50000000),
+                13: (False, "color.eeprom", 0x02, True, 2048, 2048, 0x60000000),
+            },
+        )
+        for parameters in (console_eeprom_contract[12][2], console_eeprom_contract[13][2]):
+            self.assertEqual(parameters & (1 << 1), 1 << 1)  # core-specific
+            self.assertEqual(parameters & (1 << 2), 0)  # never clone cartridge name
+            self.assertEqual(parameters & (1 << 3), 0)  # writable on shutdown
+            self.assertEqual(parameters & (1 << 5), 0)  # retain factory seed if absent
 
         # Both boot ROMs are dependencies of the current Chip32 launch path.
         # Advertise that requirement to APF and reject malformed firmware at
@@ -1089,6 +1229,66 @@ class PocketFirstClassContractTest(unittest.TestCase):
                 '"$ROOT/sim/rtl/run_apf_startup_sequencer_tb.sh"',
                 "# startup sequencer runner omitted",
                 "regression must run the startup sequencer bench",
+            ),
+            (
+                "rom_loader",
+                "if (fill_active && (fill_due || !raw_write_en)) begin",
+                "if (fill_active && !raw_write_en) begin",
+                "interleave a due prefix word",
+            ),
+            (
+                "rom_loader",
+                "fill_due <= fill_active;",
+                "fill_due <= 1'b0;",
+                "schedule prefix progress",
+            ),
+            (
+                "rom_loader",
+                "fill_active || !load_end_seen ||\n                          !validation_passed",
+                "fill_active ||\n                          (load_end_seen && !validation_passed)",
+                "must not glitch before falling-edge validation",
+            ),
+            (
+                "core_top",
+                "32'h00000014: begin\n        bridge_rd_data <= rom_validation_status_74a;",
+                "32'h00000018: begin\n        bridge_rd_data <= rom_validation_status_74a;",
+                "validation at PMP 0x14",
+            ),
+            (
+                "wonderswan",
+                ".image_ready(rom_image_ready_mem),",
+                ".image_ready(),",
+                "terminal status must leave the memory domain",
+            ),
+            (
+                "chip32",
+                "pmpr r1,r2",
+                "ld r2,#0",
+                "distinguish ready from rejected",
+            ),
+            (
+                "chip32",
+                "cmp r2,#2",
+                "cmp r2,#3",
+                "distinguish ready from rejected",
+            ),
+            (
+                "chip32",
+                "sub r4,#1",
+                "sub r4,#0",
+                "timeout must fail closed",
+            ),
+            (
+                "chip32",
+                "constant rom_validation_timeout = 0x00100000",
+                "constant rom_validation_timeout = 0x02000000",
+                "reviewed instruction guard",
+            ),
+            (
+                "core_top",
+                ".WIDTH(2)\n  ) rom_validation_to_bridge",
+                ".WIDTH(1)\n  ) rom_validation_to_bridge",
+                "terminal status must cross atomically",
             ),
         )
 

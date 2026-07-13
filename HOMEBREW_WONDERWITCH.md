@@ -8,8 +8,12 @@ commercial image.
 
 ## Recommended cartridge target
 
-Start from Wonderful's current `wswan/medium` template and emit a power-of-two
-`.ws` or `.wsc` ROM between 64 KiB and 16 MiB. The medium model uses far code
+Start from Wonderful's current `wswan/medium` template and emit a `.ws` or
+`.wsc` ROM between 64 KiB and 16 MiB in whole 64 KiB banks. Power-of-two files
+use the unchanged direct-load path. A compact non-power-of-two file must have a
+valid final 16-byte WonderSwan footer/checksum; Swan Song fills the lower mapper
+prefix with `0xff` and right-aligns it in the next-power-of-two aperture, as
+documented by [WSdev](https://ws.nesdev.org/wiki/ROM_header). The medium model uses far code
 pointers and permits code beyond one 64 KiB segment. Ordinary data pointers
 remain near and point into RAM; declare immutable ROM data with `__wf_rom` and
 use far-aware APIs where appropriate. The core's current Pocket package still

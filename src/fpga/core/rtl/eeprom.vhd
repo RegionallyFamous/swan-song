@@ -24,10 +24,12 @@ entity eeprom is
       ce             : in  std_logic;
       reset          : in  std_logic;
       isColor        : in  std_logic;
+      preserve_on_reset : in std_logic;
       
       ramtype        : in  std_logic_vector(7 downto 0);
       
       written        : out std_logic;
+      eeprom_bank    : in  std_logic;
       eeprom_addr    : in  std_logic_vector(9 downto 0);
       eeprom_din     : in  std_logic_vector(15 downto 0);
       eeprom_dout    : out std_logic_vector(15 downto 0);
@@ -99,6 +101,8 @@ architecture arch of eeprom is
                        
    signal RAMAddrFull  : std_logic_vector( 9 downto 0);
    signal RAMAddr      : std_logic_vector( 9 downto 0);
+   signal RAMAddrPhysical : std_logic_vector(10 downto 0);
+   signal EEPROMAddrPhysical : std_logic_vector(10 downto 0);
    signal writevalue   : std_logic_vector(15 downto 0);
    signal readvalue    : std_logic_vector(15 downto 0);
    signal RAMWrEn      : std_logic := '0';
@@ -140,27 +144,60 @@ begin
    RAMAddr <= "0000" & RAMAddrFull(5 downto 0) when size = 64  else
                  '0' & RAMAddrFull(8 downto 0) when size = 512 else
                RAMAddrFull;
-   
-   iramEEPROM: entity work.dpram
-   generic map
-   (
-       addr_width => 10,
-       data_width => 16
-   )
-   port map
-   (
-      clock_a     => clk,
-      address_a   => RAMAddr,
-      data_a      => writevalue,
-      wren_a      => RAMWrEn,
-      q_a         => readvalue,
 
-      clock_b     => clk_ram,
-      address_b   => eeprom_addr,
-      data_b      => eeprom_din,
-      wren_b      => wren_b,
-      q_b         => eeprom_dout
-   );
+   -- Keep both console models resident at once: Color occupies bank 0 and
+   -- monochrome occupies the first 64 words of bank 1. External cartridge
+   -- EEPROM has no bank and retains its original 1024-word allocation. Static
+   -- generates keep Quartus from inferring an unused second cartridge bank.
+   RAMAddrPhysical <= '0' & RAMAddr when isColor = '1' else
+                      '1' & RAMAddr;
+   EEPROMAddrPhysical <= eeprom_bank & eeprom_addr;
+
+   external_backing : if isExternal = '1' generate
+      iramEEPROMExternal: entity work.dpram
+      generic map
+      (
+          addr_width => 10,
+          data_width => 16
+      )
+      port map
+      (
+         clock_a     => clk,
+         address_a   => RAMAddr,
+         data_a      => writevalue,
+         wren_a      => RAMWrEn,
+         q_a         => readvalue,
+
+         clock_b     => clk_ram,
+         address_b   => eeprom_addr,
+         data_b      => eeprom_din,
+         wren_b      => wren_b,
+         q_b         => eeprom_dout
+      );
+   end generate;
+
+   internal_backing : if isExternal = '0' generate
+      iramEEPROMInternal: entity work.dpram
+      generic map
+      (
+          addr_width => 11,
+          data_width => 16
+      )
+      port map
+      (
+         clock_a     => clk,
+         address_a   => RAMAddrPhysical,
+         data_a      => writevalue,
+         wren_a      => RAMWrEn,
+         q_a         => readvalue,
+
+         clock_b     => clk_ram,
+         address_b   => EEPROMAddrPhysical,
+         data_b      => eeprom_din,
+         wren_b      => wren_b,
+         q_b         => eeprom_dout
+      );
+   end generate;
    
    wren_b <= '1' when (eeprom_req = '1' and eeprom_rnw = '0') else '0';
    
@@ -183,7 +220,7 @@ begin
       
          if (reset = '1') then
          
-            if (isExternal = '0') then
+            if (isExternal = '0' and preserve_on_reset = '0') then
                state        <= clear;
                clearCounter <= 0;
             else
@@ -400,4 +437,3 @@ begin
    
 
 end architecture;
-

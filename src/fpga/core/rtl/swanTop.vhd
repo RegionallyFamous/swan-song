@@ -17,6 +17,7 @@ entity SwanTop is
       clk_ram                    : in  std_logic; -- 96Mhz
       reset_in                   : in  std_logic;
       pause_in                   : in  std_logic;
+      preserve_internal_eeprom   : in  std_logic := '0';
       
       -- rom/sdram
       EXTRAM_doRefresh           : out std_logic := '0';
@@ -33,6 +34,13 @@ entity SwanTop is
       eeprom_dout                : out std_logic_vector(15 downto 0);
       eeprom_req                 : in  std_logic;
       eeprom_rnw                 : in  std_logic;
+
+      internal_eeprom_bank       : in  std_logic := '0';
+      internal_eeprom_addr       : in  std_logic_vector(9 downto 0) := (others => '0');
+      internal_eeprom_din        : in  std_logic_vector(15 downto 0) := (others => '0');
+      internal_eeprom_dout       : out std_logic_vector(15 downto 0);
+      internal_eeprom_req        : in  std_logic := '0';
+      internal_eeprom_rnw        : in  std_logic := '1';
 
       maskAddr                   : in  std_logic_vector(23 downto 0);
       romtype                    : in  std_logic_vector(7 downto 0);
@@ -704,6 +712,7 @@ begin
       ce                   => ce,           
       reset                => reset,   
       isColor              => isColor,   
+      preserve_internal_eeprom => preserve_internal_eeprom,
 
       maskAddr             => maskAddr,
       romtype              => romtype,
@@ -715,6 +724,13 @@ begin
       eeprom_dout          => eeprom_dout,
       eeprom_req           => eeprom_req, 
       eeprom_rnw           => eeprom_rnw, 
+
+      internal_eeprom_bank => internal_eeprom_bank,
+      internal_eeprom_addr => internal_eeprom_addr,
+      internal_eeprom_din  => internal_eeprom_din,
+      internal_eeprom_dout => internal_eeprom_dout,
+      internal_eeprom_req  => internal_eeprom_req,
+      internal_eeprom_rnw  => internal_eeprom_rnw,
                      
       cpu_read             => bus_read,          
       cpu_write            => bus_write,          

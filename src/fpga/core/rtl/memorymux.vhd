@@ -15,6 +15,7 @@ entity memorymux is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       isColor              : in  std_logic;
+      preserve_internal_eeprom : in std_logic;
       
       maskAddr             : in  std_logic_vector(23 downto 0);
       romtype              : in  std_logic_vector(7 downto 0);
@@ -26,6 +27,13 @@ entity memorymux is
       eeprom_dout          : out std_logic_vector(15 downto 0);
       eeprom_req           : in  std_logic;
       eeprom_rnw           : in  std_logic;
+
+      internal_eeprom_bank : in  std_logic;
+      internal_eeprom_addr : in  std_logic_vector(9 downto 0);
+      internal_eeprom_din  : in  std_logic_vector(15 downto 0);
+      internal_eeprom_dout : out std_logic_vector(15 downto 0);
+      internal_eeprom_req  : in  std_logic;
+      internal_eeprom_rnw  : in  std_logic;
       
       cpu_read             : in  std_logic;
       cpu_write            : in  std_logic;
@@ -515,15 +523,17 @@ begin
       ce             => ce,     
       reset          => reset,  
       isColor        => isColor,
+      preserve_on_reset => preserve_internal_eeprom,
       
       ramtype        => x"00",
       
       written        => open,
-      eeprom_addr    => (9 downto 0 => '0'),
-      eeprom_din     => (15 downto 0 => '0'), 
-      eeprom_dout    => open,
-      eeprom_req     => '0', 
-      eeprom_rnw     => '1', 
+      eeprom_bank    => internal_eeprom_bank,
+      eeprom_addr    => internal_eeprom_addr,
+      eeprom_din     => internal_eeprom_din,
+      eeprom_dout    => internal_eeprom_dout,
+      eeprom_req     => internal_eeprom_req,
+      eeprom_rnw     => internal_eeprom_rnw,
                      
       RegBus_Din     => RegBus_Din, 
       RegBus_Adr     => RegBus_Adr, 
@@ -558,10 +568,12 @@ begin
       ce             => ce,     
       reset          => reset,  
       isColor        => isColor,
+      preserve_on_reset => '0',
       
       ramtype        => ramtype,
       
       written        => eepromWrite,
+      eeprom_bank    => '0',
       eeprom_addr    => eeprom_addr,
       eeprom_din     => eeprom_din, 
       eeprom_dout    => eeprom_dout,

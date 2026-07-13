@@ -40,6 +40,30 @@
         "extensions": ["sav"],
         "size_maximum": 524300,
         "address": "0x20000000"
+      },
+      {
+        "name": "Mono EEPROM",
+        "id": 12,
+        "required": false,
+        "filename": "mono.eeprom",
+        "parameters": "0x02",
+        "nonvolatile": true,
+        "extensions": ["eeprom"],
+        "size_exact": 128,
+        "size_maximum": 128,
+        "address": "0x50000000"
+      },
+      {
+        "name": "Color EEPROM",
+        "id": 13,
+        "required": false,
+        "filename": "color.eeprom",
+        "parameters": "0x02",
+        "nonvolatile": true,
+        "extensions": ["eeprom"],
+        "size_exact": 2048,
+        "size_maximum": 2048,
+        "address": "0x60000000"
       }
     ]
   }

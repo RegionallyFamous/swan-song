@@ -9,6 +9,7 @@ import json
 import pathlib
 import shutil
 import struct
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -25,6 +26,12 @@ from pocket_hardware_qa import (
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "sim" / "verilator"))
+import generate_non_power_two_probe as compact_probe  # noqa: E402
+
+
+def compact_896k_rom() -> bytes:
+    return compact_probe.image()
 
 
 class PocketHardwareQATest(unittest.TestCase):
@@ -57,6 +64,7 @@ class PocketHardwareQATest(unittest.TestCase):
         (self.private / "color.rom").write_bytes(bytes(8192))
         (self.private / "horizontal.ws").write_bytes(bytes(64 * 1024))
         (self.private / "vertical.wsc").write_bytes(bytes([0xA5]) * (64 * 1024))
+        (self.private / "compact-896k.wsc").write_bytes(compact_896k_rom())
 
         inventory = {
             "hardware_qa_inventory": {
@@ -99,6 +107,11 @@ class PocketHardwareQATest(unittest.TestCase):
                         "id": "vertical-eeprom-rtc", "title": "Synthetic vertical",
                         "path": str(self.private / "vertical.wsc"), "system": "wsc",
                         "native_orientation": "vertical", "save_media": "eeprom", "rtc": True,
+                    },
+                    {
+                        "id": "compact-896k", "title": "Synthetic 896 KiB compact",
+                        "path": str(self.private / "compact-896k.wsc"), "system": "wsc",
+                        "native_orientation": "horizontal", "save_media": "none", "rtc": False,
                     },
                 ],
                 "controllers": [
@@ -143,8 +156,10 @@ class PocketHardwareQATest(unittest.TestCase):
         controllers = body["environment"]["controllers"]
 
         def rom_selection(requirement: str) -> list[str]:
-            if requirement in {"both_orientations", "save_pair", "two"}:
-                return [item["id"] for item in roms]
+            if requirement == "compact_896k":
+                return ["compact-896k"]
+            if requirement in {"both_orientations", "save_pair", "mono_color", "two"}:
+                return ["horizontal-sram", "vertical-eeprom-rtc"]
             if requirement in {"eeprom", "rtc", "vertical"}:
                 return [next(item["id"] for item in roms if item["id"] == "vertical-eeprom-rtc")]
             return [next(item["id"] for item in roms if item["id"] == "horizontal-sram")]
@@ -174,18 +189,32 @@ class PocketHardwareQATest(unittest.TestCase):
             })
             case["checks"] = {name: True for name in spec.checks}
             for need in spec.needs:
-                for _ in range(need.minimum):
+                snapshots: list[tuple[str, bytes]] | None = None
+                if spec.case_id == "console_eeprom_lifecycle" and need.kinds == ("save",):
+                    snapshots = []
+                    for model, size in hardware_qa.CONSOLE_EEPROM_SNAPSHOT_SIZES.items():
+                        for stage in hardware_qa.CONSOLE_EEPROM_SNAPSHOT_STAGES:
+                            fill = 0x31 if stage == "factory-created" else 0xA7
+                            snapshots.append((
+                                f"console-eeprom {model} {stage}", bytes([fill]) * size
+                            ))
+                for snapshot_index in range(need.minimum):
                     kind = need.kinds[0]
                     counter += 1
                     artifact_id = f"artifact-{counter:04d}"
-                    suffix, contents = self.artifact_bytes(kind)
+                    if snapshots is None:
+                        suffix, contents = self.artifact_bytes(kind)
+                        label = f"Synthetic {kind} for {spec.case_id}"
+                    else:
+                        suffix = ".eeprom"
+                        label, contents = snapshots[snapshot_index]
                     relative = pathlib.PurePosixPath("files") / f"{artifact_id}{suffix}"
                     path = self.evidence / relative
                     path.parent.mkdir(exist_ok=True)
                     path.write_bytes(contents)
                     artifacts.append({
                         "id": artifact_id, "kind": kind, "path": relative.as_posix(),
-                        "label": f"Synthetic {kind} for {spec.case_id}",
+                        "label": label,
                         "captured_at": "2026-07-13T13:30:00Z",
                         "size": len(contents), "sha256": hashlib.sha256(contents).hexdigest(),
                     })
@@ -235,6 +264,64 @@ class PocketHardwareQATest(unittest.TestCase):
             hashlib.sha256(self.manifest.read_bytes()).hexdigest(),
         )
 
+    def test_compact_rom_inventory_contract_rejects_negative_mutations(self) -> None:
+        path = self.private / "compact-896k.wsc"
+        valid = bytearray(compact_896k_rom())
+
+        mutations: list[tuple[bytes, str]] = []
+        mutations.append((bytes(valid[:-2]), "64 KiB-aligned"))
+
+        bad_entry = bytearray(valid)
+        bad_entry[-16] = 0x90
+        bad_entry[-2:] = (sum(bad_entry[:-2]) & 0xFFFF).to_bytes(2, "little")
+        mutations.append((bytes(bad_entry), "begin with 0xEA"))
+
+        bad_maintenance = bytearray(valid)
+        bad_maintenance[-11] |= 0x01
+        bad_maintenance[-2:] = (
+            sum(bad_maintenance[:-2]) & 0xFFFF
+        ).to_bytes(2, "little")
+        mutations.append((bytes(bad_maintenance), "maintenance low bits"))
+
+        bad_size = bytearray(valid)
+        bad_size[-6] = 0x04
+        bad_size[-2:] = (sum(bad_size[:-2]) & 0xFFFF).to_bytes(2, "little")
+        mutations.append((bytes(bad_size), "size does not match"))
+
+        bad_checksum = bytearray(valid)
+        bad_checksum[0] ^= 1
+        mutations.append((bytes(bad_checksum), "checksum mismatch"))
+
+        for contents, message in mutations:
+            with self.subTest(message=message):
+                path.write_bytes(contents)
+                with self.assertRaisesRegex(ValueError, message):
+                    hardware_qa.build_environment(self.inventory)
+        path.write_bytes(valid)
+
+    def test_compact_probe_identity_matches_repository_generator(self) -> None:
+        self.assertEqual(
+            hashlib.sha256(compact_probe.image()).hexdigest(),
+            hardware_qa.COMPACT_896K_PROBE_SHA256,
+        )
+
+    def test_compact_case_rejects_other_valid_896k_image(self) -> None:
+        path = self.private / "compact-896k.wsc"
+        other = bytearray(compact_probe.image())
+        other[0] ^= 1
+        other[-2:] = (sum(other[:-2]) & 0xFFFF).to_bytes(2, "little")
+        path.write_bytes(other)
+        wrong_template = self.evidence / "wrong-compact-template.json"
+        generate_manifest(self.inventory, wrong_template)
+        original = self.generated_document
+        try:
+            self.generated_document = json.loads(wrong_template.read_text(encoding="utf-8"))
+            self.write_manifest(self.accepted_fixture())
+        finally:
+            self.generated_document = original
+        with self.assertRaisesRegex(ValueError, "does not satisfy compact_896k"):
+            verify_manifest(self.manifest, self.inventory)
+
     def test_missing_case_and_false_check_fail_closed(self) -> None:
         document = self.accepted_fixture()
         document["hardware_qa"]["cases"].pop()
@@ -262,6 +349,28 @@ class PocketHardwareQATest(unittest.TestCase):
         first = document["hardware_qa"]["artifacts"][0]
         (self.evidence / first["path"]).unlink()
         with self.assertRaisesRegex(ValueError, "evidence file is missing"):
+            verify_manifest(self.manifest, self.inventory)
+
+    def test_hard_link_alias_cannot_bypass_artifact_reuse(self) -> None:
+        document = self.accepted_fixture()
+        body = document["hardware_qa"]
+        first_case, second_case = body["cases"][:2]
+        first_id = first_case["artifact_ids"][0]
+        second_id = second_case["artifact_ids"][0]
+        first = next(item for item in body["artifacts"] if item["id"] == first_id)
+        second = next(item for item in body["artifacts"] if item["id"] == second_id)
+        source = self.evidence / first["path"]
+        alias = self.evidence / "files" / "hardlink-alias.png"
+        alias.hardlink_to(source)
+        second.update(
+            {
+                "path": "files/hardlink-alias.png",
+                "size": first["size"],
+                "sha256": first["sha256"],
+            }
+        )
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "must not be a hard link"):
             verify_manifest(self.manifest, self.inventory)
 
     def test_identity_changes_and_bad_installed_bitstream_fail_closed(self) -> None:
@@ -320,6 +429,71 @@ class PocketHardwareQATest(unittest.TestCase):
         )
         self.write_manifest(document)
         with self.assertRaisesRegex(ValueError, "checks has invalid members"):
+            verify_manifest(self.manifest, self.inventory)
+
+    def test_console_eeprom_lifecycle_requires_exact_related_snapshots(self) -> None:
+        document = self.accepted_fixture()
+        case = next(
+            item for item in document["hardware_qa"]["cases"]
+            if item["id"] == "console_eeprom_lifecycle"
+        )
+        self.assertEqual(len(case["artifact_ids"]), 17)
+        self.assertEqual(
+            set(case["rom_ids"]), {"horizontal-sram", "vertical-eeprom-rtc"}
+        )
+
+        document = self.accepted_fixture()
+        case = next(
+            item for item in document["hardware_qa"]["cases"]
+            if item["id"] == "console_eeprom_lifecycle"
+        )
+        case["rom_ids"] = ["vertical-eeprom-rtc"]
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "does not satisfy mono_color"):
+            verify_manifest(self.manifest, self.inventory)
+
+        document = self.accepted_fixture()
+        artifact = next(
+            item for item in document["hardware_qa"]["artifacts"]
+            if item["label"] == "console-eeprom mono power-cycle"
+        )
+        path = self.evidence / artifact["path"]
+        contents = bytes([0x55]) * 128
+        path.write_bytes(contents)
+        artifact["sha256"] = hashlib.sha256(contents).hexdigest()
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "power-cycle snapshot does not match"):
+            verify_manifest(self.manifest, self.inventory)
+
+        document = self.accepted_fixture()
+        artifact = next(
+            item for item in document["hardware_qa"]["artifacts"]
+            if item["label"] == "console-eeprom color ordinary-reset"
+        )
+        path = self.evidence / artifact["path"]
+        contents = path.read_bytes()[:-1]
+        path.write_bytes(contents)
+        artifact["size"] = len(contents)
+        artifact["sha256"] = hashlib.sha256(contents).hexdigest()
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "exact fixed 2048-byte image"):
+            verify_manifest(self.manifest, self.inventory)
+
+        document = self.accepted_fixture()
+        artifacts = document["hardware_qa"]["artifacts"]
+        factory = next(
+            item for item in artifacts
+            if item["label"] == "console-eeprom mono factory-created"
+        )
+        edited = next(
+            item for item in artifacts
+            if item["label"] == "console-eeprom mono setup-edited"
+        )
+        contents = (self.evidence / factory["path"]).read_bytes()
+        (self.evidence / edited["path"]).write_bytes(contents)
+        edited["sha256"] = hashlib.sha256(contents).hexdigest()
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "setup edit did not change"):
             verify_manifest(self.manifest, self.inventory)
 
     def test_controls_behavior_is_recorded_without_assuming_outcome(self) -> None:

@@ -19,6 +19,14 @@ the normalized four-slot PAD bus
 ([Bus Communication](https://www.analogue.co/developer/docs/bus-communication)),
 and display modes plus Dock-specific aspect support
 ([2.0](https://www.analogue.co/developer/docs/changelog/2-0)).
+Firmware 1.1 beta 5 also added a
+[Chip32 cycle limit during crash](https://www.analogue.co/developer/docs/changelog/1-1-beta-5),
+but Analogue does not publish that limit or the VM instruction rate. The ROM
+validation loop's 1,048,576-poll bound is therefore an instruction guard, not
+a wall-clock guarantee. A release reviewer must fault-inject a stuck-pending
+status on the target firmware and verify the core's visible timeout appears
+before the firmware cycle limit; the ordinary invalid-footer case exercises
+the immediate rejection path and cannot substitute for that calibration.
 The current [`input.json`](https://www.analogue.co/developer/docs/core-definition-files/input-json)
 page calls Controls read-only and the core-definition overview says remapping
 is coming soon, while the official [firmware 2.4](https://www.analogue.co/support/pocket/firmware/2.4)
@@ -62,8 +70,16 @@ floor is only a conservative truncation/tiny-fixture detector, not proof of a
 valid Cyclone V bitstream or a replacement for Quartus build evidence.
 It also requires both `.ws` and `.wsc`, horizontal and vertical coverage, SRAM
 and EEPROM, and RTC plus non-RTC titles. ROMs must meet the core's implemented
-64 KiB through 16 MiB power-of-two boundary. BIOS filenames and sizes must be
-exactly `bw.rom`/4096 and `color.rom`/8192.
+64 KiB through 16 MiB whole-64-KiB-bank boundary. Conventional power-of-two
+images retain the legacy path; compact images must have a valid WonderSwan
+footer/checksum and are right-aligned into the next-power-of-two mapper
+aperture. The fixed inventory includes the original generated 896 KiB compact
+probe so the lower `0xff` prefix, reset vector, footer, and `0x0fffff` mask can
+be checked without third-party ROM content. The compact case accepts only that
+deterministic repository-generator identity, SHA-256
+`b4a2c985906ac04c6622080bb1f1f3ac4b3895784c5594f4ba97cd45e6935979`,
+not an arbitrary valid 896 KiB image. BIOS filenames and sizes must be exactly
+`bw.rom`/4096 and `color.rom`/8192.
 
 Use the firmware file actually installed for the run. V1 is deliberately pinned
 to firmware 2.6.0 and its official MD5
@@ -81,7 +97,7 @@ python3 scripts/pocket_hardware_qa.py generate \
   --output /private/swan-song-qa/evidence/manifest.json
 ```
 
-The command hashes the inventory files and writes the complete 25-case
+The command hashes the inventory files and writes the complete 27-case
 catalogue. It refuses to overwrite an existing manifest. Every generated case
 has `status: "pending"`, false checks, no attachments, and no timestamps. The
 physical attestation is also false. This output is intentionally not accepted.
@@ -117,12 +133,28 @@ Use the generated check names as the worksheet. For a completed case:
 6. If any check fails, use `status: "fail"`, retain the evidence, fix the core
    in a different build, and start a new run ID and manifest.
 
+For `console_eeprom_lifecycle`, begin with both fixed files absent at
+`/Saves/wonderswan/agg23.WonderSwan/mono.eeprom` and `color.eeprom`. Use one
+`.ws` and one `.wsc` title plus the operator's original 4 KiB/8 KiB BIOS dumps.
+Make a visible setup edit through each original BIOS, then capture both exact
+files after factory creation, setup edit, quit/relaunch, model switch, title
+switch, ordinary reset, and full Pocket power cycle. The 14 `save` artifact
+labels are exactly `console-eeprom {mono|color} {stage}`, where stage is
+`factory-created`, `setup-edited`, `quit-relaunch`, `model-switch`,
+`title-switch`, `ordinary-reset`, or `power-cycle`. The verifier requires every
+mono snapshot to be 128 bytes, every Color snapshot to be 2,048 bytes, each
+setup hash to differ from its factory hash, and every later hash to match the
+edited image. Capture at least two visual records showing the original BIOS
+flows and a UTF-8 log that records absent-file checks, both shutdown/flush
+boundaries, exact SD paths, device/model/title transitions, and hashes.
+
 The fixed catalogue covers:
 
 | Area | Required cases |
 |---|---|
 | Startup and launcher | Fresh SD, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
-| Negative boot | Missing mono/color BIOS, too-small/non-power-of-two/oversized ROM, recovery with valid inputs |
+| Compact ROM | Generated 896 KiB probe, `0xff` lower-prefix behavior, right-aligned reset vector/footer, 1 MiB aperture and `0x0fffff` mask, power-of-two regression |
+| Negative boot | Missing mono/color BIOS, too-small/misaligned/oversized ROM, invalid compact footer/checksum with visible **ROM footer/checksum rejected** error, reviewed validation instruction guard, recovery with a corrected valid input; separate target-firmware stuck-pending fault injection remains required for wall-clock/cycle-limit calibration |
 | Disabled features | Memories rejection/unavailability, Sleep not advertised, quick-load non-mutation |
 | Pocket input | Complete horizontal and vertical matrices, simultaneous directions, Start, held and latched Fast Forward, observed Controls behavior without assuming editability or persistence |
 | Presentation | Auto/forced horizontal/vertical, 180-degree landscape, no input remap, transition-frame integrity |
@@ -130,7 +162,7 @@ The fixed catalogue covers:
 | Dock input | Wired and wireless matrices, recorded Controls/D-pad/analog behavior, hot-unplug while held, reconnect, dedicated menu and Select+Down fallback |
 | Dock video | HDMI 0/270/180-degree presentation, aspect/crop, display modes, first portrait frame, no resync |
 | Negative devices | P2 gamepad, P3 keyboard, P4 mouse, disconnect, then P1 recovery |
-| Save data | SRAM and EEPROM absent/create/quit/relaunch/power-cycle/flush lifecycles, exact before/after hashes |
+| Save data | Cartridge SRAM/EEPROM plus fixed mono/Color console EEPROM absent/create/quit/relaunch/model-switch/title-switch/ordinary-reset/power-cycle/flush lifecycles, exact before/after hashes |
 | RTC | Epoch initialization, minute/day crossings, quit/relaunch, power cycle, title isolation, trailer hashes |
 | Negative saves | Short, oversized, malformed RTC, wrong type, supported type-`0x01` canonical 32 KiB behavior, documented legacy EEPROM case, recovery |
 | Audio | Pocket and Dock 48 kHz captures, stereo identity, silence, extrema, pops/drift, Fast Forward sound modes, menu transitions |
@@ -156,8 +188,8 @@ top-level members are:
 
 Each artifact has exactly `id`, `kind`, `path`, `label`, `captured_at`, `size`,
 and lowercase `sha256`. Paths are POSIX-relative to the manifest directory;
-absolute paths, `..`, missing files, empty files, symlinks, repeated paths, and
-hash mismatches fail. Allowed evidence kinds are:
+absolute paths, `..`, missing files, empty files, symlinks, hard links, repeated
+paths, and hash mismatches fail. Allowed evidence kinds are:
 
 - `pocket_screenshot`: a PNG whose IHDR is exactly the core's native 224x144;
 - `photo`: a PNG or JPEG hardware/HDMI photograph;
@@ -172,6 +204,13 @@ require multiple save snapshots plus logs; screenshot, audio, HDMI, and input
 cases require their corresponding media. Unreferenced artifacts fail final
 verification. One artifact ID may belong to only one case: cross-case reuse is
 rejected so each observation has an independent evidence record.
+
+The console-EEPROM case adds content relationships to those generic checks:
+its 14 exact-size, exact-label snapshots must prove that the original-BIOS edit
+changed each factory image and that quit/relaunch, model/title switching,
+ordinary reset, and power cycle reproduced the edited SHA-256 without cross-bank
+replacement. The attested log and visual evidence remain necessary because a
+hash alone cannot prove how a state transition was performed.
 
 Media checks are deliberately superficial signature/extension checks. The
 tool reads PNG IHDR dimensions for Pocket screenshots and sniffs basic
@@ -197,7 +236,7 @@ python3 scripts/pocket_hardware_qa.py verify \
 ```
 
 Success prints `VALID evidence schema, hashes, and human attestation`, the run
-ID, 25 required cases, artifact count, and the SHA-256 of the exact manifest
+ID, 27 required cases, artifact count, and the SHA-256 of the exact manifest
 bytes that were parsed. It also prints that this is not mechanical proof.
 Archive the private inventory and complete evidence directory together. The
 manifest is not independently reproducible without the exact private firmware,

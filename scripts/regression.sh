@@ -18,6 +18,14 @@ echo "PASS structured trace parser and writer"
   -o "$BUILD/input_script_test"
 "$BUILD/input_script_test"
 echo "PASS deterministic controller input-script parser"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
+  -I"$ROOT/sim/verilator" \
+  "$ROOT/sim/verilator/rom_image_test.cpp" \
+  -o "$BUILD/rom_image_test"
+python3 "$ROOT/sim/verilator/generate_non_power_two_probe.py" \
+  "$BUILD/wsc_896k_compact_probe.wsc" >/dev/null
+"$BUILD/rom_image_test" "$BUILD/wsc_896k_compact_probe.wsc"
+echo "PASS compact-ROM host mapping and negative mutations"
 "$ROOT/sim/rtl/run_dma_pending_tb.sh"
 "$ROOT/sim/rtl/run_dma_savestate_tb.sh"
 "$ROOT/sim/rtl/run_apf_crc64_ecma32_tb.sh"
@@ -48,9 +56,13 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_scaler_selector_tb.sh"
 "$ROOT/sim/rtl/run_apf_temporal_blend_tb.sh"
 "$ROOT/sim/rtl/run_apf_dataslot_guard_tb.sh"
+"$ROOT/sim/rtl/run_apf_rom_plan_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_rom_loader_adapter_tb.sh"
 "$ROOT/sim/rtl/run_apf_save_metadata_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_startup_sequencer_tb.sh"
 "$ROOT/sim/rtl/run_internal_eeprom_tb.sh"
+"$ROOT/sim/rtl/run_pocket_console_eeprom_init_tb.sh"
+"$ROOT/sim/rtl/run_console_eeprom_roundtrip_tb.sh"
 "$ROOT/sim/rtl/run_pocket_save_init_tb.sh"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
@@ -59,6 +71,7 @@ python3 "$ROOT/sim/verilator/correlate_sprite_rows_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
+python3 "$ROOT/sim/verilator/generate_non_power_two_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sram_32k_probe_test.py"
@@ -89,10 +102,12 @@ python3 "$ROOT/scripts/pocket_control_cdc_contract_test.py"
 python3 "$ROOT/scripts/pocket_pad_contract_test.py"
 python3 "$ROOT/scripts/pocket_input_dock_contract_test.py"
 python3 "$ROOT/scripts/pocket_hardware_qa_test.py"
+python3 "$ROOT/scripts/known_title_compatibility_test.py"
 python3 "$ROOT/scripts/pocket_settings_constraint_test.py"
 python3 "$ROOT/scripts/pocket_video_contract_test.py"
 python3 "$ROOT/scripts/pocket_savestate_contract_test.py"
 python3 "$ROOT/scripts/pocket_nv_size_contract_test.py"
+python3 "$ROOT/scripts/pocket_console_eeprom_contract_test.py"
 python3 "$ROOT/scripts/pocket_rtc_integration_contract_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/quartus_archive_test.py"
@@ -598,6 +613,22 @@ for variant in planar packed; do
 done
 python3 "$ROOT/sim/verilator/verify_4bpp_probe.py" --root "$BPP4_OUT"
 python3 "$ROOT/sim/verilator/verify_4bpp_probe_test.py" --root "$BPP4_OUT"
+
+# Boot the same authored packed-4bpp payload from a 896 KiB compact image.
+# The host mapper inserts the documented 128 KiB erased prefix and the exact
+# frame identities prove that the translated core reaches the right-aligned
+# reset vector and payload through its 1 MiB aperture.
+COMPACT_ROM_OUT="$BUILD/compact-rom-probe"
+rm -rf "$COMPACT_ROM_OUT"
+python3 "$ROOT/sim/verilator/generate_non_power_two_probe.py" \
+  "$COMPACT_ROM_OUT/wsc_896k_compact_probe.wsc" >/dev/null
+"$SIM" \
+  --rom "$COMPACT_ROM_OUT/wsc_896k_compact_probe.wsc" \
+  --frames 2 --max-cycles 4000000 --out "$COMPACT_ROM_OUT/frames" \
+  >/dev/null
+python3 "$ROOT/sim/verilator/verify_non_power_two_probe.py" \
+  "$COMPACT_ROM_OUT/wsc_896k_compact_probe.wsc" \
+  "$COMPACT_ROM_OUT/frames"
 
 # Prove the Color compositor does not let an earlier low-priority sprite that
 # is hidden by opaque Screen 2 suppress a later high-priority sprite. Three

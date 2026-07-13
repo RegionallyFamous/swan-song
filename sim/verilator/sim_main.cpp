@@ -20,6 +20,7 @@
 
 #include "VSwanTop.h"
 #include "input_script.hpp"
+#include "rom_image.hpp"
 #include "trace_logger.hpp"
 
 namespace fs = std::filesystem;
@@ -676,13 +677,9 @@ static int run_main(int argc, char** argv) {
   }
 
   const auto rom = read_file(rom_path);
-  if (rom.size() < 16 || rom.size() > (1u << 24)) {
-    throw std::runtime_error("ROM size must be between 16 bytes and 16 MiB");
-  }
-  if ((rom.size() & (rom.size() - 1)) != 0) {
-    throw std::runtime_error("ROM size must be a power of two for the hardware address mask");
-  }
-  const bool color_cartridge = rom[rom.size() - 9] == 1;
+  const auto prepared_rom = swansong::rom::prepare(rom);
+  const auto& mapped_rom = prepared_rom.mapped;
+  const bool color_cartridge = mapped_rom[mapped_rom.size() - 9] == 1;
 
   std::vector<uint8_t> bios;
   if (!bios_path.empty()) {
@@ -724,15 +721,24 @@ static int run_main(int argc, char** argv) {
   top->clk_ram = 0;
   top->reset_in = 1;
   top->pause_in = 0;
+  // The direct SwanTop harness retains the legacy deterministic cold-reset
+  // seed. The Pocket wrapper drives this high and supplies both persistent
+  // model banks through the dedicated second port instead.
+  top->preserve_internal_eeprom = 0;
   top->EXTRAM_dataread = 0;
   top->eeprom_addr = 0;
   top->eeprom_din = 0;
   top->eeprom_req = 0;
   top->eeprom_rnw = 1;
-  top->maskAddr = static_cast<uint32_t>(rom.size() - 1);
-  top->romtype = rom[rom.size() - 6];
-  top->ramtype = rom[rom.size() - 5];
-  top->hasRTC = rom[rom.size() - 3] == 1;
+  top->internal_eeprom_bank = 0;
+  top->internal_eeprom_addr = 0;
+  top->internal_eeprom_din = 0;
+  top->internal_eeprom_req = 0;
+  top->internal_eeprom_rnw = 1;
+  top->maskAddr = static_cast<uint32_t>(mapped_rom.size() - 1);
+  top->romtype = mapped_rom[mapped_rom.size() - 6];
+  top->ramtype = mapped_rom[mapped_rom.size() - 5];
+  top->hasRTC = mapped_rom[mapped_rom.size() - 3] == 1;
   top->isColor = color_cartridge || bios.size() == 8192;
   top->fastforward = 0;
   top->turbo = 0;
@@ -771,9 +777,9 @@ static int run_main(int argc, char** argv) {
           sram[address] | (sram[(address + 1) % sram.size()] << 8));
     } else {
       const uint32_t address = (raw_address & 0x00ff'ffffu) & ~1u;
-      const uint32_t a = address & static_cast<uint32_t>(rom.size() - 1);
-      const uint8_t lo = rom[a % rom.size()];
-      const uint8_t hi = rom[(a + 1) % rom.size()];
+      const uint32_t a = address & static_cast<uint32_t>(mapped_rom.size() - 1);
+      const uint8_t lo = mapped_rom[a % mapped_rom.size()];
+      const uint8_t hi = mapped_rom[(a + 1) % mapped_rom.size()];
       top->EXTRAM_dataread = static_cast<uint16_t>(lo | (hi << 8));
     }
     top->eval();

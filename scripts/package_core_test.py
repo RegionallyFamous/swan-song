@@ -232,6 +232,24 @@ class PackageCoreTest(unittest.TestCase):
                     10: (True, "color.rom", 0x208, 8192),
                 },
             )
+            self.assertEqual(
+                {
+                    slot_id: (
+                        slots_by_id[slot_id]["required"],
+                        slots_by_id[slot_id]["filename"],
+                        int(slots_by_id[slot_id]["parameters"], 0),
+                        slots_by_id[slot_id]["nonvolatile"],
+                        slots_by_id[slot_id]["size_exact"],
+                        slots_by_id[slot_id]["size_maximum"],
+                        int(slots_by_id[slot_id]["address"], 0),
+                    )
+                    for slot_id in (12, 13)
+                },
+                {
+                    12: (False, "mono.eeprom", 0x02, True, 128, 128, 0x50000000),
+                    13: (False, "color.eeprom", 0x02, True, 2048, 2048, 0x60000000),
+                },
+            )
             interact_definition = json.loads(
                 archive.read((CORE_DIRECTORY / "interact.json").as_posix())
             )

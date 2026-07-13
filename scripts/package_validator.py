@@ -410,8 +410,37 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
         if slot.get("nonvolatile", False) and "size_maximum" not in slot:
             raise ValueError(f"{where} nonvolatile slot requires size_maximum")
     _unique(ids, f"{relative}.data.data_slots ids")
-    if sorted(ids) != [0, 9, 10, 11]:
-        raise ValueError(f"{relative}.data.data_slots must define exactly IDs 0, 9, 10, 11")
+    if sorted(ids) != [0, 9, 10, 11, 12, 13]:
+        raise ValueError(
+            f"{relative}.data.data_slots must define exactly IDs 0, 9, 10, 11, 12, 13"
+        )
+
+    slots_by_id = {_integer(slot["id"], f"{relative}.data.data_slots id"): slot
+                   for slot in slots}
+    expected_console_slots = {
+        12: ("Mono EEPROM", "mono.eeprom", 128, 0x50000000),
+        13: ("Color EEPROM", "color.eeprom", 2048, 0x60000000),
+    }
+    for slot_id, (name, filename, size, address) in expected_console_slots.items():
+        slot = slots_by_id[slot_id]
+        where = f"{relative}.data.data_slots ID {slot_id}"
+        actual = (
+            slot.get("name"),
+            slot.get("required"),
+            slot.get("filename"),
+            _integer(slot.get("parameters"), f"{where}.parameters"),
+            slot.get("nonvolatile"),
+            slot.get("extensions"),
+            _integer(slot.get("size_exact"), f"{where}.size_exact"),
+            _integer(slot.get("size_maximum"), f"{where}.size_maximum"),
+            _integer(slot.get("address"), f"{where}.address"),
+        )
+        expected = (name, False, filename, 0x02, True, ["eeprom"], size, size, address)
+        if actual != expected:
+            raise ValueError(
+                f"{where} must be fixed-name core-specific nonvolatile storage: "
+                f"expected {expected!r}, got {actual!r}"
+            )
 
 
 def _validate_input(document: dict[str, Any], relative: str) -> None:

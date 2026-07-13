@@ -9,8 +9,11 @@ not yet been confirmed; see [PHASE_STATUS.md](PHASE_STATUS.md).
 Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md),
 [PHASE_STATUS.md](PHASE_STATUS.md), the
 [Pocket launcher/Library audit](POCKET_LAUNCHER_LIBRARY.md), and the
-[homebrew/WonderWitch guide](HOMEBREW_WONDERWITCH.md). No BIOS, WonderWitch
-firmware, or commercial cartridge image is included or downloaded.
+[homebrew/WonderWitch guide](HOMEBREW_WONDERWITCH.md). The separately gated
+[known-title Pocket/Dock matrix](KNOWN_TITLE_COMPATIBILITY.md) records the
+primary-source commercial regressions without bundling identities or claiming
+hardware passes. No BIOS, WonderWitch firmware, or commercial cartridge image
+is included or downloaded.
 
 The WonderSwan system core was developed by [Robert Peip](https://github.com/RobertPeip)
 ([Patreon](https://www.patreon.com/FPGAzumSpass)) and the Analogue Pocket port
@@ -108,6 +111,18 @@ for a missing file before launch; APF also checks their exact sizes. A BIOS
 chosen in that browser is remembered for the next launch and is cleared by
 Pocket's **Reset all to defaults** action.
 
+The console's own EEPROM is persistent too. Swan Song uses the fixed,
+core-specific files
+`/Saves/wonderswan/agg23.WonderSwan/mono.eeprom` (128 bytes) and
+`/Saves/wonderswan/agg23.WonderSwan/color.eeprom` (2,048 bytes). Both are
+loaded before the original BIOS runs, kept completely separate from
+per-cartridge Save slot 11, and flushed by APF when the core shuts down or a
+title change performs its full restart. A missing file starts from the core's
+deterministic factory image; an ordinary reset does not clear either bank.
+The BIOS setup flow therefore remains the original firmware flow, and the
+project still bundles no BIOS. Quit/relaunch, model switching, title switching,
+and power-cycle retention remain required physical-Pocket acceptance checks.
+
 WonderSwan
 
 * `bw.rom`
@@ -136,8 +151,13 @@ configuration.
 ### Supported file sizes
 
 The development RTL applies the Pocket data-slot contract before accepting a
-file. Cartridge ROMs must be a power of two from 64 KiB through **16 MiB**;
-`bw.rom` must be exactly 4 KiB and `color.rom` exactly 8 KiB. The 16 MiB ROM
+file. Cartridge ROMs may use any whole-64-KiB-bank size from 64 KiB through
+**16 MiB**. Existing power-of-two images keep the legacy direct-load path.
+Compact images require a valid final 16-byte WonderSwan footer/checksum and are
+right-aligned, with an `0xff` lower prefix, in the next-power-of-two mapper
+aperture; the generated 896 KiB regression therefore occupies
+`0x020000..0x0fffff` in a 1 MiB aperture. `bw.rom` must be exactly 4 KiB and
+`color.rom` exactly 8 KiB. The 16 MiB ROM
 ceiling is an implemented limit of this core's 24-bit mapper, not a claim about
 every possible WonderSwan cartridge. The documented header values reach
 16 MiB, while the later Bandai 2003 mapper's six 1 MiB linear-bank bits imply a
@@ -145,6 +165,16 @@ theoretical 64 MiB address capacity. Larger images are not supported here. See
 the [WSdev ROM-header](https://ws.nesdev.org/wiki/ROM_header) and
 [mapper](https://ws.nesdev.org/wiki/Mapper) references and the
 [Wonderful WonderSwan target documentation](https://wonderful.asie.pl/docs/target/wswan/).
+The compact layout follows WSdev's documented beginning-padding convention and
+is independently consistent with [Mesen2's WonderSwan loader](https://github.com/SourMesen/Mesen2/blob/master/Core/WS/WsConsole.cpp).
+After LOADF, the launcher polls a synchronized validation register. A malformed
+compact footer/checksum produces a visible error and exits instead of silently
+hanging in Setup; a 1,048,576-poll instruction guard covers a stuck
+validation/status path. Prefix fill is guaranteed before raw EOF by
+starvation-free raw/fill interleaving. The guard is not a wall-clock guarantee because Analogue does
+not publish the Chip32 execution rate or firmware crash-cycle threshold, so
+that timeout still requires physical Pocket fault-injection/calibration.
+Choosing a corrected cartridge performs the normal full-core reload recovery.
 
 Save slot 11 uses the cartridge footer to publish and validate the exact
 payload size. SRAM types `01/02`, `03`, `04`, and `05` use 32, 128, 256, and
@@ -154,6 +184,14 @@ saves must be converted; old 2,060-byte type-`10`/`50` RTC saves are accepted
 for compatibility but are written back at their canonical 140/1,036-byte
 sizes. The non-destructive conversion commands are in
 [BUILDING.md](BUILDING.md#migrating-legacy-type-01-pocket-saves).
+
+Console EEPROM slots 12 and 13 have independent exact 128-byte and 2,048-byte
+contracts. They use fixed core-specific names rather than cloning slot 0, and
+their sizes are republished to Pocket's data-slot table even when the files did
+not exist at launch, so the first clean shutdown can create them. Only this
+internal backing is widened to 2,048 16-bit words for simultaneous Color/mono
+banks; cartridge EEPROM retains its bankless 1,024-word allocation so the
+unused second bank cannot consume fitter memory blocks.
 
 At the source level, startup now follows Analogue's documented lifecycle:
 Setup remains active through `008F` data-slot completion, delivered `0090` RTC

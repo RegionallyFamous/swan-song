@@ -106,6 +106,18 @@ module apf_dataslot_guard_tb;
         policy_exact_size = 48'd140;
         policy_capture_length = 1'b1;
       end
+      16'd12: begin
+        // Fixed monochrome console EEPROM: exact 128-byte load, readable flush.
+        policy_allow_read = 1'b1;
+        policy_size_mode = 2'd1;
+        policy_exact_size = 48'd128;
+      end
+      16'd13: begin
+        // Fixed Color console EEPROM: exact 2 KiB load, readable flush.
+        policy_allow_read = 1'b1;
+        policy_size_mode = 2'd1;
+        policy_exact_size = 48'd2048;
+      end
       default: begin
         policy_slot_known = 1'b0;
         policy_allow_read = 1'b0;
@@ -230,6 +242,18 @@ module apf_dataslot_guard_tb;
     issue_request(1'b1, 16'd9, 48'd4097, RESULT_NOT_ALLOWED, 1'b0);
     issue_request(1'b1, 16'd9, 48'd4096, RESULT_READY, 1'b0);
     issue_request(1'b1, 16'd10, 48'd8192, RESULT_READY, 1'b0);
+
+    // Console-owned EEPROM slots are bidirectional and exact. They are not
+    // captured as cartridge-save lengths and reject either truncation or
+    // oversize before any loader sees the transfer.
+    issue_request(1'b1, 16'd12, 48'd127, RESULT_NOT_ALLOWED, 1'b0);
+    issue_request(1'b1, 16'd12, 48'd129, RESULT_NOT_ALLOWED, 1'b0);
+    issue_request(1'b1, 16'd12, 48'd128, RESULT_READY, 1'b0);
+    issue_request(1'b0, 16'd12, 48'd0, RESULT_READY, 1'b0);
+    issue_request(1'b1, 16'd13, 48'd2047, RESULT_NOT_ALLOWED, 1'b0);
+    issue_request(1'b1, 16'd13, 48'd2049, RESULT_NOT_ALLOWED, 1'b0);
+    issue_request(1'b1, 16'd13, 48'd2048, RESULT_READY, 1'b0);
+    issue_request(1'b0, 16'd13, 48'd0, RESULT_READY, 1'b0);
 
     // Dynamic inclusive bounds accept both endpoints and reject either side.
     issue_request(1'b1, 16'd0, 48'd65535, RESULT_NOT_ALLOWED, 1'b0);

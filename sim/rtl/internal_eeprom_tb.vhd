@@ -31,6 +31,12 @@ architecture test of internal_eeprom_tb is
   signal reg_rst       : std_logic := '1';
   signal reg_dout      : std_logic_vector(7 downto 0);
   signal written       : std_logic;
+  signal eeprom_bank   : std_logic := '1';
+  signal eeprom_addr   : std_logic_vector(9 downto 0) := (others => '0');
+  signal eeprom_din    : std_logic_vector(15 downto 0) := (others => '0');
+  signal eeprom_dout   : std_logic_vector(15 downto 0);
+  signal eeprom_req    : std_logic := '0';
+  signal eeprom_rnw    : std_logic := '1';
   signal ssbus_din     : std_logic_vector(63 downto 0) := (others => '0');
   signal ssbus_addr    : std_logic_vector(6 downto 0) := (others => '0');
   signal ssbus_wren    : std_logic := '0';
@@ -61,13 +67,15 @@ begin
       ce             => '1',
       reset          => reset,
       isColor        => '0',
+      preserve_on_reset => '1',
       ramtype        => x"00",
       written        => written,
-      eeprom_addr    => (others => '0'),
-      eeprom_din     => (others => '0'),
-      eeprom_dout    => open,
-      eeprom_req     => '0',
-      eeprom_rnw     => '1',
+      eeprom_bank    => eeprom_bank,
+      eeprom_addr    => eeprom_addr,
+      eeprom_din     => eeprom_din,
+      eeprom_dout    => eeprom_dout,
+      eeprom_req     => eeprom_req,
+      eeprom_rnw     => eeprom_rnw,
       RegBus_Din     => reg_din,
       RegBus_Adr     => reg_addr,
       RegBus_wren    => reg_wren,
@@ -98,6 +106,19 @@ begin
       wait until rising_edge(clk);
       wait for 1 ns;
       reg_wren <= '0';
+    end procedure;
+
+    procedure host_write_word(address : natural; value : natural) is
+    begin
+      wait until falling_edge(clk);
+      eeprom_addr <= std_logic_vector(to_unsigned(address, eeprom_addr'length));
+      eeprom_din <= std_logic_vector(to_unsigned(value, eeprom_din'length));
+      eeprom_rnw <= '0';
+      eeprom_req <= '1';
+      wait until rising_edge(clk);
+      wait for 1 ns;
+      eeprom_req <= '0';
+      eeprom_rnw <= '1';
     end procedure;
 
     procedure read_port(address : natural; variable value : out natural) is
@@ -184,9 +205,23 @@ begin
     reset <= '1';
     reg_rst <= '1';
     tick(3);
+    -- The Pocket wrapper seeds the console-owned backing through the second
+    -- port before APF overlays a persisted fixed-name slot. Reproduce that
+    -- lifecycle here while the controller itself is held in reset.
+    for index in 0 to 63 loop
+      host_write_word(index, 0);
+    end loop;
+    host_write_word(16#30#, 16#1921#);
+    host_write_word(16#31#, 16#0E18#);
+    host_write_word(16#32#, 16#1C0F#);
+    host_write_word(16#33#, 16#211D#);
+    host_write_word(16#34#, 16#180B#);
+    host_write_word(16#3B#, 16#0001#);
+    host_write_word(16#3C#, 16#0024#);
+    host_write_word(16#3E#, 16#0001#);
     reset <= '0';
     reg_rst <= '0';
-    tick(72);
+    tick(4);
 
     read_port(16#BE#, status);
     assert masked(status, 16#7F#) = 3
@@ -253,7 +288,8 @@ begin
       report "invalid control command changed READY/reserved status" severity failure;
 
     -- Loading a saved disabled-write latch before reset must not be replaced
-    -- by the open-bootstrap initial state.
+    -- by the open-bootstrap initial state. The same ordinary reset must retain
+    -- every EEPROM word rather than running the historical factory clear.
     issue(16#100#, 16#40#);
     wait until falling_edge(clk);
     ssbus_addr <= (others => '0');
@@ -264,10 +300,12 @@ begin
     reset <= '1';
     tick;
     reset <= '0';
-    tick(72);
+    tick(4);
     write_word(0, 16#4321#);
     read_word(0, value);
-    assert value = 0 report "savestate load did not restore EWDS" severity failure;
+    assert value = 16#1234#
+      report "ordinary reset cleared storage or savestate load did not restore EWDS"
+      severity failure;
     issue(16#130#, 16#40#);
     write_word(0, 16#4321#);
     read_word(0, value);

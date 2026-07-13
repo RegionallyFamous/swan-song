@@ -12,6 +12,12 @@ module wonderswan (
     input wire        ioctl_wr,
     input wire [24:0] ioctl_addr,
     input wire [15:0] ioctl_dout,
+    input wire [24:0] rom_size_mem,
+    input wire        rom_plan_valid_mem,
+    input wire [24:0] rom_size_sys,
+    input wire        rom_plan_valid_sys,
+    output wire       rom_image_ready_mem,
+    output wire       rom_validation_failed_mem,
     // 1 for B&W cart, 2 for color cart
     input wire [ 1:0] ext_cart_download,
     input wire [ 1:0] ext_cart_download_sys,
@@ -71,6 +77,16 @@ module wonderswan (
     output wire [15:0] sd_buff_din,
     input wire [15:0] sd_buff_dout,
 
+    // Fixed-name console EEPROM slots. These are global machine state and are
+    // intentionally independent of the cartridge save interface above.
+    input wire console_eeprom_wr,
+    input wire console_eeprom_rd,
+    input wire console_eeprom_bank,
+    input wire [10:0] console_eeprom_addr,
+    output wire [15:0] console_eeprom_din,
+    input wire [15:0] console_eeprom_dout,
+    output wire console_eeprom_write_complete,
+
     output wire save_ram_write_complete,
 
     // Save states
@@ -119,12 +135,17 @@ module wonderswan (
   wire                                                          cart_rd;
   wire                                                          cart_wr;
 
+  wire rom_prepare_busy_mem;
+  wire rom_prepare_busy_sys;
+
+  wire cart_download_external = |ext_cart_download;
+  wire cart_download_sys_external = |ext_cart_download_sys;
+  wire cart_download = cart_download_external || rom_prepare_busy_mem;
+  wire cart_download_sys = cart_download_sys_external || rom_prepare_busy_sys;
   wire ioctl_download = cart_download_sys || |bios_download;
 
   // ext_cart_download is the clk_mem copy; ext_cart_download_sys is the
   // independently synchronized clk_sys copy.
-  wire cart_download = |ext_cart_download;
-  wire cart_download_sys = |ext_cart_download_sys;
   wire colorcart_download_sys = ext_cart_download_sys[1];
   // wire cart_download = ioctl_download && (filetype[5:0] == 6'h01 || filetype == 8'h80);
   // wire colorcart_download = ioctl_download && (filetype == 8'h01);
@@ -139,6 +160,12 @@ module wonderswan (
   wire                                                   [ 1:0] EXTRAM_be;
 
   wire                                                   [15:0] sdram_din;
+
+  synch_3 rom_prepare_to_system (
+      rom_prepare_busy_mem,
+      rom_prepare_busy_sys,
+      clk_sys_36_864
+  );
 
   wire extra_data_addr;
   wire rtc_extra_write_complete;
@@ -170,6 +197,8 @@ module wonderswan (
   end
   wire clearing_save_sys = clearing_save_sys_sync[2];
 
+  wire cartridge_save_initialization_resolved;
+
   pocket_save_init save_initializer (
       .clk(clk_mem_110_592),
       .cart_download(cart_download),
@@ -185,8 +214,28 @@ module wonderswan (
       .clear_sram_write(clear_sram_write),
       .clear_eeprom_write(clear_eeprom_write),
       .clear_word_addr(clear_save_word_addr),
-      .initialization_resolved(save_initialization_resolved)
+      .initialization_resolved(cartridge_save_initialization_resolved)
   );
+
+  wire console_eeprom_clearing;
+  wire console_eeprom_factory_write;
+  wire [10:0] console_eeprom_factory_addr;
+  wire [15:0] console_eeprom_factory_data;
+  wire console_eeprom_initialization_resolved;
+
+  pocket_console_eeprom_init console_eeprom_initializer (
+      .clk(clk_mem_110_592),
+      .cart_download(cart_download),
+      .clearing(console_eeprom_clearing),
+      .write_en(console_eeprom_factory_write),
+      .physical_word_addr(console_eeprom_factory_addr),
+      .write_data(console_eeprom_factory_data),
+      .initialization_resolved(console_eeprom_initialization_resolved)
+  );
+
+  assign save_initialization_resolved =
+      cartridge_save_initialization_resolved &&
+      console_eeprom_initialization_resolved;
 
   wire save_ram_ack;
 
@@ -194,17 +243,47 @@ module wonderswan (
   // Overflow words are acknowledged and classified by the RTC save loader.
   assign save_ram_write_complete = extra_data_addr ? rtc_extra_write_complete : saveIsSRAM ? save_ram_ack : sd_buff_wr;
 
+  wire rom_sdram_req;
+  wire rom_sdram_rnw;
+  wire [24:0] rom_sdram_byte_addr;
+  wire [15:0] rom_sdram_write_data;
+  wire rom_sdram_ready;
+
+  apf_rom_loader_adapter rom_loader_adapter (
+      .clk(clk_mem_110_592),
+      .reset_n(pll_core_locked),
+      .plan_valid(rom_plan_valid_mem),
+      .raw_size(rom_size_mem),
+      .cart_download(cart_download_external),
+      .raw_write_en(ioctl_wr),
+      .raw_write_addr(ioctl_addr),
+      .raw_write_data(ioctl_dout),
+      .raw_write_complete(rom_write_complete),
+      .sdram_req(rom_sdram_req),
+      .sdram_rnw(rom_sdram_rnw),
+      .sdram_byte_addr(rom_sdram_byte_addr),
+      .sdram_write_data(rom_sdram_write_data),
+      .sdram_ready(rom_sdram_ready),
+      .plan_non_power_of_two(),
+      .mapped_mask(),
+      .prepare_busy(rom_prepare_busy_mem),
+      // prepare_busy is the production fail-closed reset contract.  The
+      // same status is synchronized back to Chip32 for a clear load failure.
+      .image_ready(rom_image_ready_mem),
+      .validation_failed(rom_validation_failed_mem)
+  );
+
   sdram sdram (
       .init(~pll_core_locked),
       .clk (clk_mem_110_592),
 
       .doRefresh(EXTRAM_doRefresh),
 
-      .ch1_addr (ioctl_addr[24:1]),
-      .ch1_din  (ioctl_dout),
-      .ch1_req  (ioctl_wr),
-      .ch1_rnw  (cart_download ? 1'b0 : 1'b1),
-      .ch1_ready(rom_write_complete),
+      .ch1_addr (rom_sdram_byte_addr[24:1]),
+      .ch1_din  (rom_sdram_write_data),
+      .ch1_req  (rom_sdram_req),
+      .ch1_rnw  (rom_sdram_rnw),
+      .ch1_ready(rom_sdram_ready),
       // .ch1_dout (),
 
       .ch2_addr(clearing_sram ? {4'b1000, clear_save_word_addr} : {4'b1000, sd_buff_addr[20:1]}),
@@ -274,19 +353,47 @@ module wonderswan (
 
   reg old_download;
   reg [24:0] mask_addr;
+  reg [24:0] planned_rom_size_sys;
+
+  function automatic [24:0] next_power_of_two(input [24:0] size);
+    begin
+      if      (size <= 25'h0010000) next_power_of_two = 25'h0010000;
+      else if (size <= 25'h0020000) next_power_of_two = 25'h0020000;
+      else if (size <= 25'h0040000) next_power_of_two = 25'h0040000;
+      else if (size <= 25'h0080000) next_power_of_two = 25'h0080000;
+      else if (size <= 25'h0100000) next_power_of_two = 25'h0100000;
+      else if (size <= 25'h0200000) next_power_of_two = 25'h0200000;
+      else if (size <= 25'h0400000) next_power_of_two = 25'h0400000;
+      else if (size <= 25'h0800000) next_power_of_two = 25'h0800000;
+      else                           next_power_of_two = 25'h1000000;
+    end
+  endfunction
+
+  wire rom_size_sys_non_power =
+      (planned_rom_size_sys & (planned_rom_size_sys - 25'd1)) != 25'd0;
 
   always @(posedge clk_sys_36_864) begin
     if (!reset_n_sys) begin
       old_download <= 1'b0;
       colorcart_downloaded <= 1'b0;
       mask_addr <= 25'd0;
+      planned_rom_size_sys <= 25'd0;
     end else begin
       old_download <= cart_download_sys;
-      if (cart_download_sys) begin
+      if (rom_plan_valid_sys)
+        planned_rom_size_sys <= rom_size_sys;
+      // Do not let the compact-ROM prefix/validation tail overwrite the model
+      // detected during the real LOADF window after its external bit drops.
+      if (cart_download_sys_external) begin
         colorcart_downloaded <= colorcart_download_sys;
       end
       if (old_download & ~cart_download_sys) begin
-        mask_addr <= ioctl_addr[24:0] + 1'd1;
+        if (rom_size_sys_non_power)
+          mask_addr <= next_power_of_two(planned_rom_size_sys) - 25'd1;
+        else
+          // Preserve the inherited direct-loader mask derivation for every
+          // conventional power-of-two image.
+          mask_addr <= ioctl_addr[24:0] + 1'd1;
       end
     end
   end
@@ -323,12 +430,34 @@ module wonderswan (
   wire [ 7:0] ramtype = lastdata[2][15:8];
 
   wire [15:0]                              eeprom_din;
+  wire [15:0] internal_eeprom_din;
+  wire internal_eeprom_host_access = console_eeprom_wr || console_eeprom_rd;
+  wire internal_eeprom_req = console_eeprom_factory_write ||
+                             internal_eeprom_host_access;
+  wire internal_eeprom_bank = console_eeprom_factory_write ?
+                              console_eeprom_factory_addr[10] :
+                              console_eeprom_bank;
+  wire [9:0] internal_eeprom_addr = console_eeprom_factory_write ?
+                                    console_eeprom_factory_addr[9:0] :
+                                    console_eeprom_addr[10:1];
+  wire [15:0] internal_eeprom_dout = console_eeprom_factory_write ?
+                                     console_eeprom_factory_data :
+                                     console_eeprom_dout;
+  wire internal_eeprom_rnw = console_eeprom_factory_write ? 1'b0 :
+                             !console_eeprom_wr;
+
+  assign console_eeprom_din = internal_eeprom_din;
+  // A loader write is held until the title-only factory pass has completed;
+  // this prevents an existing APF image from being overwritten by a late seed.
+  assign console_eeprom_write_complete =
+      console_eeprom_wr && !console_eeprom_clearing;
 
   SwanTop SwanTop (
       .clk     (clk_sys_36_864),
       .clk_ram (clk_mem_110_592),
       .reset_in(reset),
       .pause_in(paused),
+      .preserve_internal_eeprom(1'b1),
 
       // rom
       .EXTRAM_doRefresh(EXTRAM_doRefresh),
@@ -351,6 +480,13 @@ module wonderswan (
       .eeprom_dout(eeprom_din),
       .eeprom_req (clear_eeprom_write || (saveIsEEPROM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr)),
       .eeprom_rnw (!clear_eeprom_write && ~sd_buff_wr),
+
+      .internal_eeprom_bank(internal_eeprom_bank),
+      .internal_eeprom_addr(internal_eeprom_addr),
+      .internal_eeprom_din(internal_eeprom_dout),
+      .internal_eeprom_dout(internal_eeprom_din),
+      .internal_eeprom_req(internal_eeprom_req),
+      .internal_eeprom_rnw(internal_eeprom_rnw),
 
       // bios
       .bios_wraddr (bios_addr),

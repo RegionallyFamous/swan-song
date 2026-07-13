@@ -156,13 +156,18 @@
   RTC event.
 - `0082` consumes the complete documented 48-bit expected length and the
   integrated data-slot guard returns the official per-request results: `0`
-  ready, `1` not allowed ever, or `2` check later. Slot 0 accepts only
-  power-of-two ROMs from 64 KiB through the implemented 16 MiB mapper limit;
+  ready, `1` not allowed ever, or `2` check later. Slot 0 accepts conventional
+  power-of-two ROMs unchanged from 64 KiB through the implemented 16 MiB mapper
+  limit, plus compact whole-64-KiB-bank images in that range. A compact image is
+  accepted for execution only when its final 16-byte WonderSwan footer and
+  checksum are valid; the loader fills the lower prefix with `0xff` and
+  right-aligns the image in its next-power-of-two mapper aperture;
   slots 9 and 10 accept exactly 4 KiB and 8 KiB firmware respectively; slot 11
   accepts only absent, cartridge-canonical, or supported legacy EEPROM-save
-  lengths once footer metadata is ready. Focused benches cover direction,
-  unknown IDs, boundary sizes, retry-to-ready transitions, and malformed
-  lengths.
+  lengths once footer metadata is ready; fixed console-EEPROM slots 12 and 13
+  accept exact 128-byte mono and 2,048-byte Color images in both load and
+  shutdown-unload directions. Focused benches cover direction, unknown IDs,
+  boundary sizes, retry-to-ready transitions, and malformed lengths.
 - The host-notify bench also locks Pocket's unconditional `00B1` cartridge
   notification as an explicit no-op. `pocket_control_cdc_contract_test.py`
   mutation-locks independent memory/system reset and download copies, including
@@ -205,10 +210,10 @@
   on ambiguous source identity. Two identical Quartus RBFs have not yet been
   produced on a supported host.
 - The reverse-bit and deterministic APF package scripts are host-independent.
-  Packaging materializes the core's required 259-byte `chip32.bin` offline,
+  Packaging materializes the core's required 411-byte `chip32.bin` offline,
   verifies both its assembly-source and image identities, and rejects missing,
-  changed, or path-escaping core references. The image is byte-identical to the
-  one in agg23's 1.0.1 release.
+  changed, or path-escaping core references. The image is the exact official
+  assembler output for this fork's extended loader source.
 - Quartus compilation and timing closure have not been run in this fork.
   Quartus 21.1.1 has no native macOS build; an isolated Linux/amd64 Docker
   workflow now passes host preflight, but the vendor installer, fit, and
@@ -249,10 +254,48 @@ and lower 32 bits in parameter 1. Read and write requests independently return
 
 | ID | Purpose | Accepted host operation and size |
 | --- | --- | --- |
-| 0 | Cartridge | Write only; power of two, 64 KiB through 16 MiB; APF persists the selected filename and performs a full core reload when it changes |
+| 0 | Cartridge | Write only; 64 KiB through 16 MiB in whole 64 KiB banks. Power-of-two images retain the legacy direct path; a compact image requires a valid final 16-byte WonderSwan footer/checksum and is `0xff`-prefilled/right-aligned into its next-power-of-two mapper aperture. APF persists the selected filename and performs a full core reload when it changes |
 | 9 | Mono BIOS | Required write-only APF asset; exactly 4,096 bytes |
 | 10 | Color BIOS | Required write-only APF asset; exactly 8,192 bytes |
 | 11 | Save | Read becomes ready only after `reset_n=0`, synchronized execution has stopped, and a fixed 31-`clk_74a` drain guard has elapsed, with startup metadata/table/init still valid; write accepts absent (zero), canonical for the current cartridge, or legacy 2,060-byte RTC EEPROM type `10`/`50` |
+| 12 | Mono console EEPROM | Optional fixed-name, core-specific nonvolatile machine state; exact 128-byte load and shutdown unload |
+| 13 | Color console EEPROM | Optional fixed-name, core-specific nonvolatile machine state; exact 2,048-byte load and shutdown unload |
+
+The slot-size response precedes receipt of the ROM bytes, so `0082` can reject
+too-small, misaligned, or oversized compact files but cannot inspect their
+footer. If post-load compact validation fails, the console remains in reset.
+The compact loader accepts the first raw word promptly, then, while its prefix
+remains incomplete, schedules at least one `0xffff` prefix word after every
+accepted raw 16-bit word and before the next. For any accepted compact size
+`S` in aperture `P`, `P/2 < S < P`, so `P-S < S`: there are strictly fewer
+prefix words than raw words and fill is complete before EOF even for a
+continuously held raw stream. This avoids stalling the first word long enough
+to overflow `data_loader`'s small non-backpressured CDC FIFO. The focused RTL
+bench proves the continuous-stream invariant; the documented bridge cadence
+(about one 32-bit transfer per 75 `clk_74a` cycles) leaves substantial memory-
+clock service margin, but Quartus and physical Pocket remain required gates.
+Chip32 polls the synchronized PMP status at `0x14`: ready continues startup,
+failure prints **ROM footer/checksum rejected** and exits with an error, and a
+stuck-pending implementation is bounded to 1,048,576 polls before printing
+**ROM validation timed out**. That counter is an instruction guard, not a
+wall-clock promise: Analogue publishes neither the Chip32 execution rate nor
+its crash-cycle threshold, and firmware 1.1 beta 5 explicitly added a
+[Chip32 cycle limit during crash](https://www.analogue.co/developer/docs/changelog/1-1-beta-5).
+Pocket fault-injection/calibration must therefore prove that the core's visible
+timeout wins on the target firmware before this negative path is considered
+hardware-accepted. Re-selecting a corrected cartridge performs a full core
+reload and is the recovery path; RTL regression proves rejected-compact to
+valid-compact recovery. The existing power-of-two route deliberately keeps its
+previous acceptance behavior and reports ready immediately. The generated 896
+KiB regression image contains only repository-authored diagnostic content; it
+maps at `0x020000..0x0fffff` in a 1 MiB aperture and proves the `0xff` prefix,
+footer/reset-vector placement, checksum, and mapper mask without copying
+commercial or third-party ROM content.
+
+The source-mutation contract locks both the two-bit memory-to-`clk_74a`
+terminal synchronizer and the exact PMP `0x14` read mux. A compiled full-wrapper
+behavioral observation and physical Pocket log are still open; source-string
+coverage alone is not presented as CDC or hardware proof.
 
 Slots 9 and 10 use `required: true` and `size_exact` in `data.json`, matching
 the current Chip32 program, which queries and loads both BIOS files on every
@@ -647,13 +690,14 @@ make chip32
 ```
 
 This produces `build/chip32.bin` from the checked-in canonical hexadecimal
-image only after `src/support/chip32.asm` and the decoded 259-byte image match
+image only after `src/support/chip32.asm` and the decoded 411-byte image match
 their pinned SHA-256 identities. It requires no network access or host
 assembler. The encoded image is the exact output of the official
 [open-fpga/bass-chip32 v1.0.0](https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0)
-for the checked-in assembly and matches
-[agg23's WonderSwan 1.0.1 package](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1):
-`ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c`.
+for the checked-in assembly. It is intentionally larger than the loader in
+[agg23's WonderSwan 1.0.1 package](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1)
+because it adds fixed console-EEPROM loads and visible compact-ROM validation;
+the current identity is pinned in `scripts/build_chip32.py`.
 The package command performs this validation again and writes the result under
 the exact filename declared by `core.json`; it never downloads a tool or
 artifact.

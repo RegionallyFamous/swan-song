@@ -29,6 +29,9 @@ INVENTORY_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V1"
 MANIFEST_MAGIC = "SWAN_SONG_HARDWARE_QA_EVIDENCE_V1"
 OFFICIAL_FIRMWARE_VERSION = "2.6.0"
 OFFICIAL_FIRMWARE_MD5 = "d5be2c99e436081266810594117db496"
+COMPACT_896K_PROBE_SHA256 = (
+    "b4a2c985906ac04c6622080bb1f1f3ac4b3895784c5594f4ba97cd45e6935979"
+)
 # A current official openFPGA template compressed RBF inspected for this
 # protocol is 787,952 bytes.  64 KiB is a deliberately conservative truncation
 # floor, not a Cyclone V format proof and not a substitute for build evidence.
@@ -62,6 +65,17 @@ VIDEO = ArtifactNeed(("video",), 1)
 AUDIO = ArtifactNeed(("audio",), 1)
 SAVE3 = ArtifactNeed(("save",), 3)
 
+CONSOLE_EEPROM_SNAPSHOT_STAGES = (
+    "factory-created",
+    "setup-edited",
+    "quit-relaunch",
+    "model-switch",
+    "title-switch",
+    "ordinary-reset",
+    "power-cycle",
+)
+CONSOLE_EEPROM_SNAPSHOT_SIZES = {"mono": 128, "color": 2048}
+
 
 CASE_SPECS = (
     CaseSpec("fresh_sd_startup", "pocket", (
@@ -81,9 +95,16 @@ CASE_SPECS = (
         "recovery_after_restoring_bios",
     ), (VISUAL, LOG)),
     CaseSpec("invalid_rom_negative", "pocket", (
-        "too_small_rejected", "non_power_of_two_rejected", "oversized_rejected",
+        "too_small_rejected", "misaligned_non_power_of_two_rejected",
+        "invalid_compact_footer_rejected", "invalid_compact_error_visible",
+        "oversized_rejected",
         "no_invalid_game_execution", "valid_rom_recovers",
     ), (VISUAL, LOG)),
+    CaseSpec("compact_rom_896k", "pocket", (
+        "size_917504_accepted", "footer_checksum_accepted",
+        "booted_from_top_aligned_reset_vector", "mapper_mask_is_1mib",
+        "erased_prefix_reads_ff", "ordinary_power_of_two_title_still_boots",
+    ), (VISUAL, LOG), "compact_896k"),
     CaseSpec("memories_sleep_disabled_negative", "pocket", (
         "memory_action_unavailable_or_rejected", "sleep_not_advertised",
         "quick_load_does_not_mutate_game", "game_recovers",
@@ -133,6 +154,18 @@ CASE_SPECS = (
         "absent_save_initialized", "write_persisted_after_quit", "relaunch_loaded",
         "power_cycle_loaded", "save_hashes_recorded", "shutdown_flush_complete",
     ), (SAVE3, LOG), "eeprom", "pocket_and_dock"),
+    CaseSpec("console_eeprom_lifecycle", "both", (
+        "fixed_paths_mono_128_color_2048", "absent_before_first_launch_both",
+        "factory_files_created_both", "original_mono_bios_setup_edit",
+        "original_color_bios_setup_edit", "quit_relaunch_loaded_both",
+        "model_switch_isolated", "title_switch_isolated",
+        "ordinary_reset_retained_both", "power_cycle_loaded_both",
+        "exact_stage_snapshots_and_hashes_recorded", "shutdown_flush_complete",
+    ), (
+        ArtifactNeed(("save",), 14),
+        ArtifactNeed(("pocket_screenshot", "photo", "video"), 2),
+        LOG,
+    ), "mono_color", "pocket_and_dock"),
     CaseSpec("rtc_lifecycle", "both", (
         "epoch_initialized", "minute_crossing_correct", "day_crossing_correct",
         "quit_relaunch_continues", "power_cycle_continues",
@@ -171,6 +204,44 @@ CASE_SPECS = (
 
 CASE_BY_ID = {spec.case_id: spec for spec in CASE_SPECS}
 ARTIFACT_KINDS = {"pocket_screenshot", "photo", "video", "audio", "save", "log"}
+
+
+def _validate_rom_contract(rom: bytes, where: str) -> None:
+    size = len(rom)
+    if size < 64 * 1024 or size > 16 * 1024 * 1024:
+        raise ValueError(f"{where} ROM size is outside 64 KiB..16 MiB")
+    if size & (size - 1) == 0:
+        return
+    if size % (64 * 1024):
+        raise ValueError(f"{where} non-power-of-two ROM size must be 64 KiB-aligned")
+
+    aperture = 1 << (size - 1).bit_length()
+    footer = rom[-16:]
+    if footer[0] != 0xEA:
+        raise ValueError(f"{where} compact ROM footer entry must begin with 0xEA")
+    if footer[5] & 0x0F:
+        raise ValueError(f"{where} compact ROM footer maintenance low bits must be zero")
+    if footer[7] & 0xFE:
+        raise ValueError(f"{where} compact ROM footer color field is invalid")
+    declared_sizes = {
+        0x00: 128 * 1024, 0x01: 256 * 1024, 0x02: 512 * 1024,
+        0x03: 1024 * 1024, 0x04: 2 * 1024 * 1024,
+        0x05: 3 * 1024 * 1024, 0x06: 4 * 1024 * 1024,
+        0x07: 6 * 1024 * 1024, 0x08: 8 * 1024 * 1024,
+        0x09: 16 * 1024 * 1024,
+    }
+    if declared_sizes.get(footer[10]) not in {size, aperture}:
+        raise ValueError(f"{where} compact ROM footer size does not match file or aperture")
+    if footer[11] not in {0, 1, 2, 3, 4, 5, 0x10, 0x20, 0x50}:
+        raise ValueError(f"{where} compact ROM footer save type is unsupported")
+    if footer[12] & 0x04 == 0:
+        raise ValueError(f"{where} compact ROM footer must select the 16-bit ROM bus")
+    if footer[13] > 1:
+        raise ValueError(f"{where} compact ROM footer mapper is unsupported")
+    stored = int.from_bytes(footer[14:16], "little")
+    computed = sum(memoryview(rom)[:-2]) & 0xFFFF
+    if stored != computed:
+        raise ValueError(f"{where} compact ROM footer checksum mismatch")
 
 
 def _object(value: Any, where: str) -> dict[str, Any]:
@@ -420,9 +491,7 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         if path.suffix.casefold() != f".{system}":
             raise ValueError(f"{where} filename extension does not match system")
         rom_bytes = path.read_bytes()
-        size = len(rom_bytes)
-        if size < 64 * 1024 or size > 16 * 1024 * 1024 or size & (size - 1):
-            raise ValueError(f"{where} ROM size is outside the core's power-of-two contract")
+        _validate_rom_contract(rom_bytes, where)
         rom_public.append({
             "id": rom_id,
             "title": _text(item["title"], f"{where} title", 120),
@@ -559,6 +628,8 @@ def _manifest_artifact(root: pathlib.Path, value: Any, index: int) -> tuple[dict
             raise ValueError(f"{where} path contains a symlink: {path_text}")
     if not cursor.is_file():
         raise ValueError(f"{where} evidence file is missing: {cursor}")
+    if cursor.stat().st_nlink != 1:
+        raise ValueError(f"{where} evidence file must not be a hard link: {cursor}")
     resolved_root = root.resolve()
     path = cursor.resolve()
     if not path.is_relative_to(resolved_root):
@@ -610,6 +681,12 @@ def _manifest_artifact(root: pathlib.Path, value: Any, index: int) -> tuple[dict
 def _meets_rom_requirement(requirement: str, selected: list[dict[str, Any]]) -> bool:
     if requirement == "any":
         return len(selected) == 1
+    if requirement == "compact_896k":
+        return (
+            len(selected) == 1
+            and selected[0]["image"]["size"] == 917_504
+            and selected[0]["image"]["sha256"] == COMPACT_896K_PROBE_SHA256
+        )
     if requirement == "horizontal":
         return len(selected) == 1 and selected[0]["native_orientation"] == "horizontal"
     if requirement == "vertical":
@@ -622,9 +699,44 @@ def _meets_rom_requirement(requirement: str, selected: list[dict[str, Any]]) -> 
         return len(selected) == 1 and selected[0]["rtc"] is True
     if requirement == "save_pair":
         return len(selected) == 2 and {item["save_media"] for item in selected} == {"sram", "eeprom"}
+    if requirement == "mono_color":
+        return len(selected) == 2 and {item["system"] for item in selected} == {"ws", "wsc"}
     if requirement == "two":
         return len(selected) == 2
     raise AssertionError(requirement)
+
+
+def _validate_console_eeprom_snapshots(
+    selected: list[dict[str, Any]], where: str
+) -> None:
+    """Require exact, hash-related mono/Color snapshots at every lifecycle edge."""
+
+    saves = [item for item in selected if item["kind"] == "save"]
+    snapshots: dict[tuple[str, str], dict[str, Any]] = {}
+    for model, size in CONSOLE_EEPROM_SNAPSHOT_SIZES.items():
+        for stage in CONSOLE_EEPROM_SNAPSHOT_STAGES:
+            label = f"console-eeprom {model} {stage}"
+            matches = [item for item in saves if item["label"] == label]
+            if len(matches) != 1:
+                raise ValueError(f"{where} needs exactly one save artifact labeled {label!r}")
+            snapshot = matches[0]
+            if snapshot["size"] != size:
+                raise ValueError(
+                    f"{where} {label!r} must be the exact fixed {size}-byte image"
+                )
+            snapshots[(model, stage)] = snapshot
+
+        factory_hash = snapshots[(model, "factory-created")]["sha256"]
+        edited_hash = snapshots[(model, "setup-edited")]["sha256"]
+        if edited_hash == factory_hash:
+            raise ValueError(
+                f"{where} {model} original-BIOS setup edit did not change the factory image"
+            )
+        for stage in CONSOLE_EEPROM_SNAPSHOT_STAGES[2:]:
+            if snapshots[(model, stage)]["sha256"] != edited_hash:
+                raise ValueError(
+                    f"{where} {model} {stage} snapshot does not match the setup-edited image"
+                )
 
 
 def _meets_controller_requirement(requirement: str, selected: list[dict[str, Any]]) -> bool:
@@ -746,6 +858,8 @@ def verify_manifest(manifest_path: pathlib.Path, inventory_path: pathlib.Path, *
             count = sum(item["kind"] in need.kinds for item in selected_artifacts)
             if count < need.minimum:
                 raise ValueError(f"{where} needs {need.minimum} artifact(s) of {','.join(need.kinds)}")
+        if case_id == "console_eeprom_lifecycle":
+            _validate_console_eeprom_snapshots(selected_artifacts, where)
         for artifact in selected_artifacts:
             if not started <= artifact["captured_at"] <= completed:
                 raise ValueError(f"{where} references evidence captured outside its test interval")

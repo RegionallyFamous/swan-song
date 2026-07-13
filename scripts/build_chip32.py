@@ -2,10 +2,11 @@
 """Materialize the pinned Chip32 image without a network/tool dependency.
 
 The textual image is the exact output of open-fpga/bass-chip32 v1.0.0 for
-src/support/chip32.asm. It also matches agg23's released WonderSwan 1.0.1
-chip32.bin. Keeping the small compiled image as hexadecimal makes the package
-build offline and host-independent while the source and output hashes prevent
-the checked-in assembly and machine code from silently drifting apart.
+src/support/chip32.asm, including the fixed-name console EEPROM loads added
+after agg23's released WonderSwan 1.0.1 image and the bounded post-LOADF compact
+ROM validation poll. Keeping the small compiled image as hexadecimal makes the
+package build offline and host-independent while the source and output hashes
+prevent the checked-in assembly and machine code from silently drifting apart.
 
 Primary sources:
 https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0
@@ -18,9 +19,9 @@ import hashlib
 import pathlib
 
 
-EXPECTED_ASM_SHA256 = "eaf13011701e525a8974487403548d2da4b26934199d216b8a3064103a6ea585"
-EXPECTED_IMAGE_SHA256 = "ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c"
-EXPECTED_IMAGE_SIZE = 259
+EXPECTED_ASM_SHA256 = "12dfd14ff66ae02aeda69083d8d793ac5a3149b84eaa7f80d319cec642fd98fe"
+EXPECTED_IMAGE_SHA256 = "962fbc405da1d119e8f189204fb942eb2368a6bf907da6c8009e491965daf030"
+EXPECTED_IMAGE_SIZE = 411
 
 
 def sha256(data: bytes) -> str:

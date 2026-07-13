@@ -322,6 +322,16 @@ module core_top (
       32'h2xxxxxxx: begin
         bridge_rd_data <= sd_read_data;
       end
+      32'h5xxxxxxx: begin
+        bridge_rd_data <= mono_console_eeprom_read_data;
+      end
+      32'h6xxxxxxx: begin
+        bridge_rd_data <= color_console_eeprom_read_data;
+      end
+      // Chip32 post-LOADF compact-ROM validation: 0 pending, 1 ready, 2 fail.
+      32'h00000014: begin
+        bridge_rd_data <= rom_validation_status_74a;
+      end
       32'h4xxxxxxx: begin
         bridge_rd_data <= save_state_bridge_read_data;
       end
@@ -459,6 +469,22 @@ module core_top (
   wire [47:0] captured_save_length;
   wire captured_save_length_updated;
 
+  wire rom_plan_commit_74a = dataslot_requestwrite_ack &&
+                             (dataslot_requestwrite_result == 2'd0) &&
+                             (dataslot_requestwrite_id == 16'd0);
+  wire rom_plan_busy_74a;
+  wire rom_plan_rejected_74a;
+  wire [24:0] rom_size_mem;
+  wire rom_plan_valid_mem;
+  wire [24:0] rom_size_sys;
+  wire rom_plan_valid_sys;
+  wire rom_image_ready_mem;
+  wire rom_validation_failed_mem;
+  wire [1:0] rom_validation_state_74a;
+  wire [31:0] rom_validation_status_74a =
+      rom_validation_state_74a[1] ? 32'd2 :
+      rom_validation_state_74a[0] ? 32'd1 : 32'd0;
+
   wire dataslot_request_valid = dataslot_requestread || dataslot_requestwrite;
   wire [15:0] dataslot_request_id = dataslot_requestwrite ?
                                     dataslot_requestwrite_id :
@@ -498,6 +524,7 @@ module core_top (
   reg save_metadata_ready_74a = 1'b0;
   reg save_metadata_publish_pending = 1'b0;
   reg save_metadata_table_published = 1'b0;
+  reg [1:0] save_metadata_publish_step = 2'd0;
 
   wire dataslot_allcomplete_mem;
   wire save_initialization_resolved_74a;
@@ -754,6 +781,7 @@ module core_top (
       save_metadata_ready_74a <= 1'b0;
       save_metadata_publish_pending <= 1'b0;
       save_metadata_table_published <= 1'b0;
+      save_metadata_publish_step <= 2'd0;
       datatable_addr <= 10'd0;
       datatable_data <= 32'd0;
       datatable_wren <= 1'b0;
@@ -764,21 +792,42 @@ module core_top (
         save_metadata_ready_74a <= 1'b0;
         save_metadata_publish_pending <= 1'b0;
         save_metadata_table_published <= 1'b0;
+        save_metadata_publish_step <= 2'd0;
       end else begin
         if (save_metadata_valid_74a) begin
           save_metadata_ready_74a <= 1'b1;
           save_metadata_publish_pending <= 1'b1;
           save_metadata_table_published <= 1'b0;
+          save_metadata_publish_step <= 2'd0;
         end
 
         if (save_metadata_publish_pending && dataslot_allcomplete) begin
-          // Slot index 3 is ID 11 in data.json; word 1 is its runtime length.
-          datatable_addr <= 10'd7;
-          datatable_data <= {12'd0, save_size_bytes_74a} +
-                            (has_rtc_74a ? 32'd12 : 32'd0);
+          // Word 1 of each slot entry controls nonvolatile unload length.
+          // Keep cartridge slot 11 dynamic, then publish both fixed console
+          // EEPROM capacities even when their optional files did not exist.
+          case (save_metadata_publish_step)
+            2'd0: begin
+              // Slot index 3 is cartridge Save ID 11.
+              datatable_addr <= 10'd7;
+              datatable_data <= {12'd0, save_size_bytes_74a} +
+                                (has_rtc_74a ? 32'd12 : 32'd0);
+              save_metadata_publish_step <= 2'd1;
+            end
+            2'd1: begin
+              // Slot index 4 is fixed mono console EEPROM ID 12.
+              datatable_addr <= 10'd9;
+              datatable_data <= 32'd128;
+              save_metadata_publish_step <= 2'd2;
+            end
+            default: begin
+              // Slot index 5 is fixed Color console EEPROM ID 13.
+              datatable_addr <= 10'd11;
+              datatable_data <= 32'd2048;
+              save_metadata_publish_pending <= 1'b0;
+              save_metadata_table_published <= 1'b1;
+            end
+          endcase
           datatable_wren <= 1'b1;
-          save_metadata_publish_pending <= 1'b0;
-          save_metadata_table_published <= 1'b1;
         end
       end
     end
@@ -811,7 +860,8 @@ module core_top (
   wire cartridge_size_supported =
       (dataslot_requestwrite_size >= 48'd65536) &&
       (dataslot_requestwrite_size <= 48'd16777216) &&
-      ((dataslot_requestwrite_size & (dataslot_requestwrite_size - 48'd1)) == 48'd0);
+      (((dataslot_requestwrite_size & (dataslot_requestwrite_size - 48'd1)) == 48'd0) ||
+       (dataslot_requestwrite_size[15:0] == 16'd0));
   wire [47:0] canonical_save_size =
       {28'd0, save_size_bytes_74a} + (has_rtc_74a ? 48'd12 : 48'd0);
   wire legacy_small_eeprom_save =
@@ -837,9 +887,11 @@ module core_top (
 
     case (dataslot_policy_id)
       16'd0: begin
-        // The implemented mapper is 24-bit: accept power-of-two ROM images
-        // from 64 KiB through 16 MiB, host-to-core only.
+        // The implemented mapper is 24-bit. Conventional power-of-two images
+        // retain their direct path; compact images must be whole 64 KiB banks
+        // so the loader can right-align them and fill an integral prefix.
         dataslot_policy_allow_write = cartridge_size_supported;
+        dataslot_policy_bounds_ready = !rom_plan_busy_74a;
       end
       16'd9: begin
         dataslot_policy_allow_write = 1'b1;
@@ -859,6 +911,20 @@ module core_top (
                                       save_write_size_supported;
         dataslot_policy_bounds_ready = save_metadata_ready_74a;
         dataslot_policy_capture_length = 1'b1;
+      end
+      16'd12: begin
+        // Core-specific monochrome console EEPROM: exact and bidirectional.
+        dataslot_policy_allow_read = 1'b1;
+        dataslot_policy_allow_write = 1'b1;
+        dataslot_policy_size_mode = 2'd1;
+        dataslot_policy_exact_size = 48'd128;
+      end
+      16'd13: begin
+        // Core-specific Color console EEPROM: exact and bidirectional.
+        dataslot_policy_allow_read = 1'b1;
+        dataslot_policy_allow_write = 1'b1;
+        dataslot_policy_size_mode = 2'd1;
+        dataslot_policy_exact_size = 48'd2048;
       end
       default: begin
         dataslot_policy_known = 1'b0;
@@ -896,6 +962,35 @@ module core_top (
       .captured_save_id(captured_save_id),
       .captured_save_length(captured_save_length),
       .captured_save_length_updated(captured_save_length_updated)
+  );
+
+  // Broadcast the exact accepted cartridge byte count atomically.  The
+  // memory side constructs the mapped image while the system side publishes
+  // its final power-of-two mask; both must use the same APF request snapshot.
+  apf_rom_plan_cdc rom_plan_cdc (
+      .reset_n(pll_core_locked),
+      .clk_74a(clk_74a),
+      .rom_size_74a(dataslot_requestwrite_size[24:0]),
+      .commit_74a(rom_plan_commit_74a),
+      .busy_74a(rom_plan_busy_74a),
+      .rejected_74a(rom_plan_rejected_74a),
+      .clk_mem(clk_mem_110_592),
+      .rom_size_mem(rom_size_mem),
+      .valid_mem(rom_plan_valid_mem),
+      .clk_sys(clk_sys_36_864),
+      .rom_size_sys(rom_size_sys),
+      .valid_sys(rom_plan_valid_sys)
+  );
+
+  // These one-hot levels are reset for each external cartridge load and only
+  // make one terminal transition. Chip32 polls the synchronized state after
+  // LOADF has deasserted cart_download, so it never consumes the transition.
+  synch_3 #(
+      .WIDTH(2)
+  ) rom_validation_to_bridge (
+      {rom_validation_failed_mem, rom_image_ready_mem},
+      rom_validation_state_74a,
+      clk_74a
   );
 
   // Save states
@@ -1061,6 +1156,110 @@ module core_top (
       .read_data(sd_buff_din)
   );
 
+  wire mono_console_eeprom_wr;
+  wire mono_console_eeprom_rd;
+  wire [10:0] mono_console_eeprom_addr_in;
+  wire [10:0] mono_console_eeprom_addr_out;
+  wire [15:0] mono_console_eeprom_dout;
+  wire [31:0] mono_console_eeprom_read_data;
+
+  wire color_console_eeprom_wr;
+  wire color_console_eeprom_rd;
+  wire [10:0] color_console_eeprom_addr_in;
+  wire [10:0] color_console_eeprom_addr_out;
+  wire [15:0] color_console_eeprom_dout;
+  wire [31:0] color_console_eeprom_read_data;
+
+  wire [15:0] console_eeprom_din;
+  wire console_eeprom_write_complete;
+  wire console_eeprom_wr = mono_console_eeprom_wr || color_console_eeprom_wr;
+  wire console_eeprom_rd = mono_console_eeprom_rd || color_console_eeprom_rd;
+  wire mono_console_eeprom_access = mono_console_eeprom_wr ||
+                                    mono_console_eeprom_rd;
+  wire console_eeprom_bank = mono_console_eeprom_access;
+  wire [10:0] console_eeprom_addr = mono_console_eeprom_wr ?
+                                    mono_console_eeprom_addr_in :
+                                    color_console_eeprom_wr ?
+                                    color_console_eeprom_addr_in :
+                                    mono_console_eeprom_rd ?
+                                    mono_console_eeprom_addr_out :
+                                    color_console_eeprom_addr_out;
+  wire [15:0] console_eeprom_dout = mono_console_eeprom_wr ?
+                                    mono_console_eeprom_dout :
+                                    color_console_eeprom_dout;
+
+  data_loader #(
+      .ADDRESS_MASK_UPPER_4(4'h5),
+      .ADDRESS_SIZE(11),
+      .OUTPUT_WORD_SIZE(2),
+      .WRITE_MEM_CLOCK_DELAY(20),
+      .USE_WRITE_COMPLETE(1)
+  ) mono_console_eeprom_loader (
+      .clk_74a(clk_74a),
+      .clk_memory(clk_mem_110_592),
+      .bridge_wr(bridge_wr),
+      .bridge_endian_little(bridge_endian_little),
+      .bridge_addr(bridge_addr),
+      .bridge_wr_data(bridge_wr_data),
+      .write_complete(console_eeprom_write_complete),
+      .write_en(mono_console_eeprom_wr),
+      .write_addr(mono_console_eeprom_addr_in),
+      .write_data(mono_console_eeprom_dout)
+  );
+
+  data_unloader #(
+      .ADDRESS_MASK_UPPER_4(4'h5),
+      .ADDRESS_SIZE(11),
+      .INPUT_WORD_SIZE(2),
+      .READ_MEM_CLOCK_DELAY(20)
+  ) mono_console_eeprom_unloader (
+      .clk_74a(clk_74a),
+      .clk_memory(clk_mem_110_592),
+      .bridge_rd(bridge_rd),
+      .bridge_endian_little(bridge_endian_little),
+      .bridge_addr(bridge_addr),
+      .bridge_rd_data(mono_console_eeprom_read_data),
+      .read_en(mono_console_eeprom_rd),
+      .read_addr(mono_console_eeprom_addr_out),
+      .read_data(console_eeprom_din)
+  );
+
+  data_loader #(
+      .ADDRESS_MASK_UPPER_4(4'h6),
+      .ADDRESS_SIZE(11),
+      .OUTPUT_WORD_SIZE(2),
+      .WRITE_MEM_CLOCK_DELAY(20),
+      .USE_WRITE_COMPLETE(1)
+  ) color_console_eeprom_loader (
+      .clk_74a(clk_74a),
+      .clk_memory(clk_mem_110_592),
+      .bridge_wr(bridge_wr),
+      .bridge_endian_little(bridge_endian_little),
+      .bridge_addr(bridge_addr),
+      .bridge_wr_data(bridge_wr_data),
+      .write_complete(console_eeprom_write_complete),
+      .write_en(color_console_eeprom_wr),
+      .write_addr(color_console_eeprom_addr_in),
+      .write_data(color_console_eeprom_dout)
+  );
+
+  data_unloader #(
+      .ADDRESS_MASK_UPPER_4(4'h6),
+      .ADDRESS_SIZE(11),
+      .INPUT_WORD_SIZE(2),
+      .READ_MEM_CLOCK_DELAY(20)
+  ) color_console_eeprom_unloader (
+      .clk_74a(clk_74a),
+      .clk_memory(clk_mem_110_592),
+      .bridge_rd(bridge_rd),
+      .bridge_endian_little(bridge_endian_little),
+      .bridge_addr(bridge_addr),
+      .bridge_rd_data(color_console_eeprom_read_data),
+      .read_en(color_console_eeprom_rd),
+      .read_addr(color_console_eeprom_addr_out),
+      .read_data(console_eeprom_din)
+  );
+
   wire [15:0] audio_l;
   wire [15:0] audio_r;
 
@@ -1222,6 +1421,13 @@ module core_top (
       .ioctl_addr(ioctl_addr),
       .ioctl_dout(ioctl_dout),
 
+      .rom_size_mem(rom_size_mem),
+      .rom_plan_valid_mem(rom_plan_valid_mem),
+      .rom_size_sys(rom_size_sys),
+      .rom_plan_valid_sys(rom_plan_valid_sys),
+      .rom_image_ready_mem(rom_image_ready_mem),
+      .rom_validation_failed_mem(rom_validation_failed_mem),
+
       .ext_cart_download(ext_cart_download_mem_s),
       .ext_cart_download_sys(ext_cart_download_sys_s),
 
@@ -1274,6 +1480,14 @@ module core_top (
       .sd_buff_addr(sd_buff_addr),
       .sd_buff_din(sd_buff_din),
       .sd_buff_dout(sd_buff_dout),
+
+      .console_eeprom_wr(console_eeprom_wr),
+      .console_eeprom_rd(console_eeprom_rd),
+      .console_eeprom_bank(console_eeprom_bank),
+      .console_eeprom_addr(console_eeprom_addr),
+      .console_eeprom_din(console_eeprom_din),
+      .console_eeprom_dout(console_eeprom_dout),
+      .console_eeprom_write_complete(console_eeprom_write_complete),
 
       .save_ram_write_complete(save_ram_write_complete),
 

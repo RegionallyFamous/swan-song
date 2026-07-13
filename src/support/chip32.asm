@@ -8,6 +8,8 @@ constant rom_dataslot = 0
 constant bw_bios_dataslot = 9
 constant color_bios_dataslot = 10
 constant save_dataslot = 11
+constant mono_eeprom_dataslot = 12
+constant color_eeprom_dataslot = 13
 
 constant cart_download_addr = 0x0
 constant is_color_cart_addr = 0x4
@@ -16,6 +18,11 @@ constant bw_bios_download_addr = 0x8
 constant color_bios_download_addr = 0xC
 
 constant save_download_addr = 0x10
+constant rom_validation_status_addr = 0x14
+// This is an instruction-count guard, not a wall-clock duration. Analogue does
+// not publish the VM rate or its firmware crash-cycle limit, so Pocket QA must
+// calibrate the visible timeout path on the target firmware.
+constant rom_validation_timeout = 0x00100000
 
 // Host init command
 constant host_init = 0x4002
@@ -49,6 +56,42 @@ macro load_bios_asset(variable ioctl_download_addr, variable dataslot_id, variab
   load_asset(ioctl_download_addr, dataslot_id, error_msg)
 }
 
+macro load_rom_asset(variable ioctl_download_addr, variable dataslot_id) {
+  ld r1,#ioctl_download_addr
+  ld r2,#1
+  pmpw r1,r2
+
+  ld r3,#dataslot_id
+  ld r14,#rom_err_msg
+  loadf r3
+  jp nz,print_error_and_exit
+
+  // Prefix fill is interleaved before EOF; validation/status CDC completes
+  // after the final LOADF word.
+  ld r1,#ioctl_download_addr
+  ld r2,#0
+  pmpw r1,r2
+  ld r1,#rom_validation_status_addr
+  ld r4,#rom_validation_timeout
+
+rom_validation_poll:
+  pmpr r1,r2
+  cmp r2,#1
+  jp z,rom_validation_ready
+  cmp r2,#2
+  jp z,rom_validation_rejected
+  sub r4,#1
+  jp nz,rom_validation_poll
+  ld r14,#rom_validation_timeout_msg
+  jp print_error_and_exit
+
+rom_validation_rejected:
+  ld r14,#rom_validation_rejected_msg
+  jp print_error_and_exit
+
+rom_validation_ready:
+}
+
 // Error vector (0x0)
 jp error_handler
 
@@ -76,13 +119,19 @@ ld r1,#is_color_cart_addr
 pmpw r1,r3 // Write is_color_cart = r3
 
 // Load cart
-load_asset(cart_download_addr, rom_dataslot, rom_err_msg)
+load_rom_asset(cart_download_addr, rom_dataslot)
 
 // Load BIOS
 load_bios_asset(bw_bios_download_addr, bw_bios_dataslot, bw_bios_err_msg)
 load_bios_asset(color_bios_download_addr, color_bios_dataslot, color_bios_err_msg)
 
 // Load save
+// Console EEPROM is fixed-name, core-specific machine state. Load both models
+// before the cartridge save and before HOST 4002 releases execution.
+load_asset(save_download_addr, mono_eeprom_dataslot, 0)
+load_asset(save_download_addr, color_eeprom_dataslot, 0)
+
+// Load per-title cartridge save through its independent slot/window.
 load_asset(save_download_addr, save_dataslot, 0)
 
 // Start core
@@ -107,6 +156,12 @@ db "Error",0
 
 rom_err_msg:
 db "Could not load ROM",0
+
+rom_validation_rejected_msg:
+db "ROM footer/checksum rejected",0
+
+rom_validation_timeout_msg:
+db "ROM validation timed out",0
 
 color_bios_err_msg:
 db "No Color BIOS found",0
