@@ -38,6 +38,7 @@ python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_interrupt_input_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_80186_quirks_test.py"
 python3 "$ROOT/sim/verilator/verify_interrupts_fixture_test.py"
+python3 "$ROOT/sim/verilator/verify_sound_dma_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
@@ -698,6 +699,31 @@ python3 "$ROOT/sim/verilator/verify_interrupts_fixture.py" \
   --trace-b "$INTERRUPTS_OUT/b/events.csv" \
   --frame0-b "$INTERRUPTS_OUT/b/frames/frame-0.rgb" \
   --final-b "$INTERRUPTS_OUT/b/frames/frame-5.rgb"
+
+# Run the pinned open WSC Sound-DMA fixture twice. The dedicated verifier
+# binds the exact source, ROM, manifest, 346 functional SDMA reads, all 22 PASS
+# cells, terminal loop, and final pixels. In this Wonderful build the source's
+# .sram symbol has segment zero, so its two SRAM-labeled phases are explicitly
+# required to resolve to IRAM; this fixture makes no cartridge-SRAM claim.
+SOUND_DMA_FIXTURE="$ROOT/testroms/ws-test-suite/sound_dma"
+SOUND_DMA_OUT="$BUILD/sound-dma-fixture"
+rm -rf "$SOUND_DMA_OUT"
+for sound_dma_run in a b; do
+  "$SIM" --rom "$SOUND_DMA_FIXTURE/sound_dma.wsc" \
+    --frames 15 --max-cycles 8000000 \
+    --out "$SOUND_DMA_OUT/$sound_dma_run/frames" \
+    --event-trace "$SOUND_DMA_OUT/$sound_dma_run/events.csv" \
+    --trace-events cpu,mem,bg_cell --trace-mem-initiator sdma >/dev/null
+  cmp \
+    "$SOUND_DMA_OUT/$sound_dma_run/frames/frame-13.rgb" \
+    "$SOUND_DMA_OUT/$sound_dma_run/frames/frame-14.rgb"
+done
+python3 "$ROOT/sim/verilator/verify_sound_dma_fixture.py" \
+  --fixture "$SOUND_DMA_FIXTURE" \
+  --trace-a "$SOUND_DMA_OUT/a/events.csv" \
+  --final-a "$SOUND_DMA_OUT/a/frames/frame-14.rgb" \
+  --trace-b "$SOUND_DMA_OUT/b/events.csv" \
+  --final-b "$SOUND_DMA_OUT/b/frames/frame-14.rgb"
 
 # Wonderful's open WSC fixture distinguishes the valid 2bpp Color extended
 # screen/tile/sprite ranges from their 16-KiB aliases. Verify the visible PASS
