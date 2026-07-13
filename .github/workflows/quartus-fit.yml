@@ -1,0 +1,74 @@
+name: Quartus fit candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERILATOR_IMAGE: verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299
+  GHDL_IMAGE: ghdl/ghdl@sha256:8b3ec37c3873b2eee9387759e66c50830c15ae5b7b533badaa97ce007a0f8022
+
+concurrency:
+  group: quartus-fit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fit:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: [self-hosted, linux, x64, swan-song-quartus-21-1-1]
+    timeout-minutes: 180
+    env:
+      CXX: ${{ github.workspace }}/.github/toolchain/cxx
+    steps:
+      - name: Require native x86_64 host
+        shell: bash
+        run: |
+          operating_system="$(uname -s)"
+          architecture="$(uname -m)"
+          if [[ "$operating_system" != Linux ]]; then
+            echo "Quartus fit runner must use Linux, got $operating_system" >&2
+            exit 1
+          fi
+          if [[ "$architecture" != x86_64 ]]; then
+            echo "Quartus fit runner must be native x86_64, got $architecture" >&2
+            exit 1
+          fi
+      - name: Check out exact source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare empty artifact and evidence directories
+        shell: bash
+        run: |
+          artifact_dir="$(mktemp -d "$RUNNER_TEMP/quartus-fit.XXXXXX")"
+          evidence_dir="$(mktemp -d "$RUNNER_TEMP/quartus-evidence.XXXXXX")"
+          echo "ARTIFACT_DIR=$artifact_dir" >> "$GITHUB_ENV"
+          echo "EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
+      - name: Verify immutable HDL toolchain
+        run: |
+          echo "$GITHUB_WORKSPACE/.github/toolchain" >> "$GITHUB_PATH"
+          .github/toolchain/verify.sh
+      - name: Run complete regression gate
+        run: make regression
+      - name: Verify pinned Quartus image
+        run: ./scripts/quartus_docker.sh check-image
+      - name: Fit and audit exact commit
+        run: ./scripts/quartus_docker.sh build "$ARTIFACT_DIR"
+      - name: Collect bounded candidate evidence
+        id: collect
+        if: ${{ always() && env.ARTIFACT_DIR != '' && env.EVIDENCE_DIR != '' }}
+        run: >-
+          python3 scripts/quartus_evidence.py
+          --artifacts "$ARTIFACT_DIR"
+          --output "$EVIDENCE_DIR"
+      - name: Preserve candidate evidence
+        if: ${{ always() && steps.collect.outcome == 'success' && env.EVIDENCE_DIR != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: quartus-fit-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 14

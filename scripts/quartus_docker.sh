@@ -33,7 +33,7 @@ fail() {
 
 require_docker() {
   command -v docker >/dev/null || fail "Docker is not installed"
-  docker info >/dev/null 2>&1 || fail "Docker Desktop is not running"
+  docker info >/dev/null 2>&1 || fail "Docker daemon is not reachable"
 }
 
 doctor() {
@@ -41,7 +41,7 @@ doctor() {
   local architecture
   architecture="$(docker run --rm --platform linux/amd64 --network none \
     "$UBUNTU_AMD64" uname -m)"
-  [[ "$architecture" == x86_64 ]] || fail "amd64 emulation returned $architecture"
+  [[ "$architecture" == x86_64 ]] || fail "linux/amd64 probe returned $architecture"
   echo "Docker can start a pinned linux/amd64 Ubuntu 20.04 container ($architecture)"
   if [[ "$(uname -m)" == arm64 ]]; then
     echo "Host is Apple Silicon; Quartus execution remains best-effort until a full fit completes"
@@ -51,6 +51,70 @@ doctor() {
 verify_archive() {
   local archive="${1:-$DEFAULT_ARCHIVE}"
   python3 "$ROOT/scripts/quartus_archive.py" verify "$archive"
+}
+
+sha256_file() {
+  python3 - "$1" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+digest = hashlib.sha256()
+with path.open("rb") as source:
+    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+}
+
+verify_container_toolchain_payload() {
+  local temporary container_id index checkout embedded extracted expected actual
+  local checkout_files=(
+    "$TOOLCHAIN_DIR/container-build-core.sh"
+    "$TOOLCHAIN_DIR/toolchain-check.sh"
+    "$TOOLCHAIN_DIR/verify-toolchain.tcl"
+  )
+  local embedded_files=(
+    /usr/local/bin/container-build-core
+    /usr/local/bin/toolchain-check
+    /usr/local/share/swan-song/verify-toolchain.tcl
+  )
+  temporary="$(mktemp -d "${TMPDIR:-/tmp}/swan-song-helper-check.XXXXXX")"
+
+  if ! container_id="$(docker create --platform linux/amd64 --network none "$IMAGE")"; then
+    rm -rf "$temporary"
+    fail "could not create a container to inspect the embedded toolchain payload"
+  fi
+
+  for index in "${!checkout_files[@]}"; do
+    checkout="${checkout_files[$index]}"
+    embedded="${embedded_files[$index]}"
+    extracted="$temporary/$index"
+    if ! docker cp "$container_id:$embedded" "$extracted"; then
+      docker rm -f "$container_id" >/dev/null 2>&1 || true
+      rm -rf "$temporary"
+      fail "could not extract embedded toolchain payload: $embedded"
+    fi
+    if [[ ! -f "$extracted" || -L "$extracted" ]]; then
+      docker rm -f "$container_id" >/dev/null 2>&1 || true
+      rm -rf "$temporary"
+      fail "embedded toolchain payload is not a regular file: $embedded"
+    fi
+    expected="$(sha256_file "$checkout")"
+    actual="$(sha256_file "$extracted")"
+    if [[ "$actual" != "$expected" ]]; then
+      docker rm -f "$container_id" >/dev/null 2>&1 || true
+      rm -rf "$temporary"
+      fail "embedded toolchain payload does not match checkout: $embedded"
+    fi
+  done
+
+  if ! docker rm "$container_id" >/dev/null; then
+    rm -rf "$temporary"
+    fail "could not remove the toolchain-payload inspection container"
+  fi
+  rm -rf "$temporary"
 }
 
 inspect_image() {
@@ -71,6 +135,7 @@ inspect_image() {
   [[ "$archive_sha1" == 789c1133d99fde7146fdb99c1f5dcb4d2e5cc0cc ]] \
     || fail "image archive provenance label is wrong: $archive_sha1"
 
+  verify_container_toolchain_payload
   docker run --rm --platform linux/amd64 --network none \
     "$IMAGE" /usr/local/bin/toolchain-check
 }
@@ -125,6 +190,8 @@ build_core() {
   docker run --rm \
     --platform linux/amd64 \
     --network none \
+    --env "ARTIFACT_UID=$(id -u)" \
+    --env "ARTIFACT_GID=$(id -g)" \
     --volume "$ROOT:/source:ro" \
     --volume "$output:/artifacts:rw" \
     "$IMAGE" \

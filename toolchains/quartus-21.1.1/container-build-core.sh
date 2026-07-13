@@ -16,6 +16,33 @@ if find "$artifact_root" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   echo "artifact directory must be empty: $artifact_root" >&2
   exit 73
 fi
+case "${ARTIFACT_UID:-}" in
+  (*[!0-9]*|'') echo "ARTIFACT_UID must be a numeric host user ID" >&2; exit 79 ;;
+esac
+case "${ARTIFACT_GID:-}" in
+  (*[!0-9]*|'') echo "ARTIFACT_GID must be a numeric host group ID" >&2; exit 80 ;;
+esac
+
+work_root=""
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ -n "$work_root" ]] && ! rm -rf "$work_root"; then
+    echo "failed to remove temporary Quartus work tree: $work_root" >&2
+    if (( status == 0 )); then
+      status=81
+    fi
+  fi
+  if ! chown -R --no-dereference \
+    "$ARTIFACT_UID:$ARTIFACT_GID" "$artifact_root"; then
+    echo "failed to return Quartus artifacts to $ARTIFACT_UID:$ARTIFACT_GID" >&2
+    if (( status == 0 )); then
+      status=82
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 
 /usr/local/bin/toolchain-check
 
@@ -40,7 +67,6 @@ case "$source_epoch" in
 esac
 
 work_root="$(mktemp -d /tmp/swan-song-quartus.XXXXXX)"
-trap 'rm -rf "$work_root"' EXIT
 mkdir "$work_root/repo"
 
 # Build the exact committed tree. This excludes untracked host files and old

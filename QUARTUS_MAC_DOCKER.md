@@ -186,6 +186,60 @@ hardware would. After a successful fit, follow
 [`POCKET_SD_STAGING.md`](POCKET_SD_STAGING.md) for the fail-closed package and
 microSD workflow before hardware acceptance testing.
 
+## Automated VM lanes
+
+The repository already uses a fresh GitHub-hosted Ubuntu 24.04 VM on every
+push and pull request. That lane verifies the immutable Verilator/GHDL
+toolchain and runs `make regression`; it is the right place for open-source
+simulation, synthesis smoke tests, format contracts, negative mutations, and
+packaging checks that do not require Quartus.
+
+Quartus needs a separate native-x86 Linux lane. GitHub's standard Linux runner
+has only 14 GB of SSD, exactly the vendor's stated minimum for Quartus Lite
+itself, before the 6.6 GB installer, Docker layers, source, and fit artifacts.
+Use either an 8-vCPU/32-GB/300-GB GitHub larger runner or an ephemeral
+self-hosted/cloud Ubuntu 24.04 x86_64 VM. A practical self-hosted target is 8
+vCPU, 32 GB RAM, and at least 100 GB SSD. The host can stay current because the
+verified Quartus container itself remains pinned to Ubuntu 20.04.
+
+Provision the licensed vendor archive to that VM outside Git and GitHub
+caches, accept the EULA there, and build the pinned private image once. A
+trusted manual or protected-branch job can then run:
+
+```sh
+make regression
+./scripts/quartus_docker.sh check-image
+./scripts/quartus_docker.sh build "$RUNNER_TEMP/quartus-fit"
+```
+
+The checked-in `.github/workflows/quartus-fit.yml` provides the manual fit
+job. It will remain queued until a runner carrying the cumulative labels
+`self-hosted`, `linux`, `x64`, and `swan-song-quartus-21-1-1` is online. Its
+job guard accepts only the repository's default branch, and a runtime probe
+requires a native Linux x86_64 host. The source checkout is exact and
+credential-free; the workflow never downloads, installs, caches, or publishes
+Quartus.
+
+Publish only the audit JSON, reports, build log, RBF SHA-256, candidate RBF,
+toolchain/build-ID files, and provenance metadata; never publish the Quartus
+installer or private runtime image. Do not route
+public pull-request code to a persistent self-hosted runner: GitHub warns that
+forked PRs can execute dangerous code on that machine. Prefer an ephemeral VM,
+or restrict a dedicated runner group to a trusted workflow and protected
+branch/manual dispatch. Official resource and security references are
+[GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+[larger runners](https://docs.github.com/en/actions/reference/runners/larger-runners),
+[self-hosted runners](https://docs.github.com/en/actions/reference/runners/self-hosted-runners),
+and [runner-group access](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access).
+The workflow's collector enforces that evidence allowlist and excludes every
+other Quartus output. On a public repository, assume the uploaded 14-day
+evidence bundle is public to signed-in users with repository read access.
+
+This second lane automates synthesis, fit, assembly, TimeQuest, resource
+budgets, report auditing, and reproducibility. It still cannot certify
+PocketOS commands, LCD/Dock behavior, SDRAM on the actual board, or Sleep/Wake;
+those remain physical-Pocket gates.
+
 Finally, SHA-1 is used because it is the digest the vendor publishes for this
 release. These checks detect corruption and package mix-ups against that pinned
 vendor value; they are not a modern cryptographic signature.
