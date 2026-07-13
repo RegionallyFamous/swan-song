@@ -21,9 +21,26 @@ Unrelated files and directories are neither deleted nor rewritten.
 
 ## Prerequisites
 
-Build a development package with the repository's normal package command. It
-must have its adjacent `.provenance.json` file. Release packages are
-deliberately rejected by this staging tool.
+For Pocket use, first install the current official
+[Pocket firmware 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0)
+if it is not already installed. The firmware download is separate from Swan
+Song and has published MD5 `d5be2c99e436081266810594117db496`.
+
+Build a development package from a reviewed raw RBF. On a supported Quartus
+host, `make package` runs the compile and creates `build/SwanSong.zip`. If the
+RBF was already produced—for example by the Apple-Silicon Docker workflow—run:
+
+```sh
+./scripts/package_core.py \
+  --rbf /absolute/path/to/ap_core.rbf \
+  --output build/SwanSong.zip
+```
+
+The command also creates `build/SwanSong.zip.provenance.json`, which must stay
+beside the ZIP. Release packages are deliberately rejected by this staging
+tool. Apple-Silicon developers need Docker Desktop and the exact Quartus Linux
+download documented in [`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md); normal
+Pocket users installing a verified release need neither Quartus nor Docker.
 
 Provide your own legally obtained BIOS dumps:
 

@@ -24,6 +24,22 @@ should be upstreamed after they are verified.
 
 ## Installation
 
+### What to download on a Mac
+
+For normal Pocket installation, the complete download checklist is:
+
+- the current official [Pocket firmware 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0)
+  if the Pocket is not already current (the published MD5 is
+  `d5be2c99e436081266810594117db496`);
+- a verified Swan Song APF ZIP once one is published; and
+- your own legally obtained `bw.rom`, `color.rom`, and `.ws`/`.wsc` images.
+
+An end user does **not** need Quartus or Docker to install a verified release.
+Developers building the FPGA image on an Apple-Silicon Mac additionally need
+Docker Desktop and the exact 6.6 GB Quartus Prime Lite 21.1.1 Linux archive in
+[`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md). Questa is not required. This
+repository does not provide or download BIOS or game data.
+
 ### Easy mode
 
 The updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven) are excellent for published openFPGA cores. The current Swan Song development branch is not yet a verified updater release; using an updater today may install or restore upstream WonderSwan 1.0.1 instead. Use this route only after a Swan Song release is explicitly listed.
@@ -46,17 +62,26 @@ the root of your SD card. Please note that Finder on macOS automatically
 _replaces_ folders, rather than merging them like Windows does, so you have to
 manually merge the folders.
 
+Developers testing a package from the current checkout should use the
+read-only-first [Mac SD staging workflow](POCKET_SD_STAGING.md), which validates
+the ZIP, its provenance sidecar, both BIOS sizes, and the destination before any
+write.
+
 ## Usage
 
 ROMs should be placed in `/Assets/wonderswan/common/`.
 
 Optional per-game Pocket presets can provide each ROM with its own documented
 Interact defaults and Controls definition through APF's path-mirrored
-`Presets` folders. The official openFPGA `input.json` interface is currently
-read-only: a default or per-game Controls definition changes the labels Pocket
-shows, but does not remap the PAD signals delivered to the core. Pocket
-behavior still needs hardware verification. The offline generator does not
-read or catalogue ROMs; see
+`Presets` folders. Analogue's current developer pages describe the
+`input.json` Controls UI as read-only and say remapping is coming soon, while
+the official Pocket firmware 2.4 notes separately say beta Dock remapping
+applies to all four controllers. Those public statements conflict. A default
+or per-game definition supplies the declared labels and key defaults, but Swan
+Song does not promise whether PocketOS 2.6.0 will expose editing, apply a
+remap, or persist it. Firmware 2.6.0 Pocket and Dock hardware observation is
+the acceptance gate. The offline generator does not read or catalogue ROMs or
+modify an undocumented remap store; see
 [PER_GAME_PRESETS.md](PER_GAME_PRESETS.md).
 
 For the shortest supported boot path, choose **Startup Action > openFPGA** in
@@ -226,11 +251,14 @@ game-visible input behavior tied to the emulated hardware.
 Pocket's built-in controls and a Dock controller use this same Player 1 digital
 mapping. Dock controllers reported as digital or analog-capable are accepted,
 but analog axes are not consumed; controllers 2-4, keyboards, and mice are not
-game inputs for this single-player core. `Core Settings > Controls` is
-read-only mapping help under the current openFPGA specification, not a
-remapper. PocketOS owns its menu/system actions. The documented Dock fallback
-menu chord on controllers without a menu button uses Select + Down, so its
-interaction with Select-based Fast Forward remains a physical-hardware gate.
+game inputs for this single-player core. The current developer documentation
+calls `Core Settings > Controls` read-only, but firmware 2.4 documents beta
+Dock remapping. PocketOS owns that behavior and its menu/system actions, so
+editability, remap application, reset, scope, and persistence must be recorded
+on firmware 2.6.0 Pocket and Dock hardware. The documented Dock fallback menu
+chord on controllers without a menu button uses Select + Down, so its
+interaction with Select-based Fast Forward remains another physical-hardware
+gate.
 See [`FIRST_CLASS_INPUT_DOCK.md`](FIRST_CLASS_INPUT_DOCK.md) for the researched
 capability boundary and acceptance matrix.
 

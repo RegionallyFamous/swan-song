@@ -48,6 +48,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
     info = bundle["info"]
     readme = bundle["readme"]
     presets = bundle["presets"]
+    first_class_input = bundle["first_class_input"]
     core_top_source = bundle["core_top"]
     wonderswan_source = bundle["wonderswan"]
     joypad_source = bundle["joypad"]
@@ -125,16 +126,17 @@ def verify_contract(bundle: dict[str, object]) -> None:
     for statement in (
         "* Pocket and Dock use the same Player 1 digital mapping",
         "* Controllers 2-4, analog axes, keyboard, and mouse are not used",
-        "* Controls is read-only mapping help, not a remapper",
+        "* Controls behavior is PocketOS-owned; verify on 2.6.0",
         "* Vertical games use D-pad for Y and face buttons for X",
     ):
         if statement not in info_lines:
             raise ValueError(f"info.txt omits input boundary: {statement}")
 
     for statement in (
-        "The official openFPGA `input.json` interface is currently\nread-only",
+        "Analogue's current developer pages describe the\n`input.json` Controls UI as read-only",
+        "official Pocket firmware 2.4 notes separately say beta Dock remapping\napplies to all four controllers",
+        "Firmware 2.6.0 Pocket and Dock hardware observation is\nthe acceptance gate",
         "Pocket's built-in controls and a Dock controller use this same Player 1 digital\nmapping",
-        "`Core Settings > Controls` is\nread-only mapping help",
         "FIRST_CLASS_INPUT_DOCK.md",
     ):
         if statement not in readme:
@@ -144,11 +146,12 @@ def verify_contract(bundle: dict[str, object]) -> None:
 
     for statement in (
         "**currently read-only**",
-        "present public contract and makes no editable-remap or remap-persistence claim",
-        "generating this file does not remap a\nbutton or make that screen editable",
+        "[Pocket firmware 2.4 notes]",
+        "promise editability, remap application, persistence, or per-asset remap scope",
+        "actual PocketOS 2.6.0 behavior remains a hardware gate",
     ):
         if statement not in presets:
-            raise ValueError(f"per-game presets omit read-only Controls boundary: {statement}")
+            raise ValueError(f"per-game presets omit Controls documentation conflict: {statement}")
     for stale_claim in (
         "perform the actual host-managed remap",
         "all eight remaps take effect and survive relaunch",
@@ -156,6 +159,14 @@ def verify_contract(bundle: dict[str, object]) -> None:
     ):
         if stale_claim in presets:
             raise ValueError(f"per-game presets retain stale remapping claim: {stale_claim}")
+
+    for statement in (
+        "the current developer page describes the Controls menu as read-only",
+        "beta controller remapping applies to all four controllers when Docked",
+        "Either an observed read-only screen or an observed beta remapper is evidence",
+    ):
+        if statement not in first_class_input:
+            raise ValueError(f"first-class input guide omits Controls conflict: {statement}")
 
     core_top = compact(core_top_source)
     wonderswan = compact(wonderswan_source)
@@ -243,6 +254,7 @@ def load_bundle() -> dict[str, object]:
         "info": (CORE_DIR / "info.txt").read_text(),
         "readme": (ROOT / "README.md").read_text(),
         "presets": (ROOT / "PER_GAME_PRESETS.md").read_text(),
+        "first_class_input": (ROOT / "FIRST_CLASS_INPUT_DOCK.md").read_text(),
         "core_top": (ROOT / "src/fpga/core/core_top.v").read_text(),
         "wonderswan": (ROOT / "src/fpga/core/wonderswan.sv").read_text(),
         "joypad": (ROOT / "src/fpga/core/rtl/joypad.vhd").read_text(),
@@ -305,18 +317,31 @@ def main() -> None:
                 ),
             ),
             (
-                "read-only claim",
+                "firmware conflict claim",
                 (
                     "readme",
-                    bundle["readme"].replace("currently\nread-only", "writable", 1),
+                    bundle["readme"].replace(
+                        "official Pocket firmware 2.4 notes", "older firmware notes", 1
+                    ),
                 ),
             ),
             (
-                "per-game read-only boundary",
+                "per-game firmware conflict",
                 (
                     "presets",
                     bundle["presets"].replace(
-                        "**currently read-only**", "**editable**", 1
+                        "[Pocket firmware 2.4 notes]", "[older firmware notes]", 1
+                    ),
+                ),
+            ),
+            (
+                "first-class firmware conflict",
+                (
+                    "first_class_input",
+                    bundle["first_class_input"].replace(
+                        "beta controller remapping applies to all four controllers when Docked",
+                        "Controls behavior is uniform",
+                        1,
                     ),
                 ),
             ),

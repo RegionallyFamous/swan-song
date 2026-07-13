@@ -6,12 +6,13 @@ only be accepted on physical Pocket and Dock hardware.
 
 ## Primary sources
 
-- Analogue [`input.json`](https://www.analogue.co/developer/docs/core-definition-files/input-json): the Controls menu is currently read-only; per-asset files can replace its labels; at most four `default` controllers and eight named mappings per controller are allowed; names are limited to 19 characters; the only defined keys are A, B, X, Y, L, R, Start, and Select.
+- Analogue [`input.json`](https://www.analogue.co/developer/docs/core-definition-files/input-json): the current developer page describes the Controls menu as read-only; per-asset files can replace its definition; at most four `default` controllers and eight named mappings per controller are allowed; names are limited to 19 characters; the only defined keys are A, B, X, Y, L, R, Start, and Select.
 - Analogue [PAD bus](https://www.analogue.co/developer/docs/bus-communication): Pocket and Dock input switching is automatic; four controller slots are transported; type 1 is Pocket P1, types 2 and 3 are Dock gamepads, type 4 is keyboard, and type 5 is mouse. Digital buttons are in `key`; analog sticks and triggers are separate Dock-only values. The type field must be checked before interpreting a slot.
 - Analogue [`core.json`](https://www.analogue.co/developer/docs/core-definition-files/core-json): `dock.supported` allows Dock; `dock.analog_output` describes upcoming analog *video timing*, not analog controller input.
 - Analogue [`video.json`](https://www.analogue.co/developer/docs/core-definition-files/video-json): a core may define up to eight scaler slots with 0, 90, 180, or 270 degree presentation and optional Dock-specific aspect ratios.
-- Analogue [`interact.json`](https://www.analogue.co/developer/docs/core-definition-files/interact-json): Pocket builds Core Settings from the read-only Controls submenu, reloadable data slots, and custom interact entries. Persistent interact values may also be overridden per asset.
+- Analogue [`interact.json`](https://www.analogue.co/developer/docs/core-definition-files/interact-json): Pocket builds Core Settings from the Controls submenu, reloadable data slots, and custom interact entries. Persistent interact values may also be overridden per asset.
 - Analogue [core-definition overview](https://www.analogue.co/developer/docs/core-definition-files): `info.txt` is limited to 32 lines, and the public docs still describe input remapping as a future feature.
+- Analogue [Pocket firmware 2.4](https://www.analogue.co/support/pocket/firmware/2.4): the release notes nevertheless say beta controller remapping applies to all four controllers when Docked. This conflicts with the current developer pages and does not define persistence or per-asset scope.
 - Analogue [Pocket firmware 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0): current firmware on the research date adds more Dock controllers and a Recent category for openFPGA.
 - Analogue [Pocket firmware 2.5](https://www.analogue.co/support/pocket/firmware/2.5): controllers without a menu button use the PocketOS Select + Down fallback chord; this is an OS action, not an openFPGA `input.json` key.
 
@@ -34,7 +35,7 @@ remapping extension:
 | Analog sticks/triggers | Available separately for compatible Dock pads | Ignored; `dock.analog_output: false` does not change this |
 | Keyboard and mouse | Types 4 and 5 have special packet layouts | Rejected by the type filter, preventing special data from becoming buttons |
 | Disconnect/reserved type | Type 0 means absent; 7-F are reserved | Fail closed to all buttons released |
-| Controls help | Default and per-asset `input.json` labels | Eight exact orientation-aware labels; read-only, not a remapper |
+| Controls surface | Default and per-asset `input.json` definitions | Eight exact orientation-aware labels and default keys; PocketOS 2.6.0 editability/remapping behavior must be observed on Pocket and Dock |
 | Menu/system action | Owned by PocketOS and absent from the documented PAD key map | Not assigned by RTL; Select remains the gameplay Fast Forward input |
 | Video orientation | Scaler slots can rotate presentation | 0 degree landscape, 270 degree portrait, and 180 degree landscape slots |
 | Dock aspect | Optional per scaler slot | No Dock override; the same 14:9 source aspect is requested |
@@ -72,9 +73,10 @@ pillarboxing remain a hardware/display acceptance item.
 
 The descriptive names in `input.json` are therefore not cosmetic guesses.
 They mirror the two-stage RTL mapping through `wonderswan.sv` and
-`rtl/joypad.vhd`. A per-game Input preset may provide game-specific help text,
-but under the current documented interface it cannot choose a different
-physical layout.
+`rtl/joypad.vhd`. A per-game Input preset may provide game-specific help text
+and declared defaults. The generator does not choose a different physical
+layout, and the conflicting public documentation is insufficient to promise
+what PocketOS allows a user to edit, apply, reset, or persist.
 
 ## PocketOS actions and unavoidable limits
 
@@ -88,7 +90,7 @@ it must be tested on current firmware; metadata cannot solve that collision.
 
 There is no supported openFPGA metadata mechanism for:
 
-- making Controls writable or storing core-defined user remaps;
+- requiring Controls to be writable or storing core-defined user remaps;
 - defining a separate Pocket-versus-Dock layout;
 - assigning PocketOS menu, Home, Memories, or quick-load actions;
 - selecting mappings from controller model names;
@@ -111,7 +113,7 @@ first-class Pocket/Dock input:
 5. Use a controller with a dedicated menu button, then one requiring Select + Down. Confirm menu entry/exit does not leave Fast Forward active or inject a harmful game input.
 6. Verify PocketOS reports Memories unavailable cleanly; Memories and Sleep/Wake remain disabled in this core.
 7. Inspect 0, 270, and 180 degree output on Pocket and HDMI, including aspect, crop, display modes, mode transitions, and a vertical game's first frame.
-8. Install a per-game Input preset. Confirm its labels replace the default Controls help on 2.6.0 and that the screen remains read-only.
+8. Install a per-game Input preset and record the complete Controls behavior on firmware 2.6.0 for Pocket and Dock: definition lookup, displayed labels/defaults, whether editing is offered, and—if it is—application, Reset to Defaults, relaunch persistence, and per-asset scope. Either an observed read-only screen or an observed beta remapper is evidence; neither may be assumed from the conflicting pages.
 9. Confirm controllers in slots P2-P4, keyboard, mouse, absent, and reserved device types never control gameplay.
 
 The source/metadata checks in

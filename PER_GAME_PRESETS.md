@@ -45,11 +45,14 @@ The authoritative references are Analogue's
 and [SD directory structure](https://www.analogue.co/developer/docs/directories-and-sd-folder-structure).
 The current `input.json` page calls the Controls menu **currently read-only**,
 and Analogue's current [core-definition overview](https://www.analogue.co/developer/docs/core-definition-files)
-says remapping is coming soon. The historical
+says remapping is coming soon. In conflict with those pages, the historical
 [1.1 beta 5 changelog](https://www.analogue.co/developer/docs/changelog/1-1-beta-5)
-announced per-core OS remapping, but that older statement conflicts with the
-current definition pages. Swan Song therefore treats the current pages as the
-present public contract and makes no editable-remap or remap-persistence claim.
+announced per-core OS remapping and the official
+[Pocket firmware 2.4 notes](https://www.analogue.co/support/pocket/firmware/2.4)
+say beta remapping applies to all four Dock controllers. Swan Song relies only
+on the consistently documented per-asset lookup and schema. It does not
+promise editability, remap application, persistence, or per-asset remap scope;
+those are firmware 2.6.0 Pocket/Dock hardware observations.
 
 For example, if slot 0 is:
 
@@ -92,10 +95,11 @@ By default, the generator also creates the path-mirrored `Input` definition.
 This selects a per-asset APF Controls definition/namespace. Every newly
 generated Input file is an exact copy of the core's default eight mappings, so
 the same verified mapping IDs, dual-orientation labels, and APF keycodes appear
-for that slot-0 asset. Under the current public documentation, **Core Settings
-> Controls** is read-only mapping help: generating this file does not remap a
-button or make that screen editable. The tool neither invents nor modifies an
-undocumented remap store.
+for that slot-0 asset. The current developer pages describe **Core Settings >
+Controls** as read-only, while firmware 2.4 describes beta Dock remapping.
+Generating this file does not itself remap a button or make the screen
+editable. The tool neither invents nor modifies an undocumented remap store,
+and actual PocketOS 2.6.0 behavior remains a hardware gate.
 
 Use `--controls inherit` to create no Input override and retain the core-wide
 Controls definition. This option does not delete a per-game Input file that is
@@ -156,15 +160,15 @@ calling per-game Controls display or Dock behavior certified:
 
 | Surface | Required exercise | Pass condition |
 | --- | --- | --- |
-| Pocket built-in controls | With a fresh per-game Input definition, inspect all eight entries and exercise every declared physical button in both native orientations. | The screen remains read-only, every dual-orientation label is exact, and each physical button produces the documented function. |
-| Per-asset definition lookup | Create definitions for two personally owned ROM paths, alternate launches, then test a third title using `--controls inherit`. | Each generated title resolves its path-mirrored Controls definition; the inherited title resolves the core-wide definition. No editable-remap or saved-remap behavior is part of this gate. |
+| Pocket built-in controls | With a fresh per-game Input definition, inspect all eight entries and exercise every declared physical button in both native orientations. Record whether editing is offered and, if so, test application and Reset to Defaults. | Every dual-orientation label/default is exact, each physical button produces the documented function, and the observed firmware 2.6.0 Controls behavior is recorded without assuming read-only or editable behavior. |
+| Per-asset definition lookup | Create definitions for two personally owned ROM paths, alternate launches, then test a third title using `--controls inherit`. If remapping is exposed, use distinct changes and test relaunch/reset. | Each title resolves the intended definition and the inherited title resolves the core-wide definition. Any observed remap scope/persistence is recorded as PocketOS 2.6.0 behavior, not promoted into the package contract. |
 | Dock digital controller (`type 2`) | Test a wired digital pad and a second representative wired or wireless pad. Exercise D-pad, all six declared action/trigger functions, Start, and Fast Forward in both native orientations. | Dock Player 1 produces the same canonical functions and labels as Pocket, with no brand-specific swaps or missing simultaneous inputs. |
 | Dock analog-capable controller (`type 3`) | Repeat the digital matrix over both USB and Bluetooth where supported, using the controller's digital D-pad. Move both analog sticks through their full range without pressing the D-pad. | Digital controls match Pocket. Analog motion alone produces no WonderSwan direction because Swan Song intentionally does not synthesize D-pad bits from `cont1_joy`. |
 | Native X/Y independence | In horizontal and vertical titles, hold each D-pad direction while pressing every face/trigger action individually and in representative chords. | Directional input and the opposite native X/Y action cluster remain independently visible; no single Pocket control aliases both native clusters at once. |
 | Hot plug and focus | Enter/leave the menu, insert/remove Pocket from Dock, reconnect both tested pads, and repeat while no control is held and while a control is released during the transition. | No stuck direction, action, Start, or Fast Forward state; control resumes on Player 1 without resetting or changing the declared mapping. |
 | Non-gamepad packets | Connect a Dock keyboard and mouse, then disconnect all controllers. | Keyboard (`type 4`), mouse (`type 5`), disconnected (`type 0`), and reserved packet types cannot become WonderSwan buttons. This is source-simulated, but still needs a physical smoke test. |
 
-The intended per-asset Controls definition must appear in every case. The
-current public APF documentation specifies per-asset Input lookup and a
-read-only Controls menu; Swan Song does not claim host remapping or remap
-persistence.
+The intended per-asset Controls definition must appear in every case. Public
+APF pages consistently specify per-asset Input lookup but conflict about
+remapping. Swan Song claims neither read-only firmware behavior nor host-remap
+persistence until the firmware 2.6.0 Pocket/Dock observations are recorded.
