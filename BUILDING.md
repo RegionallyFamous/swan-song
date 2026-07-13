@@ -272,6 +272,37 @@ The expected raw bitstream is `src/fpga/output_files/ap_core.rbf`. Do not call
 the build timing-clean until the fitter and TimeQuest reports show no failing
 paths.
 
+### Reproducible build identity
+
+Quartus runs `src/fpga/apf/build_id_gen.tcl` before each flow. Its MIF values are
+now reproducible source metadata rather than build-host state:
+
+- `0E0` and `0E1` are the source epoch formatted in UTC as `YYYYMMDD` and
+  `00HHMMSS`.
+- `0E2` is the first 32 bits of the full source commit ID.
+- In a Git checkout, the source ID defaults to `HEAD`, the epoch defaults to
+  that commit's timestamp, and tracked source must be clean. The generated
+  `src/fpga/apf/build_id.mif` is the sole excluded tracked path because the
+  pre-flow script necessarily rewrites it.
+- `SOURCE_DATE_EPOCH` may override the commit timestamp using the standard
+  [reproducible-build timestamp contract](https://reproducible-builds.org/specs/source-date-epoch/).
+  `SWANSONG_SOURCE_COMMIT` may assert the expected full commit, but must match
+  `HEAD`.
+- Outside a Git checkout, both `SOURCE_DATE_EPOCH` and
+  `SWANSONG_SOURCE_COMMIT` are mandatory. Missing or malformed identity fails
+  the flow instead of falling back to the wall clock or a random value.
+
+Run the standalone generator contract with a system Tcl interpreter:
+
+```sh
+python3 src/fpga/apf/build_id_gen_test.py
+```
+
+This proves deterministic MIF generation and source/epoch validation without
+Quartus. Phase 0 still requires two clean Quartus 21.1.1 builds with identical
+RBF hashes, successful fitter/TimeQuest reports, and the separately authorized
+hardware check.
+
 ## Reverse and package
 
 APF reverses the bit order within every byte of the Quartus RBF. Package a
