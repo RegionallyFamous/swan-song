@@ -519,6 +519,23 @@ class PocketHardwareQATest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checks has invalid members"):
             verify_manifest(self.manifest, self.inventory)
 
+    def test_fresh_sd_requires_both_core_icon_palette_contexts(self) -> None:
+        by_id = {spec.case_id: spec for spec in CASE_SPECS}
+        self.assertIn(
+            "core_icon_positive_negative_correct",
+            by_id["fresh_sd_startup"].checks,
+        )
+
+        document = self.accepted_fixture()
+        case = next(
+            item for item in document["hardware_qa"]["cases"]
+            if item["id"] == "fresh_sd_startup"
+        )
+        case["checks"].pop("core_icon_positive_negative_correct")
+        self.write_manifest(document)
+        with self.assertRaisesRegex(ValueError, "checks has invalid members"):
+            verify_manifest(self.manifest, self.inventory)
+
     def test_unreviewed_attestation_and_wrong_native_screenshot_fail_closed(self) -> None:
         document = self.accepted_fixture()
         document["hardware_qa"]["attestation"]["evidence_reviewed"] = False

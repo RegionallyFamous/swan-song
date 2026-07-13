@@ -80,7 +80,8 @@ CONSOLE_EEPROM_SNAPSHOT_SIZES = {"mono": 128, "color": 2048}
 CASE_SPECS = (
     CaseSpec("fresh_sd_startup", "pocket", (
         "fresh_sd_used", "platform_entry_visible", "platform_art_and_info_correct",
-        "bios_prompts_correct", "game_booted", "startup_log_captured",
+        "core_icon_positive_negative_correct", "bios_prompts_correct", "game_booted",
+        "startup_log_captured",
     ), (ArtifactNeed(("pocket_screenshot", "photo"), 2), LOG)),
     CaseSpec("recent_last_title_relaunch", "pocket", (
         "startup_action_openfpga", "recent_entry_created", "quit_returned_to_openfpga",

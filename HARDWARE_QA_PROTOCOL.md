@@ -155,7 +155,7 @@ The fixed catalogue covers:
 
 | Area | Required cases |
 |---|---|
-| Startup and launcher | Fresh SD, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
+| Startup and launcher | Fresh SD, platform art/About, core icon legibility and centering in positive/negative Core List and Core Boot Screen contexts, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
 | Compact ROM | Generated 896 KiB probe, `0xff` lower-prefix behavior, right-aligned reset vector/footer, 1 MiB aperture and `0x0fffff` mask, power-of-two regression |
 | Negative boot | Missing mono/color BIOS, too-small/misaligned/oversized ROM, invalid compact footer/checksum with visible **ROM footer/checksum rejected** error, reviewed validation instruction guard, recovery with a corrected valid input; separate target-firmware stuck-pending fault injection remains required for wall-clock/cycle-limit calibration |
 | Disabled features | Memories rejection/unavailability, Sleep not advertised, quick-load non-mutation |

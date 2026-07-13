@@ -117,6 +117,7 @@ python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/quartus_archive_test.py"
 python3 "$ROOT/scripts/quartus_docker_contract_test.py"
 python3 "$ROOT/scripts/quartus_fit_audit_test.py"
+python3 "$ROOT/scripts/generate_core_icon_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 python3 "$ROOT/scripts/stage_pocket_sd_test.py"
 

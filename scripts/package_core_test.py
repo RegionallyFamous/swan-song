@@ -574,6 +574,15 @@ class PackageCoreTest(unittest.TestCase):
 
     def test_graphical_asset_dimensions_and_pixel_format(self) -> None:
         output = self.root / "assets.zip"
+        checked_icon = self.dist / CORE_DIRECTORY / "icon.bin"
+        expected_icon = checked_icon.read_bytes()
+        self.package(output)
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(
+                archive.read((CORE_DIRECTORY / "icon.bin").as_posix()),
+                expected_icon,
+            )
+
         platform = self.dist / "Platforms/_images/wonderswan.bin"
         platform.write_bytes(platform.read_bytes()[:-2])
         with self.assertRaisesRegex(ValueError, "must be 521x165x16-bit"):

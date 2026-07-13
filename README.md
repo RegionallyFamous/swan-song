@@ -20,6 +20,9 @@ The WonderSwan system core was developed by [Robert Peip](https://github.com/Rob
 was created by [Adam Gastineau](https://github.com/agg23). Platform artwork was
 provided by [spiritualized1997](https://github.com/spiritualized1997). Upstream provenance and
 pinned revisions are documented in [UPSTREAMS.md](UPSTREAMS.md).
+The separate Swan Song core-author icon is an original generic pixel-swan mark
+generated from reviewable source; its APF format provenance and reproduction
+instructions are documented in [CORE_ICON.md](CORE_ICON.md).
 
 Report issues with the exact core commit and whether they reproduce in the
 MiSTer core. Keep Pocket integration reports here; shared console-logic fixes

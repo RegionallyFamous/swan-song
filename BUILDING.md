@@ -718,6 +718,16 @@ unknown SD-card payloads. The 521x165 platform graphic must be exactly 171,930
 bytes with valid 16-bit brightness lanes; an optional author icon must be
 exactly 36x36x16-bit and contain only documented black/white pixels.
 
+This tree now supplies the optional author icon from a reviewable 18x18 source
+grid expanded at Analogue's recommended 2x2 pixel scale. The dependency-free
+[`generate_core_icon.py`](scripts/generate_core_icon.py) applies the documented
+90-degree counter-clockwise storage rotation and upper-byte monochrome format;
+[`generate_core_icon_test.py`](scripts/generate_core_icon_test.py) binds the
+checked-in binary, upright decoded pixels, and reviewed digest. Run
+`python3 scripts/generate_core_icon.py --check` before packaging. Design,
+format provenance, preview instructions, and the remaining physical Pocket UI
+gate are recorded in [`CORE_ICON.md`](CORE_ICON.md).
+
 Entries are stored without DEFLATE so differing host zlib versions cannot
 change the archive bytes. Every successful invocation also writes
 `<archive>.provenance.json`, a deterministic sidecar that binds the archive,
