@@ -12,8 +12,8 @@ included or downloaded.
 
 The WonderSwan system core was developed by [Robert Peip](https://github.com/RobertPeip)
 ([Patreon](https://www.patreon.com/FPGAzumSpass)) and the Analogue Pocket port
-was created by [Adam Gastineau](https://github.com/agg23). Core icon provided by
-[spiritualized1997](https://github.com/spiritualized1997). Upstream provenance and
+was created by [Adam Gastineau](https://github.com/agg23). Platform artwork was
+provided by [spiritualized1997](https://github.com/spiritualized1997). Upstream provenance and
 pinned revisions are documented in [UPSTREAMS.md](UPSTREAMS.md).
 
 Report issues with the exact core commit and whether they reproduce in the
@@ -38,6 +38,12 @@ manually merge the folders.
 ## Usage
 
 ROMs should be placed in `/Assets/wonderswan/common/`.
+
+Pocket remembers the last cartridge selected and reloads it on the next launch,
+so reopening Swan Song—or selecting it from openFPGA Recent on Analogue OS
+2.6—returns directly to that title. Use **Core Settings > Cartridge** to switch
+games. **Reset to Defaults** clears the remembered browser choices; framework
+2.3 is the minimum because that release fixed browser-history reset behavior.
 
 You must provide the BIOS files for both the original and WonderSwan Color. The
 BIOSes should be named `bw.rom` and `color.rom`, and should be placed in

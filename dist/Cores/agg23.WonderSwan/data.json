@@ -6,7 +6,7 @@
         "name": "Cartridge",
         "id": 0,
         "required": true,
-        "parameters": "0x109",
+        "parameters": "0x309",
         "extensions": ["ws", "wsc"],
         "size_maximum": 16777216,
         "address": "0x10000000"

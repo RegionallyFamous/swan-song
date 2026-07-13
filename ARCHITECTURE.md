@@ -73,6 +73,12 @@ pending completed frame, and up to three immutable scanout/history frames. A
 new producer frame may supersede only the pending frame; it can never acquire
 a bank visible to scanout. Reset/title changes invalidate history, and early
 two/three-frame samples duplicate the newest completed frame while re-priming.
+Each logical RGB444 bank is physically split into 10-bit and 2-bit memories
+with 2K and 4K maximum M10K depths. Those are native Cyclone V aspect ratios,
+so the split targets 40 blocks per bank (200 for five) instead of the naïve
+48-per-bank mapping, while preserving the exact 12-bit pixel stream and
+one-clock synchronous read latency. The Quartus fitter report remains the
+authority for the realized block count.
 
 The same wrapper generates the outgoing 60 Hz-compatible raster. Because its
 terminal-count comparisons are inclusive, the default path uses 401 horizontal
@@ -99,8 +105,9 @@ and starts the core. The wrapper also reads cartridge metadata from the image
 footer. Extension detection and the footer color flag contribute to automatic
 color mode; footer fields provide the mapper/RAM type, ROM mask, RTC flag, and
 save size. Save size is written back to the APF data table at runtime. The
-current Pocket wrapper does not honor the footer RTC flag: `has_rtc` is tied
-high, so the data table always reserves 12 trailing RTC bytes.
+Pocket wrapper honors the footer RTC flag: the data table and slot guard append
+the 12-byte RTC trailer only for cartridges that declare it, after the footer
+metadata has crossed atomically into the APF clock domain.
 
 `core.json` names that Chip32 program as `chip32.bin`; it is a required package
 dependency even though the source repository carries only its assembly and a

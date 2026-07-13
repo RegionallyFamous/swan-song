@@ -242,7 +242,7 @@ and lower 32 bits in parameter 1. Read and write requests independently return
 
 | ID | Purpose | Accepted host operation and size |
 | --- | --- | --- |
-| 0 | Cartridge | Write only; power of two, 64 KiB through 16 MiB |
+| 0 | Cartridge | Write only; power of two, 64 KiB through 16 MiB; APF persists the selected filename and performs a full core reload when it changes |
 | 9 | Mono BIOS | Required write-only APF asset; exactly 4,096 bytes |
 | 10 | Color BIOS | Required write-only APF asset; exactly 8,192 bytes |
 | 11 | Save | Read becomes ready only after `reset_n=0`, synchronized execution has stopped, and a fixed 31-`clk_74a` drain guard has elapsed, with startup metadata/table/init still valid; write accepts absent (zero), canonical for the current cartridge, or legacy 2,060-byte RTC EEPROM type `10`/`50` |
@@ -254,6 +254,14 @@ boundary instead of advertising an optional asset that the launcher later
 rejects. They are read-only assets with APF's persist-browsed-filename bit, so
 a one-time browser choice is reused until Reset All to Defaults. The exact-size
 RTL guard remains a second, independent check.
+
+Slot 0 uses APF parameter `0x309`: user-browsable, read-only, full-core reload,
+and persisted browsed filename. This makes a normal launch reuse the last title
+while **Core Settings > Cartridge** remains the explicit game switcher. The
+full-reload path performs normal shutdown first, allowing slot 11 to flush the
+old title before Chip32 derives and loads the new title's save. Framework 2.3
+is the minimum because its Reset to Defaults behavior correctly clears this
+browser history.
 
 Before cartridge metadata is available, a plausible slot-11 write returns `2`
 instead of guessing. Once metadata is ready, type-inconsistent, short,
@@ -639,14 +647,71 @@ artifact.
 
 The script copies `dist/`, writes the reversed stream as the filename declared
 by `core.json` (`wonderswan.rev`), adds its declared `chip32.bin`, rejects
-`.ws`, `.wsc`, `.rom`, and `.sav` files, and writes entries in sorted order with
-fixed timestamps. Entries are stored without DEFLATE so differing host zlib
-versions cannot change the archive bytes. The resulting ZIP therefore contains
-the APF `Assets/`, `Cores/`, and `Platforms/` roots and is reproducible for
-identical inputs. Keep
+every path outside the release allowlist (including `.ws`, `.wsc`, `.rom`, and
+`.sav`), and writes entries in sorted order with fixed timestamps. Before
+staging, `package_validator.py` checks all seven APF core JSON definitions and
+the platform JSON with an exact, fail-closed Swan Song release profile: required
+members, unknown members, APF limits, integer ranges, unique IDs, safe
+filenames, documented key/display values, cross-file platform/core identity,
+the official 32-line printable-ASCII `info.txt` limit, and the currently
+implemented slot/controller/variant shape. It also rejects
+symlinks, special files, case-folded path collisions, unexpected folders, and
+unknown SD-card payloads. The 521x165 platform graphic must be exactly 171,930
+bytes with valid 16-bit brightness lanes; an optional author icon must be
+exactly 36x36x16-bit and contain only documented black/white pixels.
+
+Entries are stored without DEFLATE so differing host zlib versions cannot
+change the archive bytes. Every successful invocation also writes
+`<archive>.provenance.json`, a deterministic sidecar that binds the archive,
+raw RBF, reversed bitstream, Chip32 image, and every packaged file by byte size
+and SHA-256. Repeating a package with identical inputs and the same output name
+produces byte-identical ZIP and provenance files. The resulting ZIP contains
+only the APF `Assets/`, `Cores/`, and `Platforms/` roots. Keep
 `--output` outside `dist/`; the script enforces this so an older ZIP cannot be
 included in a later package. A failed same-path rebuild removes the preceding
-ZIP before validating new inputs, so stale output cannot masquerade as success.
+ZIP and provenance sidecar before validating new inputs, so stale output cannot
+masquerade as success.
+
+`make package` remains a development-package command: it can prove the exact
+host inputs but cannot manufacture Quartus timing or hardware evidence. A
+release package must additionally use `--release` and `--build-evidence`:
+
+```sh
+./scripts/package_core.py \
+  --rbf src/fpga/output_files/ap_core.rbf \
+  --build-evidence build/release-evidence.json \
+  --release \
+  --output build/Author.Core_version_YYYY-MM-DD.zip
+```
+
+The output name must exactly match the author, shortname, version, and date in
+`core.json`. Do not run this release form against the inherited 1.0.1 identity;
+release ownership, URL, version, and date must first be authorized and updated.
+
+The evidence file is strict JSON with one `release_evidence` object. It records
+magic `SWAN_SONG_RELEASE_EVIDENCE_V1`, the full lowercase 40-hex source commit,
+`source_date_epoch`, a Quartus version beginning `21.1.1`, and raw-RBF
+`filename`/`size`/`sha256`. Its `build_id` entry names the sibling generated
+`build_id.mif` with exact size and SHA-256; the packager also decodes its `0E0`,
+`0E1`, and `0E2` words and source comments to prove they match the declared UTC
+epoch and commit prefix. Its `reports` object must contain `flow`, `fit`, and
+`sta` entries, each naming a sibling `.flow.rpt`, `.fit.rpt`, or `.sta.rpt` with
+exact size and lowercase SHA-256; every report must be nonempty and identify
+Quartus 21.1.1. Its `gates` object must explicitly accept all of:
+
+- `flow_success`, `fit_success`, `setup_timing`, and `hold_timing`;
+- `recovery_timing`, `removal_timing`, and `no_unconstrained_paths`;
+- `no_critical_warnings`, `compressed_bitstream`, `pocket_hardware`, and
+  `dock_hardware`.
+
+The packager verifies the exact RBF/report bytes and refuses any false or
+missing gate. The booleans are a review attestation, not an unreliable attempt
+to scrape every localized Quartus report format: the release reviewer remains
+responsible for TimeQuest, warnings, fit/resource changes, and the recorded
+Pocket/Dock runs. The generated package-provenance sidecar embeds the evidence
+manifest hash, build-ID/report hashes, source identity, tool version, and
+accepted gates, making that reviewed evidence cryptographically bound to the
+distributed ZIP.
 
 For an unpacked SD-card tree, unzip the package at the card root. The user must
 separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in

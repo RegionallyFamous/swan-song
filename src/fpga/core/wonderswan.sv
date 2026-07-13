@@ -488,39 +488,62 @@ module wonderswan (
   // Five banks provide three immutable blend/history frames, one pending
   // completed frame, and one live producer frame.  A faster 75 Hz producer can
   // supersede pending work without ever writing a bank visible to 59 Hz APF
-  // scanout.  Disabling buffering intentionally returns to direct bank zero.
-  reg [11:0] vram1[32256];
-  reg [11:0] vram2[32256];
-  reg [11:0] vram3[32256];
-  reg [11:0] vram4[32256];
-  reg [11:0] vram5[32256];
+  // scanout.  Each bank is split into native 10-bit and 2-bit M10K aspects by
+  // apf_framebank_ram, reducing block fragmentation without changing the five
+  // logical ownership roles. Disabling buffering returns to direct bank zero.
   wire syncpaused = 1'b0;
 
-  always @(posedge clk_sys_36_864) begin
-    if (pixel_we) begin
-      if (framebank_write == 0) vram1[pixel_addr] <= pixel_data;
-      if (framebank_write == 1) vram2[pixel_addr] <= pixel_data;
-      if (framebank_write == 2) vram3[pixel_addr] <= pixel_data;
-      if (framebank_write == 3) vram4[pixel_addr] <= pixel_data;
-      if (framebank_write == 4) vram5[pixel_addr] <= pixel_data;
-    end
-  end
-
-  reg [11:0] rgb0;
-  reg [11:0] rgb1;
-  reg [11:0] rgb2;
-  reg [11:0] rgb3;
-  reg [11:0] rgb4;
-
-  always @(posedge clk_sys_36_864) begin
-    rgb0 <= vram1[px_addr];
-    rgb1 <= vram2[px_addr];
-    rgb2 <= vram3[px_addr];
-    rgb3 <= vram4[px_addr];
-    rgb4 <= vram5[px_addr];
-  end
-
   reg [14:0] px_addr = 15'd0;
+  wire [11:0] rgb0;
+  wire [11:0] rgb1;
+  wire [11:0] rgb2;
+  wire [11:0] rgb3;
+  wire [11:0] rgb4;
+
+  apf_framebank_ram framebank_ram0 (
+      .clk(clk_sys_36_864),
+      .write_enable(pixel_we && framebank_write == 3'd0),
+      .write_address(pixel_addr),
+      .write_data(pixel_data),
+      .read_address(px_addr),
+      .read_data(rgb0)
+  );
+
+  apf_framebank_ram framebank_ram1 (
+      .clk(clk_sys_36_864),
+      .write_enable(pixel_we && framebank_write == 3'd1),
+      .write_address(pixel_addr),
+      .write_data(pixel_data),
+      .read_address(px_addr),
+      .read_data(rgb1)
+  );
+
+  apf_framebank_ram framebank_ram2 (
+      .clk(clk_sys_36_864),
+      .write_enable(pixel_we && framebank_write == 3'd2),
+      .write_address(pixel_addr),
+      .write_data(pixel_data),
+      .read_address(px_addr),
+      .read_data(rgb2)
+  );
+
+  apf_framebank_ram framebank_ram3 (
+      .clk(clk_sys_36_864),
+      .write_enable(pixel_we && framebank_write == 3'd3),
+      .write_address(pixel_addr),
+      .write_data(pixel_data),
+      .read_address(px_addr),
+      .read_data(rgb3)
+  );
+
+  apf_framebank_ram framebank_ram4 (
+      .clk(clk_sys_36_864),
+      .write_enable(pixel_we && framebank_write == 3'd4),
+      .write_address(pixel_addr),
+      .write_data(pixel_data),
+      .read_address(px_addr),
+      .read_data(rgb4)
+  );
 
   function automatic [11:0] framebank_rgb;
     input [2:0] bank;

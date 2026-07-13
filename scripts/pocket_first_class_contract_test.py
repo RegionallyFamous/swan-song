@@ -441,8 +441,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(core["magic"], "APF_VER_1")
         self.assertEqual(core["metadata"]["platform_ids"], ["wonderswan"])
 
-        # Display modes and their B8 command were introduced in framework 2.0.
-        self.assertEqual(core["framework"]["version_required"], "2.0")
+        # Framework 2.3 fixes Reset to Defaults for the persisted file-browser
+        # history used by the cartridge and BIOS data slots.
+        self.assertEqual(core["framework"]["version_required"], "2.3")
         # Memories/sleep remains disabled until the full controller and a
         # physical Pocket endurance matrix have passed.
         self.assertFalse(core["framework"]["sleep_supported"])
@@ -482,6 +483,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         top = (ROOT / "src/fpga/core/core_top.v").read_text(encoding="utf-8")
+        video_bus = (ROOT / "src/fpga/core/apf_video_bus.sv").read_text(
+            encoding="utf-8"
+        )
         project = (ROOT / "src/fpga/ap_core.qsf").read_text(encoding="utf-8")
         self.assertIn("16'h00B1", bridge)
         self.assertIn("16'h00B2", bridge)
@@ -490,9 +494,17 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertIn("displaymode_grayscale_ack", bridge)
         self.assertIn("displaymode_grayscale_to_video", top)
         self.assertIn("displaymode_grayscale_to_bridge", top)
-        self.assertIn("displaymode_grayscale_applied <= displaymode_grayscale_video", top)
-        self.assertIn("apf_grayscale_video displaymode_video", top)
+        self.assertIn("apf_video_bus video_bus", top)
+        self.assertIn(
+            "displaymode_grayscale_applied <= displaymode_grayscale_requested",
+            video_bus,
+        )
+        self.assertIn("apf_grayscale_video displaymode_video", video_bus)
         self.assertIn("core/apf_grayscale_video.sv", project)
+        self.assertIn("core/apf_video_bus.sv", project)
+        self.assertEqual(
+            project.count("set_global_assignment -name COMPRESSION_MODE ON"), 1
+        )
 
     def test_dynamic_nonvolatile_save_contract(self) -> None:
         data = load("data.json")["data"]
@@ -504,6 +516,15 @@ class PocketFirstClassContractTest(unittest.TestCase):
             self.assertLessEqual(len(slot["name"]), 15)
             self.assertLessEqual(len(slot.get("extensions", [])), 4)
             self.assertTrue(all(len(ext) <= 7 for ext in slot.get("extensions", [])))
+
+        cartridge = next(slot for slot in slots if number(slot["id"]) == 0)
+        cartridge_parameters = number(cartridge["parameters"])
+        self.assertTrue(cartridge["required"])
+        self.assertEqual(cartridge_parameters, 0x309)
+        self.assertEqual(cartridge_parameters & (1 << 0), 1 << 0)  # user browsable
+        self.assertEqual(cartridge_parameters & (1 << 3), 1 << 3)  # read-only
+        self.assertEqual(cartridge_parameters & (1 << 8), 1 << 8)  # full reload
+        self.assertEqual(cartridge_parameters & (1 << 9), 1 << 9)  # persist choice
 
         save = next(slot for slot in slots if number(slot["id"]) == 11)
         parameters = number(save["parameters"])

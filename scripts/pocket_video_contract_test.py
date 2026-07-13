@@ -59,21 +59,32 @@ class PocketVideoContractTest(unittest.TestCase):
 
     def test_frame_atomic_scaler_integration(self) -> None:
         top = compact(read("src/fpga/core/core_top.v"))
+        video_bus = compact(read("src/fpga/core/apf_video_bus.sv"))
         selector = compact(read("src/fpga/core/apf_scaler_selector.sv"))
         settings_cdc = compact(read("src/fpga/core/apf_settings_cdc.sv"))
 
-        self.assertIn("always@(negedgeclk_sys_36_864)begin", top)
+        self.assertIn("apf_video_busvideo_bus(", top)
+        self.assertIn(".clk_sys(clk_sys_36_864)", top)
+        self.assertIn(".clk_video(clk_vid_3_75)", top)
+        self.assertIn("always@(negedgeclk_sys)begin", video_bus)
         for assignment in (
-            "vid_rgb_sys_half<=vid_rgb_core;",
-            "h_blank_sys_half<=h_blank;",
-            "v_blank_sys_half<=v_blank;",
-            "video_hs_sys_half<=video_hs_core;",
-            "video_vs_sys_half<=video_vs_core;",
+            "core_rgb_half<=core_rgb;",
+            "core_hblank_half<=core_hblank;",
+            "core_vblank_half<=core_vblank;",
+            "core_hs_half<=core_hs;",
+            "core_vs_half<=core_vs;",
         ):
-            self.assertIn(assignment, top)
-        self.assertIn("wirede=~(h_blank_sys_half||v_blank_sys_half);", top)
-        self.assertIn(".rgb(vid_rgb_sys_half)", top)
-        self.assertIn("wireframe_start_video=~vs_prev&&video_vs_sys_half;", top)
+            self.assertIn(assignment, video_bus)
+        self.assertIn("wirede=~(core_hblank_half||core_vblank_half);", video_bus)
+        self.assertIn(".rgb(core_rgb_half)", video_bus)
+        self.assertIn("assignframe_start_video=~vs_prev&&core_vs_half;", video_bus)
+        self.assertIn("elseif(de_prev&&~de)begin", video_bus)
+        self.assertIn("video_rgb<=scaler_eol_word;", video_bus)
+        self.assertIn("if(frame_start_video)begin", video_bus)
+        self.assertIn(
+            "displaymode_grayscale_applied<=displaymode_grayscale_requested;",
+            video_bus,
+        )
         self.assertIn("apf_scaler_selectorscaler_selector(", top)
         self.assertIn(".landscape_180_sys(use_flip_horizontal_s)", top)
         self.assertNotIn(".use_flip_horizontal(use_flip_horizontal_s)", top)
@@ -122,6 +133,7 @@ class PocketVideoContractTest(unittest.TestCase):
     def test_immutable_framebank_ownership_and_history_priming(self) -> None:
         swan = compact(read("src/fpga/core/wonderswan.sv"))
         arbiter = compact(read("src/fpga/core/apf_framebank_arbiter.sv"))
+        frame_ram = compact(read("src/fpga/core/apf_framebank_ram.sv"))
 
         self.assertIn("apf_framebank_arbiterframebank_arbiter(", swan)
         self.assertIn(".reset(reset)", swan)
@@ -136,13 +148,20 @@ class PocketVideoContractTest(unittest.TestCase):
         )
         self.assertIn(".producer_frame_done(producer_frame_done)", swan)
         self.assertIn(".consumer_frame_boundary(scanout_frame_boundary)", swan)
-        for bank in range(1, 6):
-            self.assertIn(f"reg[11:0]vram{bank}[32256];", swan)
+        for bank in range(5):
+            self.assertIn(f"apf_framebank_ramframebank_ram{bank}(", swan)
             self.assertIn(
-                f"if(framebank_write=={bank - 1})vram{bank}[pixel_addr]<=pixel_data;",
+                f".write_enable(pixel_we&&framebank_write==3'd{bank})",
                 swan,
             )
-            self.assertIn(f"rgb{bank - 1}<=vram{bank}[px_addr];", swan)
+            self.assertIn(f".read_data(rgb{bank})", swan)
+        self.assertIn('(*ramstyle="M10K,no_rw_check",max_depth=2048*)', frame_ram)
+        self.assertIn("reg[9:0]pixels_hi[0:FRAME_PIXELS-1];", frame_ram)
+        self.assertIn('(*ramstyle="M10K,no_rw_check",max_depth=4096*)', frame_ram)
+        self.assertIn("reg[1:0]pixels_lo[0:FRAME_PIXELS-1];", frame_ram)
+        self.assertIn("pixels_hi[write_address]<=write_data[11:2];", frame_ram)
+        self.assertIn("pixels_lo[write_address]<=write_data[1:0];", frame_ram)
+        self.assertIn("assignread_data={read_hi,read_lo};", frame_ram)
         self.assertNotIn("buffercnt_write", swan)
         self.assertNotIn("buffercnt_read", swan)
         self.assertIn(
@@ -173,12 +192,15 @@ class PocketVideoContractTest(unittest.TestCase):
         qsf = read("src/fpga/ap_core.qsf")
         regression = read("scripts/regression.sh")
         sdc = read("src/fpga/core/core_constraints.sdc")
+        signal_tap = read("src/fpga/core/stp1.stp")
 
         for path in (
             "core/apf_settings_cdc.sv",
+            "core/apf_framebank_ram.sv",
             "core/apf_framebank_arbiter.sv",
             "core/apf_scaler_selector.sv",
             "core/apf_temporal_blend.sv",
+            "core/apf_video_bus.sv",
         ):
             self.assertEqual(
                 qsf.count(f"set_global_assignment -name SYSTEMVERILOG_FILE {path}"),
@@ -186,11 +208,19 @@ class PocketVideoContractTest(unittest.TestCase):
             )
         for runner in (
             "run_apf_settings_cdc_tb.sh",
+            "run_apf_framebank_ram_tb.sh",
             "run_apf_framebank_arbiter_tb.sh",
             "run_apf_scaler_selector_tb.sh",
             "run_apf_temporal_blend_tb.sh",
+            "run_apf_video_bus_tb.sh",
         ):
             self.assertEqual(regression.count(f'"$ROOT/sim/rtl/{runner}"'), 1)
+
+        for signal in ("video_de", "video_hs", "video_vs"):
+            self.assertIn(
+                f"core_top:ic|apf_video_bus:video_bus|{signal}", signal_tap
+            )
+            self.assertNotIn(f"core_top:ic|{signal}_reg", signal_tap)
 
         self.assertRegex(
             sdc,

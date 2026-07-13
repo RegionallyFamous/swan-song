@@ -546,7 +546,7 @@ module core_top (
   wire [7:0] osnotify_displaymode_id;
   wire osnotify_displaymode_grayscale;
   wire displaymode_grayscale_video;
-  reg displaymode_grayscale_applied = 1'b0;
+  wire displaymode_grayscale_applied;
   wire displaymode_grayscale_ack;
 
   // bridge target commands
@@ -1314,57 +1314,16 @@ module core_top (
   wire [23:0] vid_rgb_core;
   wire is_vertical;
 
-  reg video_de_reg = 1'b0;
-  reg video_hs_reg = 1'b0;
-  reg video_vs_reg = 1'b0;
-  reg [23:0] video_rgb_reg = 24'd0;
-
   assign video_rgb_clock = clk_vid_3_75;
   assign video_rgb_clock_90 = clk_vid_3_75_90deg;
-  assign video_rgb = video_rgb_reg;
-  assign video_de = video_de_reg;
   assign video_skip = 0;
-  assign video_vs = video_vs_reg;
-  assign video_hs = video_hs_reg;
-
-  reg [2:0] hs_delay = 3'd0;
-  reg hs_prev = 1'b0;
-  reg vs_prev = 1'b0;
-  reg de_prev = 1'b0;
-
-  // The WonderSwan scan generator runs at 36.864 MHz while the APF video bus
-  // is clocked at 6.144 MHz.  They are phase-related outputs of the same PLL,
-  // but sampling the live RGB/control bundle on the video edge could mix two
-  // system cycles.  Capture the complete bundle on the intervening falling
-  // system edge; TimeQuest then analyzes the related half-cycle transfer.
-  reg [23:0] vid_rgb_sys_half = 24'd0;
-  reg h_blank_sys_half = 1'b1;
-  reg v_blank_sys_half = 1'b1;
-  reg video_hs_sys_half = 1'b0;
-  reg video_vs_sys_half = 1'b0;
-
-  always @(negedge clk_sys_36_864) begin
-    vid_rgb_sys_half  <= vid_rgb_core;
-    h_blank_sys_half <= h_blank;
-    v_blank_sys_half <= v_blank;
-    video_hs_sys_half <= video_hs_core;
-    video_vs_sys_half <= video_vs_core;
-  end
-
-  wire de = ~(h_blank_sys_half || v_blank_sys_half);
-  wire [23:0] displaymode_video_rgb;
-  apf_grayscale_video displaymode_video (
-      .rgb(vid_rgb_sys_half),
-      .enabled(displaymode_grayscale_applied),
-      .rgb_out(displaymode_video_rgb)
-  );
 
   // Display orientation controls only Pocket presentation.  The emulated
   // console's live orientation continues to own the X/Y keypad matrix.
   wire effective_vertical_sys =
       configured_orientation_s == 2'd2 ? 1'b1 :
       configured_orientation_s == 2'd1 ? 1'b0 : is_vertical;
-  wire frame_start_video = ~vs_prev && video_vs_sys_half;
+  wire frame_start_video;
   wire scaler_update_pending_sys;
   wire [2:0] scaler_slot_video;
   wire [23:0] video_slot_rgb;
@@ -1381,41 +1340,23 @@ module core_top (
       .eol_word_video(video_slot_rgb)
   );
 
-  always @(posedge clk_vid_3_75) begin
-    video_hs_reg  <= 0;
-    video_de_reg  <= 0;
-    video_rgb_reg <= 24'h0;
-
-    if (de) begin
-      video_de_reg  <= 1;
-
-      video_rgb_reg <= displaymode_video_rgb;
-    end else if (de_prev && ~de) begin
-      video_rgb_reg <= video_slot_rgb;
-    end
-
-    if (hs_delay > 0) begin
-      hs_delay <= hs_delay - 1;
-    end
-
-    if (hs_delay == 1) begin
-      video_hs_reg <= 1;
-    end
-
-    if (~hs_prev && video_hs_sys_half) begin
-      // HSync went high. Delay by 3 cycles to prevent overlapping with VSync
-      hs_delay <= 7;
-    end
-
-    // Set VSync to be high for a single cycle on the rising edge of the VSync coming out of the core
-    video_vs_reg <= frame_start_video;
-    if (frame_start_video) begin
-      displaymode_grayscale_applied <= displaymode_grayscale_video;
-    end
-    hs_prev <= video_hs_sys_half;
-    vs_prev <= video_vs_sys_half;
-    de_prev <= de;
-  end
+  apf_video_bus video_bus (
+      .clk_sys(clk_sys_36_864),
+      .clk_video(clk_vid_3_75),
+      .core_rgb(vid_rgb_core),
+      .core_hblank(h_blank),
+      .core_vblank(v_blank),
+      .core_hs(video_hs_core),
+      .core_vs(video_vs_core),
+      .scaler_eol_word(video_slot_rgb),
+      .displaymode_grayscale_requested(displaymode_grayscale_video),
+      .video_rgb(video_rgb),
+      .video_de(video_de),
+      .video_vs(video_vs),
+      .video_hs(video_hs),
+      .frame_start_video(frame_start_video),
+      .displaymode_grayscale_applied(displaymode_grayscale_applied)
+  );
 
   ///////////////////////////////////////////////
 
