@@ -94,6 +94,8 @@ python3 "$ROOT/scripts/pocket_savestate_contract_test.py"
 python3 "$ROOT/scripts/pocket_nv_size_contract_test.py"
 python3 "$ROOT/scripts/pocket_rtc_integration_contract_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
+python3 "$ROOT/scripts/quartus_archive_test.py"
+python3 "$ROOT/scripts/quartus_docker_contract_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 
 require_bg_layers() {

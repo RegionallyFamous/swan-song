@@ -209,8 +209,10 @@
   verifies both its assembly-source and image identities, and rejects missing,
   changed, or path-escaping core references. The image is byte-identical to the
   one in agg23's 1.0.1 release.
-- Quartus compilation and timing closure have not been run in this fork; the
-  current macOS host cannot run supported Quartus 21.1.1.
+- Quartus compilation and timing closure have not been run in this fork.
+  Quartus 21.1.1 has no native macOS build; an isolated Linux/amd64 Docker
+  workflow now passes host preflight, but the vendor installer, fit, and
+  TimeQuest remain unproven until the user-supplied archive is present.
 - No build has been confirmed on an Analogue Pocket in this fork.
 
 ## Simulation
@@ -558,7 +560,11 @@ The checked-in project records Quartus 18.1.1 as its original version and
 21.1.1 Lite as its last-saved version; `ap_core.qpf` still declares 18.1. The
 build helper expects 21.1.1, but this fork has not compiled the project. It
 targets Cyclone V device `5CEBA4F23C8`; Quartus Lite is supported on Linux and
-Windows, not this macOS workstation.
+Windows, not natively on macOS. On Apple Silicon, the fail-closed Docker
+workflow in [`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md) verifies the
+official archive and runs the Linux/amd64 tool under emulation. Docker documents
+that emulation as best effort, so only a completed fit and reports can establish
+that it works for this project.
 
 On a supported host with `quartus_sh` on `PATH`:
 
