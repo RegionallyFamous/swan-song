@@ -7,8 +7,9 @@
 | History-preserving Pocket fork | Complete | current branch is based at Pocket `1.0.1` / `073213a2` and retains its ancestry |
 | Upstream pins and license audit | Provenance complete; release clearance open | `UPSTREAMS.md`; MiSTer program notice is GPL v2-or-later and is version-compatible with GPL-v3-or-later RTL, but Pocket omitted that notice and the tree lacks a GPL v3 license copy |
 | Architecture and port boundary | Complete | `ARCHITECTURE.md`, `PORTING.md` |
-| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's mono 80186-quirks and WSC extended-range fixtures, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, and a build-generated Color sprite-priority probe via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
+| System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests, Wonderful's mono 80186-quirks, SoC-interrupt, and WSC extended-range fixtures, the native Shift-JIS/Misaki glyph fixture, paired build-generated planar/packed 4bpp probes, and build-generated Color sprite-priority and interrupt/input probes via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; generated probe binaries are not checked in; Pocket wrappers and SDRAM controller are outside this harness |
 | V30MZ instruction quirks | Value, flag, exception, and memory-side-effect behavior verified in translated RTL | pinned open `80186_quirks.ws` renders three upstream-authored PASS results for D4/AAM and D5/AAD with base 16 plus D6/SALC; a separate build-generated probe records 24 exact results covering defined AAM flags, full AAD byte-ADD flags, D4 base-zero vector 0/post-IP/AX state, and D6 values with AH plus full before/after PUSHF words preserved and no data-memory access; exact hardware timing remains reference-correlated rather than trace-measured |
+| SoC interrupt controller | UART-TX level, vector/status/ACK, and keypad-edge paths verified in translated RTL | pinned open `interrupts.ws` renders all 13 real-hardware-authored PASS results in two byte-identical six-frame runs and remains at its exact terminal loop; a separate build-generated Color probe proves `$B0` F8 alignment, disabled-edge isolation, actual key dispatch through vector `$81`, held/release/repress edge behavior, mask-independent pending retention, ACK, and exact combined-row values through the deterministic `BDVIHRPACZ` marker; UART receive/transmit timing, cartridge IRQ, and exact interrupt latency remain open |
 | Simulation CI | Immutable workflow contract; remote run open | checkout is pinned by full SHA; official Verilator 5.050/GCC 13.3.0 and GHDL 6.0.0 images are digest-pinned and version-checked before `make regression`; the Ubuntu runner still supplies platform-managed shell/Make/Python; the current branch has not been pushed to a configured fork, so no remote green run is claimed |
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
@@ -32,7 +33,7 @@ deferred or Phase 1 accepted.
 | Item | Status | Evidence needed or available |
 | --- | --- | --- |
 | ROM bank-switch writes | Verified with generated open probe | `make regression` executes distinct byte writes to C0-C3 plus a word write spanning C0-C1, and requires their exact accepted sequence, nonzero instruction IDs, and origin PCs (`0xf0003`, `0xf0007`, `0xf000b`, `0xf000f`, `0xf0014`); both bytes of the word write share one instruction identity; no probe binary is checked in |
-| Deterministic controller replay | Verified through translated keypad RTL | strict full-state scripts address physical `x1`-`x4`, `y1`-`y4`, Start/A/B at exact reset-relative system cycles; a build-generated mono probe proves X2 press/release through port B5 with no-input isolation, exact `INP` bank marker, byte-identical two-run traces/frames, raw+normalized manifest binding, mutation rejection, impossible-schedule preflight, and final released state; user-owned title routing remains private and target-specific |
+| Deterministic controller replay | Verified through translated keypad and key-IRQ RTL | strict full-state scripts address physical `x1`-`x4`, `y1`-`y4`, Start/A/B at exact reset-relative system cycles; the mono routing probe proves X2 press/release through port B5 with no-input isolation and exact `INP`, while the Color interrupt probe proves exact combined X2+Y1 `B5=0x33`, released `B5=0x30`, key-edge IRQ isolation/dispatch/retention/ACK, exact `BDVIHRPACZ`, paired byte identity, raw+normalized manifest binding, and adversarial mutation rejection; user-owned title routing remains private and target-specific |
 | VRAM/character fetch addresses | Raw and atomic runtime paths verified | open-ROM regression requires all six Screen 1/2 map/tile and sprite table/tile roles with aligned completion data and collision status; v5 binds a promoted background map word to decoded tile attributes and its contributing row, while conditional v6 binds a cached sprite descriptor and contributing row to its accepted line-buffer slot; the open Shift-JIS fixture binds six licensed Misaki characters to exact ROM offsets, GDMA tile writers, CPU map writers, 96 promoted rows, and final pixels; paired generated probes bind 4bpp planar/packed rows and all flip modes through exact ROM sources to identical final pixels; title-specific glyph provenance remains open |
 | CPU PC ranges | Verified with running ROMs | regression checks `CS:IP` against wrapped physical PC and disjoint range-union containment; Wonderful execution terminates at the expected `0xff68b` loop |
 | Memory provenance | All eight trace-space labels runtime verified with generated open probes | paired complete-from-reset traces require 36,817 memory plus five bank events each and exact `iram`, `cart_sram`/`absent_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, and mono `unmapped` behavior; checks bind ROM/boot inputs, values, masks, offsets, CPU origins, ROM aliases, and the separate GDMA chains |
@@ -141,6 +142,29 @@ through 24 exact IRAM records plus complete CPU/memory history. The eight-clock
 SALC setting remains reference-correlated: prefetch-buffer credit makes the
 observer's end-to-end completion delta unsuitable as an isolated hardware
 timing measurement.
+
+The pinned open interrupt fixture exposed a fifth console-logic error cluster.
+The inherited controller sourced only display/timer interrupts, cleared pending
+bits when their enables were written, returned the raw and model-mismasked B0
+base, and acknowledged only a subset of sources. The corrected path aligns the
+base to eight vectors on every model, returns the highest pending status index,
+retains status across mask changes, acknowledges all eight bits, and connects
+the enabled-and-ready UART-TX level source. The keypad now wired-ORs every
+selected matrix row and raises a CE-safe interrupt only on selected-input rising
+edges. This matches pinned [WSdev interrupt revision 553](https://ws.nesdev.org/w/index.php?title=Interrupts&oldid=553),
+[WSdev UART behavior](https://ws.nesdev.org/wiki/UART), pinned ares
+[interrupt](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cpu/interrupt.cpp#L1-L27)
+and [keypad](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cpu/keypad.cpp#L1-L57)
+models, and pinned Mesen's
+[controller](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp)
+behavior. The upstream
+[hardware-authored fixture](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/soc/interrupts/main.c)
+proves its eight UART-TX and five vector/status assertions through exact final
+pixels. The generated Color/input probe additionally proves the actual vector
+81h handler path, disabled and held-key isolation, release/repress, retained
+pending status, full ACK, and simultaneous-row readback. The UART remains a
+ready-only stub: receive, transmitted-byte timing, cartridge IRQ, and precise
+interrupt latency are not established by this milestone.
 
 The boot-overlay probe exposed a simulator initialization error: the model had
 not observed its initial low clock level before the first BIOS-programming

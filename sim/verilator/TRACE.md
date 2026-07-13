@@ -134,6 +134,18 @@ This generic verifier reparses the v1 grammar independently, checks both script
 identities and all completion fields, and rejects a changed script, trace, or
 manifest.
 
+Regression uses the same route to exercise interrupt-facing input semantics.
+A build-generated Color ROM writes the intentionally unaligned interrupt base
+`0x87`, requires the masked base/vector readbacks `0x80`/`0x81`, and dispatches
+a selected X2 rising edge through vector `0x81`. Its exact `BDVIHRPACZ` bank
+marker covers disabled-edge isolation, held-key non-retriggering, release and
+repress, pending-status retention across masking, acknowledgement, and the
+combined X2+Y1 matrix values `0x33` held/`0x30` released. A no-input control may
+emit only the initial `B`; paired routed runs must have byte-identical traces,
+frames, and raw/normalized input identities. This is translated-model evidence
+for those controller/IRQ paths, not a measurement of physical interrupt
+latency.
+
 For a user-owned title, first use a private script and framebuffer output to
 reach a readable text surface reproducibly. Then repeat that same reset-to-screen
 route with unfiltered `mem`, `vram`, and the relevant `bg_cell`/`sprite_row`
@@ -568,6 +580,12 @@ pixel oracle because display setup overlaps its leading scanline.
 The SDMA probe runtime-verifies four successive byte addresses in linear ROM,
 their even/odd returned values and offsets, `not_applicable` CPU origin, the
 runtime initiator filter, and the fastest-rate cadence.
+The pinned open mono interrupt fixture is run twice and binds all 13 PASS cells,
+the exact terminal loop, complete background history, and its derived final
+raster. It directly covers eight UART-send-ready and five vector/status
+hardware assertions. The generated Color/input probe above covers the separate
+key-edge and actual-dispatch paths; neither fixture establishes UART receive,
+serialized transmit timing, cartridge IRQ, or exact interrupt latency.
 Paired generated 2 MiB mapper
 probes add complete-from-reset CPU coverage of all eight trace-space labels:
 `iram`, `cart_sram`, `absent_sram`, `cart_rom0`, `cart_rom1`,
