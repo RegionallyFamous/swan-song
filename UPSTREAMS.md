@@ -108,14 +108,27 @@ research](https://ws.nesdev.org/wiki/ROM_header) reports 32 KiB chips in known
 cartridges while the inherited RTL still interprets that value as 8 KiB.
 Resolving that hardware-accuracy question is outside the probe's role.
 
-The Sound-DMA regression generates a self-contained 128 KiB Color cartridge
-under `build/`. Its minimal open 80186 program streams four marker bytes from
-linear ROM through the core's SDMA engine; it includes no external carrier,
-firmware, or commercial data. The verifier locks current integrated RTL and
-trace behavior against the one-shot, incrementing byte-transfer subset
-documented by [WSdev](https://ws.nesdev.org/wiki/DMA), while keeping the
-inherited raw DMA-bus byte-enable value distinct from logical SDMA sample
-width.
+The Sound-DMA regressions generate two self-contained 128 KiB Color cartridges
+under `build/`; neither is checked in. The first minimal open 80186 program
+streams four marker bytes from linear ROM. The second checks selected
+source/length/control behavior in software and emits `PONSREATDHUZ` only after
+its readback, terminal, pause/resume, live-edit, repeat, decrement, and held-zero
+assertions pass. Both programs, sample bytes, identity markers, input text,
+footers, and checksums are repository-authored and include no external carrier,
+firmware, SDK, hardware-test binary, or commercial data.
+
+The contract was reviewed against pinned [WSdev DMA revision
+562](https://ws.nesdev.org/w/index.php?title=DMA&oldid=562), [Mesen2's transfer
+and control implementation](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsDmaController.cpp#L46-L192),
+and ares' pinned [DMA](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/apu/dma.cpp#L1-L33)
+and [I/O](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/apu/io.cpp#L160-L181)
+paths. The sources diverge at two relevant edges: Mesen performs a held read
+before substituting zero while ares skips the read, and Mesen rejects every
+enable write at zero live length while ares assigns enable directly. The tests
+therefore identify held reads as current translated policy and the all-write
+zero rejection as Mesen/WSdev-consistent rather than claiming emulator or
+hardware consensus. The inherited raw DMA-bus byte-enable also remains
+distinct from logical SDMA sample width.
 
 The paired planar/packed 4bpp regressions likewise generate self-contained
 128 KiB Color cartridges under `build/`. Their 80186 programs, pixel patterns,

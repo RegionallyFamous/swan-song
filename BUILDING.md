@@ -83,12 +83,20 @@
   including both accepted byte writes from one word `OUT`, and an exact GDMA
   ROM-to-IRAM chain.
 - The translated trace runtime covers CPU, GDMA, and SDMA memory transactions.
-  A self-contained WSC probe streams four addressed bytes from linear ROM at
-  the 24 kHz setting and requires the exact SDMA values, offsets, initiator,
-  origin status, and 128-CPU-clock cadence. The inherited DMA bus reports its
-  raw `byte_enable=3` while SDMA still advances one byte per transfer, so the
-  trace contract does not treat that mask as SDMA sample width. This probe does
-  not establish the physical `117 mod 128` phase or `6+N` stolen-cycle cost.
+  The first self-contained WSC probe streams four addressed bytes from linear
+  ROM at the 24 kHz setting and requires the exact SDMA values, offsets,
+  initiator, origin status, and 128-CPU-clock translated cadence. A second
+  self-checking probe runs twice and requires byte-identical selected traces
+  with 21 SDMA reads and the 12 exact-origin `PONSREATDHUZ` success markers for
+  pre-enable readback, terminal and zero-length behavior, pause/resume, active
+  low-byte edits, repeat, decrement, and held Channel-2 zero output. A direct
+  DMA-entity test forces pending-request cancellation behind IDLE/GDMA and one
+  already-issued completion. The inherited DMA bus reports raw
+  `byte_enable=3` while SDMA still advances one byte per transfer, so the trace
+  contract does not treat that mask as sample width. Exact held reads record
+  current translated policy; neither probe establishes physical `117 mod 128`
+  phase, `6+N` stolen-cycle cost, slower rates, Hyper Voice, save-state
+  continuation, or hardware behavior.
 - Paired generated 2 MiB mapper probes runtime-verify `boot_rom`,
   `cart_sram`/`absent_sram`, mono `unmapped`, `cart_rom0`, `cart_rom1`, and
   `cart_rom_linear` classification. Exact checks cover C0/C1 bank bits that
@@ -252,12 +260,15 @@ This unit test proves config parsing, filtering primitives, and serialization.
 capture to check all six CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) minimal open bank-write,
-WSC GDMA/SDMA, dual-format 4bpp, paired mapper-memory, and mono/Color
+WSC GDMA, two WSC SDMA, dual-format 4bpp, paired mapper-memory, and mono/Color
 boot-overlay probes. The GDMA
 probe requires two known ROM words to appear in the ordered completed
-read/write events at their resolved ROM and IRAM offsets. The SDMA probe
+read/write events at their resolved ROM and IRAM offsets. The first SDMA probe
 requires four byte-addressed linear-ROM reads, including odd addresses, at the
-fastest documented cadence through the runtime `sdma` filter. The mapper probes
+fastest documented cadence through the runtime `sdma` filter. The second SDMA
+probe binds every selected read and exact-origin success marker across two
+byte-identical captures; the direct GHDL test covers request-cancellation edges
+that software cannot schedule reliably. The mapper probes
 require complete unfiltered memory history, exact values and resolved offsets,
 issued write lane masks plus the CPU-read zero convention, and exact
 instruction origins for probe-owned accesses across the paired trace-space

@@ -346,16 +346,35 @@ IRAM.
 
 The integrated top currently instantiates the DMA engine with its hardware
 path enabled, so `sdma` events are runtime-reachable in the translated model.
-The generated WSC probe requires four one-shot reads at `0xf0100..0xf0103`,
+The first generated WSC probe requires four one-shot reads at `0xf0100..0xf0103`,
 including odd-byte alignment, and a 1,536 trace-clock interval: the documented
-128 CPU clocks at the trace clock's 12:1 ratio. [WSdev defines SDMA transfers
-as bytes](https://ws.nesdev.org/wiki/DMA), while this inherited RTL drives the
+128 CPU clocks at the trace clock's 12:1 ratio. [WSdev revision 562 defines SDMA
+transfers as bytes](https://ws.nesdev.org/w/index.php?title=DMA&oldid=562), while this inherited RTL drives the
 shared DMA bus's raw `byte_enable=3` for both DMA engines. SDMA still advances
 one address and consumes the low returned byte each step; do not infer its
 sample width from the raw mask. The probe verifies translated-core cadence and
 provenance, not the physical transfer's documented `117 mod 128` phase or
-`6+N` stolen-cycle cost. Hold, repeat, decrement, Hyper Voice, live-counter
-writes, and resume behavior are outside this focused trace test.
+`6+N` stolen-cycle cost.
+
+The second generated Color probe is self-checking: each exact C0 bank marker is
+emitted only after its 80186 program verifies the corresponding visible
+register or Channel 2 result. Two byte-identical captures contain exactly 21
+selected `sdma` reads and the 12 exact-origin `PONSREATDHUZ` markers. Together
+they cover masked pre-enable readback, one-shot terminal counters, zero-length
+enable rejection, pause/resume, active low-byte source/length edits, edited
+repeat-shadow reload, decrement, held-zero output with frozen counters, and
+unhold completion. This is complete only for the selected `sdma` memory and
+bank events; the manifest deliberately does not claim complete system-memory
+history. A direct DMA-entity test separately forces queued-request cancellation
+in IDLE and behind GDMA plus the one-completion boundary for an already-issued
+read.
+
+Pinned Mesen performs and traces a held memory read before substituting zero;
+pinned ares skips the held read. The four held `0xf1070` rows therefore lock the
+translated core's Mesen-aligned policy, not physical hardware activity. Rates
+below 24 kHz, exact arbitration/phase/cost, slow-source extension, additional
+source spaces and wrap, wider active-byte edits, Hyper Voice routing, exact
+save-state continuation, and hardware behavior remain outside this evidence.
 
 The raw 20-bit address and resolved offset are both intentional. The mapper's
 ROM0, ROM1, and linear windows can reach the same storage byte through different
@@ -553,8 +572,8 @@ fixtures and focused byte-lane/background-cell/sprite-row correlator tests. Its
 translated
 open-ROM captures require all six display-role encodings, exact CPU memory
 origins, `bg_cell`/`sprite_row` events, and nonzero atomic coverage from both
-screen layers plus the sprite line buffer. The suite generates temporary bank
-and WSC GDMA/SDMA probes and runs a
+screen layers plus the sprite line buffer. The suite generates temporary bank,
+WSC GDMA, and two WSC SDMA probes and runs a
 checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated glyph
 verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
 48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted
@@ -577,9 +596,12 @@ and the stable second frame. It also requires the two different physical
 encodings to produce identical normalized bitmaps and RGB output; the first
 captured frame is retained for two-occurrence provenance but is not the final
 pixel oracle because display setup overlaps its leading scanline.
-The SDMA probe runtime-verifies four successive byte addresses in linear ROM,
-their even/odd returned values and offsets, `not_applicable` CPU origin, the
-runtime initiator filter, and the fastest-rate cadence.
+The first SDMA probe runtime-verifies four successive byte addresses in linear
+ROM, their even/odd returned values and offsets, `not_applicable` CPU origin,
+the runtime initiator filter, and fastest-rate cadence. The second runs twice
+and binds 21 selected reads to 12 self-checking success markers for the
+live/shadow, pause/resume, repeat, decrement, zero-length, and held-zero subset;
+the direct entity test covers pending cancellation and issued completion.
 The pinned open mono interrupt fixture is run twice and binds all 13 PASS cells,
 the exact terminal loop, complete background history, and its derived final
 raster. It directly covers eight UART-send-ready and five vector/status
