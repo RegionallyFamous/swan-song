@@ -287,7 +287,13 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 fixtures and focused byte-lane/atomic-cell correlator tests. Its translated
 open-ROM captures require all six display-role encodings, exact CPU memory
 origins, `bg_cell` events, and nonzero atomic-cell coverage from both screen
-layers. The suite generates temporary bank and WSC GDMA probes. The
+layers. The suite generates temporary bank and WSC GDMA probes and runs a
+checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated glyph
+verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
+48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted
+glyph row and source offset, and the final 224×144 RGB pixels. This proves the
+general Japanese-text provenance path while deliberately leaving any
+commercial title's private codepoint mapping unclaimed. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
 completed chain `ROM 0x0100 -> IRAM 0x4000` and `ROM 0x0102 -> IRAM 0x4002`,
 including known values and mapped offsets. SRAM, ROM0, ROM1, BIOS, and
@@ -300,6 +306,8 @@ non-collision physical display reads to match the complete-from-reset IRAM
 scoreboard: 78,754 are tied to exact CPU writer instructions and 192 pre-enable
 prefetches to the defined power-up value. Any value mismatch fails regression.
 The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
-the extended-range Color fixture adds 5,176 Screen 1 cells. The focused unit
-test locks 2bpp/4bpp selection, simultaneous layers, collisions, superseded
-prefetches, and writer-snapshot timing.
+the extended-range Color fixture adds 5,176 Screen 1 cells and the Shift-JIS
+fixture adds 8,307. Of the latter, 96 records are the two complete promotions
+of all 48 manifest-bound glyph rows. The focused unit test locks 2bpp/4bpp
+selection, simultaneous layers, collisions, superseded prefetches, and
+writer-snapshot timing.

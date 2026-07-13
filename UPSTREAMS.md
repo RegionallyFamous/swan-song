@@ -8,6 +8,8 @@ Pinned on 2026-07-12:
 | WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | `WonderSwan.sv` grants GPL v2-or-later; top-level file contains GPL v2 text; file notices vary |
 | APF utility reference | https://github.com/agg23/analogue-pocket-utils | `78482d1b363606336f4535aa0adc2e957bc20558` | MIT |
 | Wonderful open test reference | https://github.com/asiekierka/ws-test-suite | `7dfa0e2e869d08386b685d6a56df0bcfaf181b47` | MIT |
+| Wonderful native example reference | https://github.com/WonderfulToolchain/target-wswan-examples | `811b739ab1f0203336a08da8db34365d29869617` | CC0-1.0 example scaffold; linked libraries use zlib terms |
+| Misaki Japanese font source mirror | https://github.com/OpenWitch/AthenaOS | `d37beae7482616313883dcfa4bdb7114d1ef5749` | author's official source/license: https://littlelimit.net/misaki.htm; unlimited use/copy/distribution with or without modification; no warranty |
 | ares behavioral reference | https://github.com/ares-emulator/ares | `449b93716fb162632de2fd43bf2eba2064fa43f2` | ares core under ISC-style notice; bundled notices vary |
 
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
@@ -75,3 +77,13 @@ build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked
 `target-wswan-syslibs` zlib notice. It is open test software and includes no
 firmware or commercial game content.
+
+The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
+Wonderful build of project source plus six unmodified 8×8 rows from Misaki
+Gothic. Its local README pins the author's official PNG and BDF archives and
+hashes, a byte-identical Git mirror/commit, the source PNG/hash, exact Unicode
+and Shift-JIS manifest, Wonderful container and package versions, ROM hash,
+and full trace/pixel acceptance checks. The Misaki author grants unlimited use,
+copy, and distribution, modified or unmodified, commercially or otherwise;
+the notice is copied beside the fixture. No BIOS, WonderWitch image, or
+commercial game data is included.

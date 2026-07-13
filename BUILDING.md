@@ -10,6 +10,11 @@
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
   above 16 KiB without aliasing; all 15,796 physical display reads match
   provenance (15,610 exact CPU-written words and 186 power-up prefetches).
+- The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
+  rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
+  tile-RAM writes), six exact CPU map writers, two promotions of every glyph
+  row, and every final RGB pixel. All 25,113 display reads match the
+  reset-complete writer scoreboard.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
   C++ unit test. The regression also validates CPU, display-RAM, and completed
   memory events from the
@@ -26,8 +31,9 @@
   selected-word versus 4bpp two-word handling, collision semantics, and
   fetch-time writer snapshots pass focused C++/Python fixtures. The translated
   ROM regression validates 26,224 bootstrap cells across both layers and 5,176
-  extended-range Color cells, including superseded and end-of-capture prefetch
-  accounting.
+  extended-range Color cells. The Shift-JIS workload adds 8,307 Screen 1 cells,
+  including 96 manifest-bound Japanese glyph-row promotions. All three runs
+  account explicitly for superseded and end-of-capture prefetches.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and

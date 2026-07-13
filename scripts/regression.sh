@@ -139,6 +139,37 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/verify_provenance_probe.py" \
   "$BUILD/provenance-probe/events.csv"
 
+# Run a native Wonderful-built Shift-JIS renderer over six licensed Misaki
+# glyphs. This binds Japanese character identity to exact ROM offsets, GDMA
+# tile writes, CPU map writes, promoted background rows, and final pixels.
+SJIS_ROM="$ROOT/testroms/swan-song/sjis_glyph_provenance/sjis_glyph_provenance.wsc"
+SJIS_OUT="$BUILD/sjis-glyph-provenance"
+python3 "$ROOT/sim/verilator/verify_sjis_glyph_fixture_test.py"
+rm -rf "$SJIS_OUT"
+"$SIM" --rom "$SJIS_ROM" --frames 2 --max-cycles 4000000 --out "$SJIS_OUT" \
+  --event-trace "$SJIS_OUT/events.csv" --trace-events mem,vram,bg_cell >/dev/null
+python3 "$ROOT/sim/verilator/verify_trace.py" \
+  "$SJIS_OUT/events.csv" --allowed mem,vram,bg_cell --require mem,vram,bg_cell \
+  --require-fetch-values --reject-fetch-collisions \
+  --require-mem-initiators cpu,gdma \
+  --require-origin-statuses exact,unattributed,not_applicable
+python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+  "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
+  --fail-on-mismatch --require-complete-coverage \
+  --expect-count fetches=25113 --expect-count match=25113 \
+  --expect-count collision=0 --expect-count cpu_exact=24729 \
+  --expect-count initial_powerup=192 --expect-count gdma_rom=192
+SJIS_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
+  "$SJIS_OUT/events.csv" --output "$SJIS_OUT/bg-cells.csv" \
+  --require-complete-coverage)"
+echo "$SJIS_BG_SUMMARY"
+require_bg_layers "$SJIS_BG_SUMMARY" screen1
+require_bg_counts "$SJIS_BG_SUMMARY" \
+  cells=8307 screen1=8307 screen2=0 bpp2=8307 bpp4=0 \
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0
+python3 "$ROOT/sim/verilator/verify_sjis_glyph_fixture.py" \
+  "$SJIS_ROM" "$SJIS_OUT/events.csv" "$SJIS_OUT/frame-1.rgb"
+
 check_case() {
   local name="$1" expected="$2" output="$3" frame="${4:-5}"
   python3 "$ROOT/sim/verilator/rgb_to_png.py" "$output/frame-$frame.rgb" >/dev/null
