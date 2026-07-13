@@ -52,8 +52,19 @@ class QuartusDockerContractTest(unittest.TestCase):
         self.assertIn('"${git_source[@]}" archive', script)
         self.assertIn("SWANSONG_SOURCE_COMMIT", script)
         self.assertIn("SOURCE_DATE_EPOCH", script)
-        for artifact in ("ap_core.rbf", "ap_core.fit.rpt", "ap_core.sta.rpt", "ap_core.flow.rpt"):
+        for artifact in (
+            "ap_core.rbf",
+            "ap_core.fit.rpt",
+            "ap_core.asm.rpt",
+            "ap_core.sta.rpt",
+            "ap_core.flow.rpt",
+        ):
             self.assertIn(artifact, script)
+
+    def test_host_runs_fail_closed_candidate_auditor(self) -> None:
+        host = HOST.read_text()
+        self.assertIn('python3 "$ROOT/scripts/quartus_fit_audit.py"', host)
+        self.assertIn("quartus-audit-candidate.json", host)
 
     def test_toolchain_gate_checks_exact_version_edition_and_part(self) -> None:
         check = TOOLCHAIN_CHECK.read_text()

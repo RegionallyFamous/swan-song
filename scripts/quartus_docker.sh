@@ -130,7 +130,11 @@ build_core() {
     "$IMAGE" \
     /usr/local/bin/container-build-core
 
-  echo "fit/timing output: $output"
+  python3 "$ROOT/scripts/quartus_fit_audit.py" \
+    --artifacts "$output" \
+    --output "$output/quartus-audit-candidate.json"
+
+  echo "audited non-release fit/timing candidate: $output"
 }
 
 command="${1:-}"

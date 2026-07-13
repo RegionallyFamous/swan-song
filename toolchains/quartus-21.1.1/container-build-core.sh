@@ -70,7 +70,7 @@ if (( build_status != 0 )); then
   exit "$build_status"
 fi
 
-for required in ap_core.rbf ap_core.fit.rpt ap_core.sta.rpt ap_core.flow.rpt; do
+for required in ap_core.rbf ap_core.fit.rpt ap_core.asm.rpt ap_core.sta.rpt ap_core.flow.rpt; do
   test -s "$artifact_root/output_files/$required" || {
     echo "successful flow did not produce required fit/timing artifact: $required" >&2
     exit 78
