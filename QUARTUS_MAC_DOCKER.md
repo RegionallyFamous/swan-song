@@ -194,13 +194,30 @@ toolchain and runs `make regression`; it is the right place for open-source
 simulation, synthesis smoke tests, format contracts, negative mutations, and
 packaging checks that do not require Quartus.
 
-Quartus needs a separate native-x86 Linux lane. GitHub's standard Linux runner
+Quartus needs a separate x86_64 Linux lane. GitHub's standard Linux runner
 has only 14 GB of SSD, exactly the vendor's stated minimum for Quartus Lite
 itself, before the 6.6 GB installer, Docker layers, source, and fit artifacts.
 Use either an 8-vCPU/32-GB/300-GB GitHub larger runner or an ephemeral
 self-hosted/cloud Ubuntu 24.04 x86_64 VM. A practical self-hosted target is 8
 vCPU, 32 GB RAM, and at least 100 GB SSD. The host can stay current because the
-verified Quartus container itself remains pinned to Ubuntu 20.04.
+verified Quartus container itself remains pinned to Ubuntu 20.04. The workflow
+fails before checkout unless the guest reports Linux x86_64, at least 8 online
+CPUs, 30 GiB of kernel-reported RAM, 80 GiB free at `RUNNER_TEMP`, a local
+Unix-socket Linux/x86_64 Docker daemon, and another 80 GiB visible from the
+pinned Quartus image's container layer. The two paths may share a
+filesystem; both are checked because Quartus builds under container `/tmp`
+while reports are copied to `RUNNER_TEMP`. Provision 32 GB/100 GB rather than
+using those detection thresholds as sizing targets. These probes establish
+only guest and daemon reports: they cannot identify the physical CPU or rule
+out an emulated x86_64 VM, and they do not establish that this design will fit.
+Provision the trusted lane on actual x86_64 hardware when predictable Quartus
+runtime is required.
+
+Use a rootful Docker Engine inside this dedicated VM. The reviewed wrapper runs
+the build container as root, then uses the embedded cleanup trap to return the
+artifact bind mount to the Actions runner's numeric UID/GID. Rootless Docker is
+not part of the verified contract. Do not reuse this daemon or runner for
+untrusted pull-request jobs.
 
 Provision the licensed vendor archive to that VM outside Git and GitHub
 caches, accept the EULA there, and build the pinned private image once. A
@@ -215,14 +232,24 @@ make regression
 The checked-in `.github/workflows/quartus-fit.yml` provides the manual fit
 job. It will remain queued until a runner carrying the cumulative labels
 `self-hosted`, `linux`, `x64`, and `swan-song-quartus-21-1-1` is online. Its
-job guard accepts only the repository's default branch, and a runtime probe
-requires a native Linux x86_64 host. The source checkout is exact and
-credential-free; the workflow never downloads, installs, caches, or publishes
-Quartus.
+job guard accepts only the repository's default branch, the `quartus-fit`
+GitHub environment requires an explicit approval, and a runtime probe
+requires the guest, capacity, local-endpoint, and Docker properties above. The
+source checkout is exact and credential-free; the workflow never downloads,
+installs, caches, or publishes Quartus. After resolving the private image tag
+once, the gate validates its exact `sha256:` image ID and runs every inspection
+and fit by that immutable ID with an explicit reviewed entrypoint. The host
+generates provenance outside the writable artifact bind, starts the fit with an
+empty artifact directory, rejects container-created reserved provenance names,
+and merges its genuine evidence only after the container exits. The evidence
+records the image ID, the immutable manifest-digest portions of any registry
+repo digests, and a sorted, hashed `dpkg-query` package manifest from the same
+image. Registry hosts, repository names, and the requested local image tag are
+deliberately discarded before public evidence is written.
 
 Publish only the audit JSON, reports, build log, RBF SHA-256, candidate RBF,
-toolchain/build-ID files, and provenance metadata; never publish the Quartus
-installer or private runtime image. Do not route
+toolchain/build-ID files, container/package manifest, and provenance metadata;
+never publish the Quartus installer or private runtime image. Do not route
 public pull-request code to a persistent self-hosted runner: GitHub warns that
 forked PRs can execute dangerous code on that machine. Prefer an ephemeral VM,
 or restrict a dedicated runner group to a trusted workflow and protected
@@ -235,10 +262,13 @@ The workflow's collector enforces that evidence allowlist and excludes every
 other Quartus output. On a public repository, assume the uploaded 14-day
 evidence bundle is public to signed-in users with repository read access.
 
-This second lane automates synthesis, fit, assembly, TimeQuest, resource
-budgets, report auditing, and reproducibility. It still cannot certify
-PocketOS commands, LCD/Dock behavior, SDRAM on the actual board, or Sleep/Wake;
-those remain physical-Pocket gates.
+Each dispatch performs one clean synthesis, fit, assembly, and TimeQuest run,
+then applies the resource/timing auditor and preserves a bounded candidate for
+later comparison. It does **not** establish RBF reproducibility: Phase 0 still
+requires two independent clean Quartus 21.1.1 fits of the same commit with
+identical RBF hashes. The lane also cannot certify PocketOS commands, LCD/Dock
+behavior, SDRAM on the actual board, or Sleep/Wake; those remain
+physical-Pocket gates.
 
 Finally, SHA-1 is used because it is the digest the vendor publishes for this
 release. These checks detect corruption and package mix-ups against that pinned

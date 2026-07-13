@@ -6,9 +6,11 @@ import tempfile
 import unittest
 
 import quartus_fit_audit as audit
+import quartus_container_provenance as container_provenance
 
 
 VERSION = "Version 21.1.1 Build 850 06/23/2021 SJ Lite Edition"
+IMAGE_ID = "sha256:" + "a" * 64
 
 
 def report(summary: str, status_key: str, status: str = "Successful - fixture") -> str:
@@ -76,6 +78,14 @@ class Fixture:
         )
         self.write("build_id.mif", b"WIDTH=32; DEPTH=8; CONTENT BEGIN END;\n")
         self.write("quartus.log", b"Info: Full Compilation was successful\n")
+        packages = root / "container-packages.tsv"
+        self.write("container-packages.tsv", b"bash\t5.0-6ubuntu1.2\tamd64\n")
+        container_provenance.create_provenance(
+            image_id=IMAGE_ID,
+            repo_digests_text="",
+            packages=packages,
+            output=root / "container-provenance.json",
+        )
         rbf_hash = audit.digest(root / "output_files/ap_core.rbf")["sha256"]
         self.write(
             "ap_core.rbf.sha256",
@@ -109,7 +119,28 @@ class QuartusFitAuditTest(unittest.TestCase):
         self.assertFalse(payload["candidate_gates"]["dock_hardware"])
         self.assertIsNone(payload["candidate_gates"]["compressed_bitstream"])
         self.assertEqual(payload["resources"]["plls"], {"available": 6, "used": 4})
+        self.assertEqual(payload["container_provenance"]["image_id"], IMAGE_ID)
+        self.assertIn("container-provenance.json", payload["artifacts"])
+        self.assertIn("container-packages.tsv", payload["artifacts"])
         self.assertNotIn("release_evidence", json.loads(first))
+
+    def test_container_provenance_is_required_and_bound(self) -> None:
+        provenance = self.root / "container-provenance.json"
+        provenance.unlink()
+        with self.assertRaisesRegex(audit.AuditError, "missing regular artifact"):
+            audit.audit(self.root)
+
+        container_provenance.create_provenance(
+            image_id="sha256:" + "b" * 64,
+            repo_digests_text="",
+            packages=self.root / "container-packages.tsv",
+            output=provenance,
+        )
+        payload = audit.audit(self.root)["quartus_audit"]
+        self.assertEqual(payload["container_provenance"]["image_id"], "sha256:" + "b" * 64)
+        self.assertEqual(
+            payload["artifacts"]["container-provenance.json"], audit.digest(provenance)
+        )
 
     def test_each_negative_timing_analysis_fails_closed(self) -> None:
         for analysis in audit.ANALYSES:

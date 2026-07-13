@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly ROOT
 readonly TOOLCHAIN_DIR="$ROOT/toolchains/quartus-21.1.1"
 readonly ARCHIVE_NAME=Quartus-lite-21.1.1.850-linux.tar
 readonly DEFAULT_ARCHIVE="${HOME}/Downloads/${ARCHIVE_NAME}"
@@ -40,7 +41,7 @@ doctor() {
   require_docker
   local architecture
   architecture="$(docker run --rm --platform linux/amd64 --network none \
-    "$UBUNTU_AMD64" uname -m)"
+    --entrypoint /usr/bin/uname "$UBUNTU_AMD64" -m)"
   [[ "$architecture" == x86_64 ]] || fail "linux/amd64 probe returned $architecture"
   echo "Docker can start a pinned linux/amd64 Ubuntu 20.04 container ($architecture)"
   if [[ "$(uname -m)" == arm64 ]]; then
@@ -69,6 +70,7 @@ PY
 }
 
 verify_container_toolchain_payload() {
+  local image_id="$1"
   local temporary container_id index checkout embedded extracted expected actual
   local checkout_files=(
     "$TOOLCHAIN_DIR/container-build-core.sh"
@@ -82,7 +84,8 @@ verify_container_toolchain_payload() {
   )
   temporary="$(mktemp -d "${TMPDIR:-/tmp}/swan-song-helper-check.XXXXXX")"
 
-  if ! container_id="$(docker create --platform linux/amd64 --network none "$IMAGE")"; then
+  if ! container_id="$(docker create --platform linux/amd64 --network none \
+      --entrypoint /bin/true "$image_id")"; then
     rm -rf "$temporary"
     fail "could not create a container to inspect the embedded toolchain payload"
   fi
@@ -117,16 +120,23 @@ verify_container_toolchain_payload() {
   rm -rf "$temporary"
 }
 
-inspect_image() {
-  require_docker
+resolve_image_id() {
+  local image_id
   docker image inspect "$IMAGE" >/dev/null 2>&1 || fail "image does not exist: $IMAGE"
+  image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || fail "image has an invalid immutable ID: $image_id"
+  printf '%s\n' "$image_id"
+}
 
+inspect_image() {
+  local image_id="$1"
   local platform edition version device archive_sha1
-  platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")"
-  edition="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.edition"}}' "$IMAGE")"
-  version="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.version"}}' "$IMAGE")"
-  device="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.device"}}' "$IMAGE")"
-  archive_sha1="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.archive-sha1"}}' "$IMAGE")"
+  platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image_id")"
+  edition="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.edition"}}' "$image_id")"
+  version="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.version"}}' "$image_id")"
+  device="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.device"}}' "$image_id")"
+  archive_sha1="$(docker image inspect --format '{{index .Config.Labels "com.swan-song.quartus.archive-sha1"}}' "$image_id")"
 
   [[ "$platform" == linux/amd64 ]] || fail "image platform is $platform, expected linux/amd64"
   [[ "$edition" == Lite ]] || fail "image edition is $edition, expected Lite"
@@ -135,9 +145,62 @@ inspect_image() {
   [[ "$archive_sha1" == 789c1133d99fde7146fdb99c1f5dcb4d2e5cc0cc ]] \
     || fail "image archive provenance label is wrong: $archive_sha1"
 
-  verify_container_toolchain_payload
+  verify_container_toolchain_payload "$image_id"
   docker run --rm --platform linux/amd64 --network none \
-    "$IMAGE" /usr/local/bin/toolchain-check
+    --user 0:0 \
+    --entrypoint /usr/local/bin/toolchain-check \
+    "$image_id"
+}
+
+check_image() {
+  require_docker
+  local image_id
+  image_id="$(resolve_image_id)"
+  inspect_image "$image_id"
+  echo "verified $IMAGE as immutable image $image_id"
+}
+
+write_container_evidence() {
+  local evidence_root="$1"
+  local image_id="$2"
+  local packages="$evidence_root/container-packages.tsv"
+  local provenance="$evidence_root/container-provenance.json"
+  local repo_digests
+
+  docker run --rm --platform linux/amd64 --network none \
+    --user 0:0 \
+    --entrypoint /usr/bin/dpkg-query \
+    "$image_id" -W '-f=${binary:Package}\t${Version}\t${Architecture}\n' \
+    | LC_ALL=C sort > "$packages"
+  repo_digests="$(docker image inspect \
+    --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image_id" \
+    | LC_ALL=C sort -u)"
+  python3 "$ROOT/scripts/quartus_container_provenance.py" create \
+    --image-id "$image_id" \
+    --repo-digests "$repo_digests" \
+    --packages "$packages" \
+    --output "$provenance"
+}
+
+merge_container_evidence() {
+  local evidence_root="$1"
+  local output="$2"
+  local reserved source destination
+
+  for reserved in container-packages.tsv container-provenance.json; do
+    destination="$output/$reserved"
+    if [[ -e "$destination" || -L "$destination" ]]; then
+      fail "container created reserved provenance path: $reserved"
+    fi
+  done
+
+  for reserved in container-packages.tsv container-provenance.json; do
+    source="$evidence_root/$reserved"
+    destination="$output/$reserved"
+    if ! (umask 022; set -o noclobber; cat "$source" > "$destination"); then
+      fail "could not install reserved provenance path without collision: $reserved"
+    fi
+  done
 }
 
 build_image() {
@@ -164,13 +227,31 @@ build_image() {
     --file "$context/Dockerfile" \
     "$context"
 
-  inspect_image
+  check_image
   echo "built and verified $IMAGE"
 }
 
-build_core() {
+build_core() (
   require_docker
-  inspect_image
+  local image_id provenance_root container_status
+  provenance_root=""
+  # Invoked indirectly by the EXIT trap below.
+  # shellcheck disable=SC2329
+  cleanup_build_core() {
+    local status=$?
+    trap - EXIT
+    if [[ -n "$provenance_root" ]] && ! rm -rf "$provenance_root"; then
+      echo "quartus_docker.sh: could not remove host-only provenance directory" >&2
+      if (( status == 0 )); then
+        status=1
+      fi
+    fi
+    exit "$status"
+  }
+  trap cleanup_build_core EXIT
+
+  image_id="$(resolve_image_id)"
+  inspect_image "$image_id"
 
   local exclude_mif=':(exclude)src/fpga/apf/build_id.mif'
   git -C "$ROOT" diff --quiet -- . "$exclude_mif" || fail \
@@ -178,7 +259,7 @@ build_core() {
   git -C "$ROOT" diff --cached --quiet -- . "$exclude_mif" || fail \
     "tracked source has staged changes; commit them before the fit"
 
-  local short_commit output parent
+  local short_commit output
   short_commit="$(git -C "$ROOT" rev-parse --short=12 HEAD)"
   output="${1:-$ROOT/build/quartus-docker/$short_commit}"
   mkdir -p "$output"
@@ -186,23 +267,34 @@ build_core() {
     fail "artifact directory must be empty: $output"
   fi
   output="$(cd "$output" && pwd -P)"
+  provenance_root="$(mktemp -d "${TMPDIR:-/tmp}/swan-song-container-evidence.XXXXXX")"
+  write_container_evidence "$provenance_root" "$image_id"
 
+  set +e
   docker run --rm \
     --platform linux/amd64 \
     --network none \
+    --user 0:0 \
     --env "ARTIFACT_UID=$(id -u)" \
     --env "ARTIFACT_GID=$(id -g)" \
     --volume "$ROOT:/source:ro" \
     --volume "$output:/artifacts:rw" \
-    "$IMAGE" \
-    /usr/local/bin/container-build-core
+    --entrypoint /usr/local/bin/container-build-core \
+    "$image_id"
+  container_status=$?
+  set -e
+
+  merge_container_evidence "$provenance_root" "$output"
+  if (( container_status != 0 )); then
+    return "$container_status"
+  fi
 
   python3 "$ROOT/scripts/quartus_fit_audit.py" \
     --artifacts "$output" \
     --output "$output/quartus-audit-candidate.json"
 
   echo "audited non-release fit/timing candidate: $output"
-}
+)
 
 command="${1:-}"
 case "$command" in
@@ -220,7 +312,7 @@ case "$command" in
     ;;
   check-image)
     [[ $# -eq 1 ]] || { usage >&2; exit 64; }
-    inspect_image
+    check_image
     ;;
   build)
     [[ $# -le 2 ]] || { usage >&2; exit 64; }

@@ -83,12 +83,18 @@ unset LM_LICENSE_FILE MGLS_LICENSE_FILE QUARTUS_LICENSE_FILE || true
 set +e
 ./scripts/build_core.sh 2>&1 | tee "$artifact_root/quartus.log"
 build_status=${PIPESTATUS[0]}
+log_status=${PIPESTATUS[1]}
 set -e
 
 output_dir="$work_root/repo/src/fpga/output_files"
 if [[ -d "$output_dir" ]]; then
   mkdir "$artifact_root/output_files"
   cp -a "$output_dir/." "$artifact_root/output_files/"
+fi
+
+if (( log_status != 0 )); then
+  echo "could not write the complete Quartus log (tee status $log_status)" >&2
+  exit 83
 fi
 
 if (( build_status != 0 )); then

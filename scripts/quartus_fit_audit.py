@@ -14,6 +14,8 @@ import sys
 import tempfile
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+import quartus_container_provenance as container_provenance
+
 
 MAGIC = "SWAN_SONG_QUARTUS_AUDIT_V1"
 VERSION_RE = re.compile(r"\bVersion 21\.1\.1 Build 850\b")
@@ -41,6 +43,8 @@ OTHER_INPUTS = (
     "build_id.mif",
     "ap_core.rbf.sha256",
     "quartus.log",
+    "container-provenance.json",
+    "container-packages.tsv",
 )
 
 
@@ -352,6 +356,12 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
 
     validate_version(texts["toolchain-version.txt"], "toolchain-version.txt")
     metadata = parse_metadata(texts["build-metadata.txt"])
+    try:
+        validated_container = container_provenance.validate_provenance(
+            paths["container-provenance.json"], paths["container-packages.tsv"]
+        )
+    except container_provenance.ProvenanceError as error:
+        raise AuditError(f"invalid container provenance: {error}") from error
     rbf_hash = artifacts["output_files/ap_core.rbf"]["sha256"]
     expected_hash_line = f"{rbf_hash}  /artifacts/output_files/ap_core.rbf"
     if texts["ap_core.rbf.sha256"].strip() != expected_hash_line:
@@ -393,6 +403,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
             "release_eligible": False,
             "identity": report_identity,
             "provenance": metadata,
+            "container_provenance": validated_container,
             "artifacts": artifacts,
             "flow": flow,
             "resources": resources,

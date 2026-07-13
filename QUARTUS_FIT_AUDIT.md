@@ -35,6 +35,18 @@ On a real Docker build, the deterministic output is
 `compressed_bitstream: null`. It therefore cannot replace physical Pocket and
 Dock validation or a reviewed release-evidence record.
 
+The trusted VM wrapper additionally generates `container-provenance.json` and
+`container-packages.tsv` in a host-only temporary directory before the fit. It
+forces reviewed entrypoints for every image command, gives the fit container an
+empty writable artifact mount, and merges the genuine pair only after the
+container exits; any container-created reserved provenance name fails closed.
+The former file binds the immutable local Docker image ID, privacy-stripped
+registry manifest digests (never registry/repository coordinates), the
+validated Quartus labels, and the size/count/SHA-256 of the sorted package
+manifest. The bounded evidence collector revalidates that pair before upload.
+These files identify the environment for one candidate; they are not a second
+fit and do not prove that Quartus emits a reproducible RBF.
+
 ## Basis and current limitation
 
 Altera documents the Fitter Summary as the source of fit status, version,

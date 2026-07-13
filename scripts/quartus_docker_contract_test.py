@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 
@@ -36,7 +37,9 @@ case "${1:-}" in
     [[ "${2:-}" == inspect ]] || exit 90
     if [[ "${3:-}" == --format ]]; then
       case "${4:-}" in
+        '{{.Id}}') echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
         '{{.Os}}/{{.Architecture}}') echo linux/amd64 ;;
+        '{{range .RepoDigests}}{{println .}}{{end}}') ;;
         *quartus.edition*) echo Lite ;;
         *quartus.version*) echo 21.1.1.850 ;;
         *quartus.device*) echo 5CEBA4F23C8 ;;
@@ -46,6 +49,7 @@ case "${1:-}" in
     fi
     ;;
   create)
+    [[ " $* " == *" --entrypoint /bin/true "* ]] || exit 94
     echo fake-container
     ;;
   cp)
@@ -57,7 +61,10 @@ case "${1:-}" in
     esac
     /bin/cp "$source" "${3:-}"
     ;;
-  rm|run)
+  rm)
+    ;;
+  run)
+    [[ " $* " == *" --entrypoint /usr/local/bin/toolchain-check "* ]] || exit 95
     ;;
   *)
     exit 93
@@ -72,6 +79,252 @@ esac
                 environment[name] = str(path)
             return subprocess.run(
                 [str(HOST), "check-image"],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+    @staticmethod
+    def run_fake_failed_fit(
+        output: Path, *, reserved_collision: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            fake_bin = Path(temporary)
+            marker = fake_bin / "fit-started"
+            docker = fake_bin / "docker"
+            docker.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+entrypoint_from() {
+  ENTRYPOINT=""
+  local previous="" argument
+  for argument in "$@"; do
+    if [[ "$previous" == --entrypoint ]]; then
+      ENTRYPOINT="$argument"
+    fi
+    previous="$argument"
+  done
+}
+case "${1:-}" in
+  info)
+    ;;
+  image)
+    [[ "${2:-}" == inspect ]] || exit 90
+    if [[ "${3:-}" == --format ]]; then
+      case "${4:-}" in
+        '{{.Id}}') echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+        '{{.Os}}/{{.Architecture}}') echo linux/amd64 ;;
+        '{{range .RepoDigests}}{{println .}}{{end}}')
+          echo private.example/internal/quartus@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          ;;
+        *quartus.edition*) echo Lite ;;
+        *quartus.version*) echo 21.1.1.850 ;;
+        *quartus.device*) echo 5CEBA4F23C8 ;;
+        *quartus.archive-sha1*) echo 789c1133d99fde7146fdb99c1f5dcb4d2e5cc0cc ;;
+        *) exit 91 ;;
+      esac
+    fi
+    ;;
+  create)
+    shift
+    entrypoint_from "$@"
+    [[ "$ENTRYPOINT" == /bin/true ]] || exit 92
+    echo fake-container
+    ;;
+  cp)
+    case "${2:-}" in
+      *:/usr/local/bin/container-build-core) source="$FAKE_CONTAINER_BUILD" ;;
+      *:/usr/local/bin/toolchain-check) source="$FAKE_TOOLCHAIN_CHECK" ;;
+      *:/usr/local/share/swan-song/verify-toolchain.tcl) source="$FAKE_VERIFY_TCL" ;;
+      *) exit 93 ;;
+    esac
+    /bin/cp "$source" "${3:-}"
+    ;;
+  rm)
+    ;;
+  run)
+    shift
+    entrypoint_from "$@"
+    case "$ENTRYPOINT" in
+      /usr/local/bin/toolchain-check)
+        ;;
+      /usr/bin/dpkg-query)
+        printf 'bash\t5.0-6ubuntu1.2\tamd64\n'
+        ;;
+      /usr/local/bin/container-build-core)
+        artifact_volume=""
+        previous=""
+        for argument in "$@"; do
+          if [[ "$previous" == --volume && "$argument" == *:/artifacts:rw ]]; then
+            artifact_volume="$argument"
+          fi
+          previous="$argument"
+        done
+        [[ -n "$artifact_volume" ]] || exit 96
+        artifacts="${artifact_volume%:/artifacts:rw}"
+        for reserved in container-packages.tsv container-provenance.json; do
+          [[ ! -e "$artifacts/$reserved" && ! -L "$artifacts/$reserved" ]] || exit 97
+        done
+        : > "$FAKE_FIT_MARKER"
+        if [[ "${FAKE_RESERVED_COLLISION:-0}" == 1 ]]; then
+          printf 'forged by container\n' > "$artifacts/container-provenance.json"
+        fi
+        exit 42
+        ;;
+      *)
+        exit 98
+        ;;
+    esac
+    ;;
+  *)
+    exit 99
+    ;;
+esac
+"""
+            )
+            docker.chmod(0o755)
+            git = fake_bin / "git"
+            git.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+case " $* " in
+  *" diff "*) ;;
+  *" rev-parse --short=12 HEAD "*) echo 0123456789ab ;;
+  *) exit 89 ;;
+esac
+"""
+            )
+            git.chmod(0o755)
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "FAKE_CONTAINER_BUILD": str(CONTAINER_BUILD),
+                    "FAKE_TOOLCHAIN_CHECK": str(TOOLCHAIN_CHECK),
+                    "FAKE_VERIFY_TCL": str(
+                        ROOT / "toolchains/quartus-21.1.1/verify-toolchain.tcl"
+                    ),
+                    "FAKE_FIT_MARKER": str(marker),
+                    "FAKE_RESERVED_COLLISION": "1" if reserved_collision else "0",
+                }
+            )
+            result = subprocess.run(
+                [str(HOST), "build", str(output)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            if not marker.exists():
+                raise AssertionError(
+                    f"fake fit did not start: stdout={result.stdout!r} stderr={result.stderr!r}"
+                )
+            return result
+
+    @staticmethod
+    def workflow_preflight_script() -> str:
+        workflow = WORKFLOW.read_text()
+        step = workflow.index(
+            "      - name: Require capable x86_64 guest and local Docker daemon"
+        )
+        block = workflow.index("        run: |\n", step) + len("        run: |\n")
+        end = workflow.index("      - name:", block)
+        return textwrap.dedent(workflow[block:end])
+
+    @classmethod
+    def run_fake_preflight(
+        cls,
+        *,
+        endpoint: str = "unix:///var/run/docker.sock",
+        docker_free_kib: int = 90000000,
+        docker_context: str | None = None,
+        docker_host: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+            commands = {
+                "uname": """#!/usr/bin/env bash
+[[ "${1:-}" == -s ]] && { echo Linux; exit; }
+[[ "${1:-}" == -m ]] && { echo x86_64; exit; }
+exit 1
+""",
+                "nproc": "#!/usr/bin/env bash\necho 8\n",
+                "awk": """#!/usr/bin/env bash
+if [[ "${2:-}" == /proc/meminfo ]]; then
+  echo 33554432
+else
+  /usr/bin/awk "$@"
+fi
+""",
+                "df": """#!/usr/bin/env bash
+last="${!#}"
+if [[ "$last" == "$RUNNER_TEMP" ]]; then
+  free=90000000
+else
+  exit 1
+fi
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf 'fake 100000000 1 %s 1%% /fake\n' "$free"
+""",
+                "docker": """#!/usr/bin/env bash
+case "${1:-}" in
+  info)
+    if [[ "${2:-}" == --format ]]; then
+      case "${3:-}" in
+        '{{.OSType}}') echo linux ;;
+        '{{.Architecture}}') echo x86_64 ;;
+        '{{.Driver}}') echo overlay2 ;;
+        *) exit 1 ;;
+      esac
+    fi
+    ;;
+  image)
+    [[ "${2:-}" == inspect && "${3:-}" == --format && "${4:-}" == '{{.Id}}' ]] || exit 1
+    echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    ;;
+  run)
+    [[ " $* " == *" --entrypoint /bin/df "* ]] || exit 1
+    printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+    printf 'overlay 100000000 1 %s 1%% /\n' "$FAKE_DOCKER_FREE_KIB"
+    ;;
+  context)
+    case "${2:-}" in
+      show) echo default ;;
+      inspect) echo "$FAKE_DOCKER_ENDPOINT" ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 1 ;;
+esac
+""",
+            }
+            for name, payload in commands.items():
+                command = fake_bin / name
+                command.write_text(payload)
+                command.chmod(0o755)
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "RUNNER_TEMP": str(runner_temp),
+                    "QUARTUS_IMAGE": "swan-song-quartus:21.1.1-850-cyclonev",
+                    "FAKE_DOCKER_ENDPOINT": endpoint,
+                    "FAKE_DOCKER_FREE_KIB": str(docker_free_kib),
+                }
+            )
+            environment.pop("DOCKER_HOST", None)
+            environment.pop("DOCKER_CONTEXT", None)
+            if docker_context is not None:
+                environment["DOCKER_CONTEXT"] = docker_context
+            if docker_host is not None:
+                environment["DOCKER_HOST"] = docker_host
+            return subprocess.run(
+                ["bash", "-c", cls.workflow_preflight_script()],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -108,6 +361,69 @@ esac
         self.assertIn("--network none", host)
         self.assertIn('"$ROOT:/source:ro"', host)
         self.assertIn('"$output:/artifacts:rw"', host)
+
+    def test_all_image_commands_force_reviewed_entrypoints(self) -> None:
+        host = HOST.read_text()
+        for entrypoint in (
+            "/usr/bin/uname",
+            "/bin/true",
+            "/usr/local/bin/toolchain-check",
+            "/usr/bin/dpkg-query",
+            "/usr/local/bin/container-build-core",
+        ):
+            self.assertIn(f"--entrypoint {entrypoint}", host)
+        result = self.run_fake_image_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_fit_resolves_and_runs_an_immutable_image_id(self) -> None:
+        host = HOST.read_text()
+        self.assertIn("docker image inspect --format '{{.Id}}' \"$IMAGE\"", host)
+        self.assertIn("^sha256:[0-9a-f]{64}$", host)
+        self.assertIn('inspect_image "$image_id"', host)
+        self.assertIn('verify_container_toolchain_payload "$image_id"', host)
+        self.assertIn("--entrypoint /usr/local/bin/toolchain-check", host)
+        fit_run = host.rindex('/usr/local/bin/container-build-core')
+        self.assertIn('"$image_id"', host[fit_run : fit_run + 120])
+
+    def test_fit_records_bounded_container_and_package_provenance(self) -> None:
+        host = HOST.read_text()
+        container = CONTAINER_BUILD.read_text()
+        self.assertIn("container-packages.tsv", host)
+        self.assertIn("--entrypoint /usr/bin/dpkg-query", host)
+        self.assertIn('"$image_id" -W', host)
+        self.assertIn("container-provenance.json", host)
+        self.assertIn("quartus_container_provenance.py", host)
+        self.assertIn("--repo-digests", host)
+        self.assertIn("LC_ALL=C sort -u", host)
+        self.assertIn('artifact directory must be empty', container)
+        self.assertNotIn("container-packages.tsv", container)
+        self.assertNotIn("container-provenance.json", container)
+        self.assertIn('merge_container_evidence "$provenance_root" "$output"', host)
+
+    def test_failed_fit_cannot_see_or_mutate_host_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "artifacts"
+            output.mkdir()
+            result = self.run_fake_failed_fit(output)
+            self.assertEqual(result.returncode, 42, result.stderr)
+            packages = output / "container-packages.tsv"
+            provenance = output / "container-provenance.json"
+            self.assertEqual(packages.read_text(), "bash\t5.0-6ubuntu1.2\tamd64\n")
+            self.assertTrue(provenance.is_file())
+            self.assertNotIn("private.example", provenance.read_text())
+
+    def test_container_reserved_provenance_collision_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "artifacts"
+            output.mkdir()
+            result = self.run_fake_failed_fit(output, reserved_collision=True)
+            self.assertNotEqual(result.returncode, 42)
+            self.assertIn("container created reserved provenance path", result.stderr)
+            self.assertEqual(
+                (output / "container-provenance.json").read_text(),
+                "forged by container\n",
+            )
+            self.assertFalse((output / "container-packages.tsv").exists())
 
     def test_host_returns_container_artifacts_to_runner_ownership(self) -> None:
         host = HOST.read_text()
@@ -198,6 +514,7 @@ esac
             "runs-on: [self-hosted, linux, x64, swan-song-quartus-21-1-1]",
             workflow,
         )
+        self.assertIn("    environment: quartus-fit\n", workflow)
         self.assertIn(
             "if: ${{ github.ref == format('refs/heads/{0}', "
             "github.event.repository.default_branch) }}",
@@ -205,13 +522,53 @@ esac
         )
         self.assertIn("persist-credentials: false", workflow)
 
-    def test_vm_fit_workflow_checks_real_host_before_checkout(self) -> None:
+    def test_vm_fit_workflow_checks_x86_guest_before_checkout(self) -> None:
         workflow = WORKFLOW.read_text()
         host_check = workflow.index('operating_system="$(uname -s)"')
         self.assertIn('architecture="$(uname -m)"', workflow)
         self.assertIn('[[ "$operating_system" != Linux ]]', workflow)
         self.assertIn('[[ "$architecture" != x86_64 ]]', workflow)
         self.assertLess(host_check, workflow.index("uses: actions/checkout@"))
+
+    def test_vm_fit_workflow_fails_fast_on_capacity_and_docker(self) -> None:
+        workflow = WORKFLOW.read_text()
+        checkout = workflow.index("uses: actions/checkout@")
+        for contract in (
+            "minimum_cpus=8",
+            "minimum_memory_kib=$((30 * 1024 * 1024))",
+            "minimum_free_disk_kib=$((80 * 1024 * 1024))",
+            "docker info >/dev/null",
+            "docker info --format '{{.OSType}}'",
+            "docker info --format '{{.Architecture}}'",
+            "docker info --format '{{.Driver}}'",
+            "docker context inspect",
+            '"$docker_endpoint" != unix:///*',
+            "docker image inspect --format '{{.Id}}'",
+            "--entrypoint /bin/df",
+        ):
+            self.assertIn(contract, workflow)
+            self.assertLess(workflow.index(contract), checkout)
+
+    def test_vm_fit_preflight_executes_local_endpoint_and_storage_contracts(self) -> None:
+        accepted = self.run_fake_preflight()
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn("container-layer free (overlay2, sha256:", accepted.stdout)
+
+        remote = self.run_fake_preflight(endpoint="tcp://builder.example:2376")
+        self.assertNotEqual(remote.returncode, 0)
+        self.assertIn("local Unix-socket endpoint", remote.stderr)
+
+        context_overrides_host = self.run_fake_preflight(
+            endpoint="tcp://builder.example:2376",
+            docker_context="remote-builder",
+            docker_host="unix:///var/run/docker.sock",
+        )
+        self.assertNotEqual(context_overrides_host.returncode, 0)
+        self.assertIn("local Unix-socket endpoint", context_overrides_host.stderr)
+
+        starved = self.run_fake_preflight(docker_free_kib=1024)
+        self.assertNotEqual(starved.returncode, 0)
+        self.assertIn("at least 80 GiB free for the Docker container layer", starved.stderr)
 
     def test_vm_fit_workflow_runs_regression_before_quartus(self) -> None:
         workflow = WORKFLOW.read_text()
@@ -229,6 +586,12 @@ esac
         self.assertLess(toolchain, regression)
         self.assertLess(regression, image)
         self.assertLess(image, fit)
+
+    def test_container_build_rejects_quartus_log_write_failure(self) -> None:
+        script = CONTAINER_BUILD.read_text()
+        self.assertIn("build_status=${PIPESTATUS[0]}", script)
+        self.assertIn("log_status=${PIPESTATUS[1]}", script)
+        self.assertIn("could not write the complete Quartus log", script)
 
     def test_vm_fit_workflow_pins_actions_and_preserves_evidence(self) -> None:
         workflow = WORKFLOW.read_text()

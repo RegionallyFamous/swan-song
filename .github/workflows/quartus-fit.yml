@@ -9,6 +9,7 @@ permissions:
 env:
   VERILATOR_IMAGE: verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299
   GHDL_IMAGE: ghdl/ghdl@sha256:8b3ec37c3873b2eee9387759e66c50830c15ae5b7b533badaa97ce007a0f8022
+  QUARTUS_IMAGE: swan-song-quartus:21.1.1-850-cyclonev
 
 concurrency:
   group: quartus-fit-${{ github.ref }}
@@ -17,14 +18,19 @@ concurrency:
 jobs:
   fit:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    environment: quartus-fit
     runs-on: [self-hosted, linux, x64, swan-song-quartus-21-1-1]
     timeout-minutes: 180
     env:
       CXX: ${{ github.workspace }}/.github/toolchain/cxx
     steps:
-      - name: Require native x86_64 host
+      - name: Require capable x86_64 guest and local Docker daemon
         shell: bash
         run: |
+          set -euo pipefail
+          readonly minimum_cpus=8
+          readonly minimum_memory_kib=$((30 * 1024 * 1024))
+          readonly minimum_free_disk_kib=$((80 * 1024 * 1024))
           operating_system="$(uname -s)"
           architecture="$(uname -m)"
           if [[ "$operating_system" != Linux ]]; then
@@ -32,9 +38,84 @@ jobs:
             exit 1
           fi
           if [[ "$architecture" != x86_64 ]]; then
-            echo "Quartus fit runner must be native x86_64, got $architecture" >&2
+            echo "Quartus fit runner guest must report x86_64, got $architecture" >&2
             exit 1
           fi
+          for command in docker nproc awk df; do
+            if ! command -v "$command" >/dev/null; then
+              echo "Quartus fit runner is missing required command: $command" >&2
+              exit 1
+            fi
+          done
+          if [[ -z "${RUNNER_TEMP:-}" || ! -d "$RUNNER_TEMP" ]]; then
+            echo "RUNNER_TEMP must name an existing directory" >&2
+            exit 1
+          fi
+          cpu_count="$(nproc)"
+          memory_kib="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)"
+          runner_free_kib="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4; exit }')"
+          if (( cpu_count < minimum_cpus )); then
+            echo "Quartus fit runner needs at least $minimum_cpus CPUs, got $cpu_count" >&2
+            exit 1
+          fi
+          if [[ -z "$memory_kib" ]] || (( memory_kib < minimum_memory_kib )); then
+            echo "Quartus fit runner needs at least 30 GiB detected RAM" >&2
+            exit 1
+          fi
+          if [[ ! "$runner_free_kib" =~ ^[0-9]+$ ]] \
+              || (( runner_free_kib < minimum_free_disk_kib )); then
+            echo "Quartus fit runner needs at least 80 GiB free at RUNNER_TEMP" >&2
+            exit 1
+          fi
+          if ! docker info >/dev/null; then
+            echo "Quartus fit runner cannot reach the Docker daemon" >&2
+            exit 1
+          fi
+          docker_os="$(docker info --format '{{.OSType}}')"
+          docker_architecture="$(docker info --format '{{.Architecture}}')"
+          docker_driver="$(docker info --format '{{.Driver}}')"
+          if [[ "$docker_os" != linux ]]; then
+            echo "Docker daemon must run Linux containers, got $docker_os" >&2
+            exit 1
+          fi
+          if [[ "$docker_architecture" != x86_64 && "$docker_architecture" != amd64 ]]; then
+            echo "Docker daemon must report x86_64, got $docker_architecture" >&2
+            exit 1
+          fi
+          if [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+            docker_context="$(docker context show)"
+            docker_endpoint="$(docker context inspect \
+              --format '{{ (index .Endpoints "docker").Host }}' "$docker_context")"
+          elif [[ -n "${DOCKER_HOST:-}" ]]; then
+            docker_endpoint="$DOCKER_HOST"
+          else
+            docker_context="$(docker context show)"
+            docker_endpoint="$(docker context inspect \
+              --format '{{ (index .Endpoints "docker").Host }}' "$docker_context")"
+          fi
+          if [[ "$docker_endpoint" != unix:///* ]]; then
+            echo "Docker must use a local Unix-socket endpoint, got $docker_endpoint" >&2
+            exit 1
+          fi
+          image_id="$(docker image inspect --format '{{.Id}}' "$QUARTUS_IMAGE")"
+          if [[ ! "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Quartus image has an invalid immutable ID: $image_id" >&2
+            exit 1
+          fi
+          docker_free_kib="$(docker run --rm \
+            --platform linux/amd64 \
+            --network none \
+            --user 0:0 \
+            --entrypoint /bin/df \
+            "$image_id" -Pk / | awk 'NR == 2 { print $4; exit }')"
+          if [[ ! "$docker_free_kib" =~ ^[0-9]+$ ]] \
+              || (( docker_free_kib < minimum_free_disk_kib )); then
+            echo "Quartus fit runner needs at least 80 GiB free for the Docker container layer" >&2
+            exit 1
+          fi
+          echo "guest preflight: $cpu_count CPUs, $memory_kib KiB RAM, " \
+            "$runner_free_kib KiB RUNNER_TEMP free, $docker_free_kib KiB " \
+            "container-layer free ($docker_driver, $image_id)"
       - name: Check out exact source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
