@@ -11,6 +11,8 @@ entity dummyregs is
       clk            : in  std_logic;
       ce             : in  std_logic;
       reset          : in  std_logic;
+
+      IRQ_SerialTX   : out std_logic;
       
       RegBus_Din     : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr     : in  std_logic_vector(BUS_busadr-1 downto 0);
@@ -37,6 +39,10 @@ begin
 
    SER_STATUS_read <= SER_STATUS(7 downto 6) & "000100";
 
+   -- The stub UART is always ready to accept a transmit byte. Its send-ready
+   -- interrupt is a level source, but only while the serial block is enabled.
+   IRQ_SerialTX <= SER_STATUS(7) and SER_STATUS_read(2);
+
    process (reg_wired_or)
       variable wired_or : std_logic_vector(7 downto 0);
    begin
@@ -48,7 +54,6 @@ begin
    end process;
 
 end architecture;
-
 
 
 

@@ -22,6 +22,8 @@ entity IRQ is
       IRQ_VBlankTmr        : in  std_logic;
       IRQ_VBlank           : in  std_logic;
       IRQ_HBlankTmr        : in  std_logic;
+      IRQ_SerialTX         : in  std_logic;
+      IRQ_Key              : in  std_logic;
       
       RegBus_Din           : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr           : in  std_logic_vector(BUS_busadr-1 downto 0);
@@ -45,11 +47,11 @@ architecture arch of IRQ is
   
    -- register
    signal INT_BASE         : std_logic_vector(REG_INT_BASE  .upper downto REG_INT_BASE  .lower);
-   signal INT_BASE_back    : std_logic_vector(REG_INT_BASE  .upper downto REG_INT_BASE  .lower);
+   signal INT_BASE_masked  : std_logic_vector(REG_INT_BASE  .upper downto REG_INT_BASE  .lower);
+   signal INT_BASE_read    : std_logic_vector(REG_INT_BASE  .upper downto REG_INT_BASE  .lower);
    signal INT_ENABLE       : std_logic_vector(REG_INT_ENABLE.upper downto REG_INT_ENABLE.lower);
    signal INT_STATUS       : std_logic_vector(REG_INT_STATUS.upper downto REG_INT_STATUS.lower);
    
-   signal INT_ENABLE_written : std_logic;
    signal INT_ACK_written    : std_logic;
    
    type t_reg_wired_or is array(0 to 3) of std_logic_vector(7 downto 0);
@@ -61,12 +63,27 @@ architecture arch of IRQ is
    
 begin 
 
-   iREG_INT_BASE   : entity work.eReg generic map ( REG_INT_BASE   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), INT_BASE_back, INT_BASE  ); 
-   iREG_INT_ENABLE : entity work.eReg generic map ( REG_INT_ENABLE ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), INT_ENABLE   , INT_ENABLE, INT_ENABLE_written); 
+   iREG_INT_BASE   : entity work.eReg generic map ( REG_INT_BASE   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), INT_BASE_read, INT_BASE  );
+   iREG_INT_ENABLE : entity work.eReg generic map ( REG_INT_ENABLE ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), INT_ENABLE   , INT_ENABLE);
    iREG_INT_STATUS : entity work.eReg generic map ( REG_INT_STATUS ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(2), INT_STATUS   ); 
    iREG_INT_ACK    : entity work.eReg generic map ( REG_INT_ACK    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(3), x"00"        , open   , INT_ACK_written); 
 
-   INT_BASE_back <= (INT_BASE and x"FE") when isColor = '1' else (INT_BASE and x"F8");
+   -- The hardware vector table is always aligned to eight entries. Reading B0
+   -- returns that base combined with the highest pending status index; the
+   -- enable mask does not participate in this readback selection.
+   INT_BASE_masked <= INT_BASE and x"F8";
+
+   process (all)
+      variable highest_pending : unsigned(2 downto 0);
+   begin
+      highest_pending := (others => '0');
+      for i in 0 to 7 loop
+         if (INT_STATUS(i) = '1') then
+            highest_pending := to_unsigned(i, highest_pending'length);
+         end if;
+      end loop;
+      INT_BASE_read <= INT_BASE_masked(7 downto 3) & std_logic_vector(highest_pending);
+   end process;
 
    process (reg_wired_or)
       variable wired_or : std_logic_vector(7 downto 0);
@@ -95,33 +112,24 @@ begin
          elsif (ce = '1') then
          
             -- set
+            if (IRQ_SerialTX = '1' and INT_ENABLE(0) = '1') then INT_STATUS(0) <= '1'; end if;
+            if (IRQ_Key      = '1' and INT_ENABLE(1) = '1') then INT_STATUS(1) <= '1'; end if;
             if (IRQ_LineComp  = '1' and INT_ENABLE(4) = '1') then INT_STATUS(4) <= '1'; end if;
             if (IRQ_VBlankTmr = '1' and INT_ENABLE(5) = '1') then INT_STATUS(5) <= '1'; end if;
             if (IRQ_VBlank    = '1' and INT_ENABLE(6) = '1') then INT_STATUS(6) <= '1'; end if;
             if (IRQ_HBlankTmr = '1' and INT_ENABLE(7) = '1') then INT_STATUS(7) <= '1'; end if;
             
-            -- enable masking
-            if (INT_ENABLE_written = '1') then
-               for i in 0 to 7 loop
-                  if (RegBus_Din(i) = '1') then
-                     INT_STATUS(i) <= '0';
-                  end if;
-               end loop;
-            end if;
-            
             -- clear
             if (INT_ACK_written = '1') then
-               if (RegBus_Din(1) = '1') then INT_STATUS(1) <= '0'; end if;
-               if (RegBus_Din(4) = '1') then INT_STATUS(4) <= '0'; end if;
-               if (RegBus_Din(5) = '1') then INT_STATUS(5) <= '0'; end if;
-               if (RegBus_Din(6) = '1') then INT_STATUS(6) <= '0'; end if;
-               if (RegBus_Din(7) = '1') then INT_STATUS(7) <= '0'; end if;
+               for i in 0 to 7 loop
+                  if (RegBus_Din(i) = '1') then INT_STATUS(i) <= '0'; end if;
+               end loop;
             end if;
             
             -- pick highest priority
             for i in 0 to 7 loop
                if (INT_STATUS(i) = '1' and INT_ENABLE(i) = '1') then
-                  irqvector <= to_unsigned(((to_integer(unsigned(INT_BASE_back)) + i) * 4), 10);
+                  irqvector <= to_unsigned(((to_integer(unsigned(INT_BASE_masked)) + i) * 4), 10);
                end if;
             end loop;
             
@@ -132,8 +140,6 @@ begin
    
 
 end architecture;
-
-
 
 
 

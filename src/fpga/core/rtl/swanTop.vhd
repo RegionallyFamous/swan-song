@@ -285,6 +285,8 @@ architecture arch of SwanTop is
    signal IRQ_VBlankTmr          : std_logic;
    signal IRQ_VBlank             : std_logic;
    signal IRQ_HBlankTmr          : std_logic;
+   signal IRQ_SerialTX           : std_logic;
+   signal IRQ_Key                : std_logic;
    
    -- GPU
    signal GPU_addr               : std_logic_vector(15 downto 0);
@@ -546,6 +548,8 @@ begin
       clk          => clk,
       ce           => ce,
       reset        => reset,
+
+      IRQ_SerialTX => IRQ_SerialTX,
                                  
       RegBus_Din   => RegBus_Din,
       RegBus_Adr   => RegBus_Adr,
@@ -884,6 +888,8 @@ begin
       IRQ_VBlankTmr        => IRQ_VBlankTmr,
       IRQ_VBlank           => IRQ_VBlank   ,
       IRQ_HBlankTmr        => IRQ_HBlankTmr,
+      IRQ_SerialTX         => IRQ_SerialTX ,
+      IRQ_Key              => IRQ_Key      ,
       
 -- synthesis translate_off
       export_irq           => export_irq,         
@@ -906,7 +912,11 @@ begin
    ijoypad: entity work.joypad
    port map
    (     
-      clk            => clk,     
+      clk            => clk,
+      ce             => ce,
+      sleep_savestate => sleep_savestate,
+
+      IRQ_Key        => IRQ_Key,
                                 
       vertical       => LCD_vertical,
 

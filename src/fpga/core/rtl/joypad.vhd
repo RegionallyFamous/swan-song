@@ -9,6 +9,10 @@ entity joypad is
    port 
    (     
       clk            : in  std_logic;
+      ce             : in  std_logic;
+      sleep_savestate : in  std_logic;
+
+      IRQ_Key        : out std_logic := '0';
       
       vertical       : in  std_logic;
       
@@ -37,6 +41,7 @@ architecture arch of joypad is
    -- register
    signal KEYPAD      : std_logic_vector(REG_KEYPAD.upper downto REG_KEYPAD.lower);
    signal KEYPAD_read : std_logic_vector(REG_KEYPAD.upper downto REG_KEYPAD.lower);
+   signal KEYPAD_last : std_logic_vector(3 downto 0) := (others => '0');
 
 begin 
 
@@ -58,7 +63,9 @@ begin
             if (KeyX2 = '1') then KEYPAD_read(2) <= '1'; end if;
             if (KeyX3 = '1') then KEYPAD_read(3) <= '1'; end if;
          end if;
-      elsif (KEYPAD(5) = '1') then
+      end if;
+
+      if (KEYPAD(5) = '1') then
          if (vertical = '0') then
             if (KeyX1 = '1') then KEYPAD_read(0) <= '1'; end if;
             if (KeyX2 = '1') then KEYPAD_read(1) <= '1'; end if;
@@ -70,7 +77,9 @@ begin
             if (KeyY2 = '1') then KEYPAD_read(2) <= '1'; end if;
             if (KeyY3 = '1') then KEYPAD_read(3) <= '1'; end if;
          end if;
-      elsif (KEYPAD(6) = '1') then
+      end if;
+
+      if (KEYPAD(6) = '1') then
          if (KeyStart = '1') then KEYPAD_read(1) <= '1'; end if;
          if (KeyA     = '1') then KEYPAD_read(2) <= '1'; end if;
          if (KeyB     = '1') then KEYPAD_read(3) <= '1'; end if;
@@ -78,9 +87,28 @@ begin
    
    end process;
 
+   -- Key input is edge-triggered. Hold the edge until the interrupt controller
+   -- reaches its next system clock enable so a host input transition between
+   -- enables cannot be lost. Changing the selected matrix can itself expose a
+   -- held key and therefore produces the same rising edge as the hardware scan.
+   process (clk)
+   begin
+      if rising_edge(clk) then
+         if (RegBus_rst = '1' or sleep_savestate = '1') then
+            KEYPAD_last <= KEYPAD_read(3 downto 0);
+            IRQ_Key     <= '0';
+         else
+            if (ce = '1') then
+               IRQ_Key <= '0';
+            end if;
+            if ((KEYPAD_read(3 downto 0) and not KEYPAD_last) /= "0000") then
+               IRQ_Key <= '1';
+            end if;
+            KEYPAD_last <= KEYPAD_read(3 downto 0);
+         end if;
+      end if;
+   end process;
+
 end architecture;
-
-
-
 
 
