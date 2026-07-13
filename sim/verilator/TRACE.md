@@ -259,7 +259,7 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `event` | `cpu`, `bank`, `vram`, `mem`, `bg_cell`, or `sprite_row` |
 | `physical_pc` | 20-bit CPU physical PC sampled at instruction completion |
 | `cs`, `ip` | logical CPU location sampled at instruction completion |
-| `address` | C0-C3 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
+| `address` | raw C0-C3 or accepted Bandai-2003 CF/D0/D2/D4 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
 | `value` | bank-register byte, or raw completed 16-bit memory-bus value; use `byte_enable` only for writes and DMA transfers |
 | `role` | display fetch role; empty/null for other events |
 | `initiator` | `cpu`, `gdma`, or `sdma` for `mem` |
@@ -288,16 +288,21 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `sprite_line_epoch` | zero-based line-loader occurrence; increments even for empty sprite lines so repeated 8-bit line numbers and overlapping descriptor DMA cannot blur slot ordering |
 
 `cpu` is sampled on the instruction-complete pulse. `bank` reports one event
-for each accepted CPU commit to cartridge bank registers C0-C3. Each v5 bank
-event carries the exact owning instruction ID and first-byte physical PC; the
-harness does not infer ownership. A held, identical address/data/instruction
-tuple collapses to one transaction. A changed byte tuple is committed even
-without an intervening low level, so a word `OUT` produces ordered low-port and
-high-port events with one shared instruction origin. Distinct identical
-commits separated by a deassertion also remain visible.
-This byte-granular contract follows the documented
-[C0-C3 RW8 mapper ports](https://ws.nesdev.org/wiki/Mapper) and pinned Mesen's
-[per-port 16-bit split](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L1536-L1575).
+for each accepted CPU commit to common cartridge bank registers C0-C3. When
+the canonical footer RTC/2003 selector byte is `01`, it also reports Bandai 2003 aliases CF,
+D0, D2, and D4 while preserving the raw port identity. Each v5 bank event
+carries the exact owning instruction ID and first-byte physical PC; the
+harness does not infer ownership. A held, identical
+address/data/instruction tuple collapses to one transaction. A changed byte
+tuple is committed even without an intervening low level, so a word `OUT`
+produces ordered byte writes with one shared instruction origin; only its
+accepted bank byte is classified as a `bank` event. Distinct identical commits
+separated by a deassertion also remain visible. This byte-granular contract
+follows the documented [C0-C3 mapper ports](https://ws.nesdev.org/wiki/Mapper),
+[Bandai 2003 aliases](https://ws.nesdev.org/wiki/Bandai_2003), pinned Mesen's
+[per-port 16-bit split](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L1536-L1575),
+and pinned ares'
+[extended I/O decode](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/io.cpp#L1-L141).
 `vram` reports completed active graphics IRAM reads. Address/role
 request metadata is delayed through the same
 synchronous-RAM pipeline as `fetch_value`; sound-RAM and completed/idle
@@ -660,6 +665,12 @@ byte-identical seven-row CPU traces: offsets `0x0000`, `0x2000`, and `0x7fff`
 remain distinct, while address `0x18000` resolves to mirrored SRAM offset zero.
 The focused companion contract locks the corresponding 32 KiB mapper,
 save-state, Pocket block-count, and dynamic APF Save-slot authorities.
+A separate black-box VHDL mapper test selects canonical footer RTC/2003 value `0x01` and
+proves Bandai 2003's low-byte aliases `CF`, `D0`, `D2`, and `D4` share exact
+readback state with `C0`-`C3` and produce the expected linear-ROM, SRAM, ROM0,
+and ROM1 resolved offsets. Mapper `0x00` and an unknown `0x03` cannot use those
+aliases. The test deliberately establishes no authority for the unimplemented
+high bytes, ROM above 16 MiB, GPO, self-flash, or KARNAK peripherals.
 
 Those probes lock the translated RTL resolver and observer, not physical
 hardware behavior. Current RTL returns zero for absent SRAM and `0x9090` for

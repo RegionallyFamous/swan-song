@@ -60,6 +60,11 @@ constexpr uint8_t kAllOriginStatuses = 0x0e;
 
 constexpr uint8_t kAllVramRoles = (1u << 6) - 1;
 
+constexpr bool is_mapper_bank_port(uint8_t address) {
+  return (address >= 0xc0 && address <= 0xc3) || address == 0xcf ||
+         address == 0xd0 || address == 0xd2 || address == 0xd4;
+}
+
 struct PcRange {
   uint32_t first;
   uint32_t last;
@@ -852,11 +857,12 @@ class Logger {
   void bank(uint64_t cycle, uint8_t address, uint8_t value,
             uint32_t instruction_id, uint32_t origin_pc,
             OriginStatus origin_status) {
-    if (address < 0xc0 || address > 0xc3 || instruction_id == 0 ||
+    if (!is_mapper_bank_port(address) || instruction_id == 0 ||
         origin_pc > 0x0f'ffff ||
         origin_status != OriginStatus::Exact) {
       throw std::runtime_error(
-          "bank trace event requires C0-C3 and a nonzero exact CPU origin");
+          "bank trace event requires a documented mapper bank port and a "
+          "nonzero exact CPU origin");
     }
     if (!config_.includes(EventType::Bank)) return;
     Event event{cycle, EventType::Bank, std::nullopt, std::nullopt,

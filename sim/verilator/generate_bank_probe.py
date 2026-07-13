@@ -2,9 +2,10 @@
 """Generate a deterministic WonderSwan ROM that writes cartridge bank ports.
 
 The generated ROM is a build artifact, not a checked-in binary. Its final
-16-byte reset vector/header is copied verbatim from a caller-supplied open test
-ROM; the regression uses testroms/spritepriority/spritepriority.ws, whose
-provenance and licensing caveat are documented in UPSTREAMS.md.
+16-byte reset vector/header starts from a caller-supplied open test ROM; the
+probe changes only the footer RTC/2003-selector byte and recomputes the checksum.
+The regression uses testroms/spritepriority/spritepriority.ws, whose provenance
+and licensing caveat are documented in UPSTREAMS.md.
 """
 
 from __future__ import annotations
@@ -26,6 +27,10 @@ FOOTER_SIZE = 16
 #   mov al, 0x43; out 0xc3, al  # instruction 13, PC 0xf000f
 #   mov ax, 0x6655
 #   out 0xc0, ax                 # instruction 15, PC 0xf0014; C0 then C1
+#   mov al, 0x54; out 0xcf, al   # instruction 17, PC 0xf0018
+#   mov ax, 0x0003; out 0xd0, ax # instruction 19, PC 0xf001d; D0, D1 ignored
+#   mov ax, 0x0004; out 0xd2, ax # instruction 21, PC 0xf0022; D2, D3 ignored
+#   mov ax, 0x0005; out 0xd4, ax # instruction 23, PC 0xf0027; D4, D5 ignored
 # hang: jmp hang
 PROGRAM = bytes(
     (
@@ -51,6 +56,25 @@ PROGRAM = bytes(
         0x66,
         0xE7,
         0xC0,
+        0xB0,
+        0x54,
+        0xE6,
+        0xCF,
+        0xB8,
+        0x03,
+        0x00,
+        0xE7,
+        0xD0,
+        0xB8,
+        0x04,
+        0x00,
+        0xE7,
+        0xD2,
+        0xB8,
+        0x05,
+        0x00,
+        0xE7,
+        0xD4,
         0xEB,
         0xFE,
     )
@@ -71,6 +95,8 @@ def generate(carrier_path: Path, output_path: Path) -> None:
     image = bytearray((0xFF,)) * ROM_SIZE
     image[: len(PROGRAM)] = PROGRAM
     image[-FOOTER_SIZE:] = footer
+    image[-3] = 0x01
+    image[-2:] = (sum(image[:-2]) & 0xFFFF).to_bytes(2, "little")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(image)
 

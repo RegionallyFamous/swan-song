@@ -159,8 +159,10 @@ def main() -> None:
             "origin_pc": 0xF0010,
             "origin_status": "exact",
         }
+        alias_bank = dict(bank)
+        alias_bank.update({"cycle": 7, "address": 0xD0, "value": 0x03})
         v5_bank = root / "v5-bank.csv"
-        write_v5(v5_bank, [bank])
+        write_v5(v5_bank, [bank, alias_bank])
         run(
             v5_bank,
             "--allowed",
@@ -168,8 +170,13 @@ def main() -> None:
             "--require",
             "bank",
             "--require-bank-addresses",
-            "0xc0",
+            "0xc0,0xd0",
         )
+        invalid_bank_port = root / "v5-invalid-bank-port.csv"
+        invalid_port_row = dict(bank)
+        invalid_port_row["address"] = 0xCE
+        write_v5(invalid_bank_port, [invalid_port_row])
+        run(invalid_bank_port, "--allowed", "bank", succeeds=False)
         invalid_bank_cases: dict[str, tuple[str, object]] = {
             "instruction": ("instruction_id", ""),
             "zero-instruction": ("instruction_id", 0),

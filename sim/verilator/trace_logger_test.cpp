@@ -459,13 +459,20 @@ int main() {
     expect_failure([&logger] {
       logger.bank(11, 0xc0, 0xaa, 0, 0xf0000, OriginStatus::Exact);
     });
+    expect_failure([&logger] {
+      logger.bank(11, 0xce, 0xaa, 99, 0xf0000, OriginStatus::Exact);
+    });
     logger.bank(12, 0xc0, 0xaa, 99, 0xf0000, OriginStatus::Exact);
+    logger.bank(13, 0xd0, 0x03, 100, 0xf001d, OriginStatus::Exact);
   }
   std::ifstream bank_input(bank_path);
   const std::string bank_text((std::istreambuf_iterator<char>(bank_input)),
                               std::istreambuf_iterator<char>());
   assert(bank_text.find(
              "12,bank,,,,192,170,,,,,,,99,983040,exact,,") !=
+         std::string::npos);
+  assert(bank_text.find(
+             "13,bank,,,,208,3,,,,,,,100,983069,exact,,") !=
          std::string::npos);
   assert(bank_text.find("11,bank") == std::string::npos);
   std::filesystem::remove(bank_path);

@@ -441,6 +441,7 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_reg_instruction_id),
                      decltype(std::declval<Top>().debug_reg_origin_pc),
                      decltype(std::declval<Top>().debug_reg_origin_status),
+                     decltype(std::declval<Top>().romtype),
                      decltype(std::declval<Top>().debug_gpu_vram_valid),
                      decltype(std::declval<Top>().debug_gpu_vram_addr),
                      decltype(std::declval<Top>().debug_gpu_vram_role),
@@ -484,8 +485,13 @@ struct DebugTapAdapter<
     if (top.debug_cpu_done) {
       logger.cpu(cycle, top.debug_cpu_pc, top.debug_cpu_cs, top.debug_cpu_ip);
     }
-    if (top.debug_reg_write && top.debug_reg_addr >= 0xc0 &&
-        top.debug_reg_addr <= 0xc3) {
+    const bool common_bank_port =
+        top.debug_reg_addr >= 0xc0 && top.debug_reg_addr <= 0xc3;
+    const bool mapper_2003_alias =
+        top.romtype == 0x01 &&
+        (top.debug_reg_addr == 0xcf || top.debug_reg_addr == 0xd0 ||
+         top.debug_reg_addr == 0xd2 || top.debug_reg_addr == 0xd4);
+    if (top.debug_reg_write && (common_bank_port || mapper_2003_alias)) {
       logger.bank(
           cycle, top.debug_reg_addr, top.debug_reg_data,
           top.debug_reg_instruction_id, top.debug_reg_origin_pc,
@@ -736,7 +742,7 @@ static int run_main(int argc, char** argv) {
   top->internal_eeprom_req = 0;
   top->internal_eeprom_rnw = 1;
   top->maskAddr = static_cast<uint32_t>(mapped_rom.size() - 1);
-  top->romtype = mapped_rom[mapped_rom.size() - 6];
+  top->romtype = mapped_rom[mapped_rom.size() - 3];
   top->ramtype = mapped_rom[mapped_rom.size() - 5];
   top->hasRTC = mapped_rom[mapped_rom.size() - 3] == 1;
   top->isColor = color_cartridge || bios.size() == 8192;

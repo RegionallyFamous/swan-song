@@ -469,9 +469,12 @@ module wonderswan (
       .EXTRAM_dataread (EXTRAM_dataread),
 
       .maskAddr(mask_addr[23:0]),
-      .romtype(lastdata[2][7:0]),
+      // Footer byte -3 is the RTC field used by existing software metadata to
+      // select Bandai 2003. The old romtype wiring incorrectly used byte -6
+      // (the ROM-size code), which happened to be unused by memorymux.
+      .romtype(lastdata[1][15:8]),
       .ramtype(ramtype),
-      .hasRTC(has_rtc),  // Unused
+      .hasRTC(has_rtc),
 
       // eeprom
       // .eepromWrite(eepromWrite),
@@ -910,8 +913,9 @@ module wonderswan (
   wire [15:0] rtc_payload_data;
   wire rtc_trailer_complete;
 
-  // Cartridge footer bit 8 declares the optional RTC persistence trailer.
-  assign has_rtc = lastdata[1][8];
+  // Canonical footer RTC value 01 declares the optional RTC trailer and
+  // selects the Bandai 2003 register extensions in memorymux.
+  assign has_rtc = lastdata[1][15:8] == 8'h01;
 
   wire saveIsSRAM = (ramtype == 8'h01) || (ramtype == 8'h02) || (ramtype == 8'h03) || (ramtype == 8'h04) || (ramtype == 8'h05);
   wire saveIsEEPROM = (ramtype == 8'h10) || (ramtype == 8'h20) || (ramtype == 8'h50);

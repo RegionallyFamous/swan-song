@@ -233,10 +233,13 @@ def verify_contract(
     ):
         raise ValueError("legacy RTC marker is not safely type and write gated")
     if not re.search(
-        r"assign\s+has_rtc\s*=\s*lastdata\[1\]\[8\]\s*;",
+        r"assign\s+has_rtc\s*=\s*lastdata\[1\]\[15:8\]\s*"
+        r"==\s*8'h01\s*;",
         wonderswan,
     ):
-        raise ValueError("per-title RTC capability does not use footer bit 8")
+        raise ValueError(
+            "per-title RTC capability does not require canonical footer value 0x01"
+        )
 
     cart_reset_bodies = re.findall(
         r"if\s*\(\s*cart_download_sys\s*\)\s*begin(.*?)end\s+else\s+begin",
@@ -352,6 +355,7 @@ def main() -> None:
         ("qsf", "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rtc_cdc.sv", "# RTC CDC omitted", "QSF does not compile"),
         ("qsf", "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rtc_save_loader.sv", "# RTC save loader omitted", "QSF does not compile core/apf_rtc_save_loader.sv"),
         ("wonderswan", "if (rtc_epoch_valid) begin", "if (rtc_epoch_seconds != 0) begin", "does not consume RTC through its valid pulse"),
+        ("wonderswan", "lastdata[1][15:8] == 8'h01", "lastdata[1][15:8] != 8'h00", "does not require canonical footer value 0x01"),
         ("wonderswan", ".reset_title         (cart_download_sys)", ".reset_title         (cart_download)", "RTC save loader port reset_title"),
         ("rtc_vhdl", "if (RTC_timestampNew = '1' and RTC_timestampNew_1 = '0') then", "if (RTC_timestampNew = '1') then", "only on rising valid"),
         ("rtc_save_loader", "sd_buff_addr >= {1'b0, save_size_bytes}", "sd_buff_addr >= 21'h08000", "boundary is not relative"),

@@ -99,6 +99,8 @@ architecture arch of memorymux is
    signal BANK_SRAM        : std_logic_vector(REG_BANK_SRAM.upper downto REG_BANK_SRAM.lower);
    signal BANK_ROM0        : std_logic_vector(REG_BANK_ROM0.upper downto REG_BANK_ROM0.lower);
    signal BANK_ROM1        : std_logic_vector(REG_BANK_ROM1.upper downto REG_BANK_ROM1.lower);
+   signal mapper_2003_selected : std_logic;
+   signal mapper_RegBus_Adr : std_logic_vector(BUS_busadr-1 downto 0);
    
    signal HW_FLAGS_read    : std_logic_vector(REG_HW_FLAGS.upper downto REG_HW_FLAGS.lower);
    signal HW_FLAGS_written : std_logic;
@@ -156,10 +158,26 @@ begin
                                   RAM_addressCPU = GPU_addr(15 downto 1)
                           else '0';
 
-   iREG_BANK_ROM2   : entity work.eReg generic map ( REG_BANK_ROM2   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 0), BANK_ROM2    , BANK_ROM2); 
-   iREG_BANK_SRAM   : entity work.eReg generic map ( REG_BANK_SRAM   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 1), BANK_SRAM    , BANK_SRAM); 
-   iREG_BANK_ROM0   : entity work.eReg generic map ( REG_BANK_ROM0   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 2), BANK_ROM0    , BANK_ROM0); 
-   iREG_BANK_ROM1   : entity work.eReg generic map ( REG_BANK_ROM1   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 3), BANK_ROM1    , BANK_ROM1); 
+   -- Bandai 2003 mirrors the standard byte-wide mapper registers at CF/D0,
+   -- D2, and D4. D0/D2/D4 are the low bytes of wider registers; their upper
+   -- bytes select ROM above this core's explicitly unsupported 16 MiB
+   -- aperture. Keep the inherited C0-C3 path exact for Bandai 2001 and only
+   -- expose the aliases when the cartridge footer selects the 2003 mapper.
+   -- romtype carries footer RTC byte -3, despite its inherited name. Existing
+   -- ROM metadata uses canonical value 01 as the Bandai 2003 selector. Keep
+   -- this signal name stable because the checked-in SignalTap setup refers to
+   -- it hierarchically.
+   mapper_2003_selected <= '1' when romtype = x"01" else '0';
+   mapper_RegBus_Adr <= x"C0" when mapper_2003_selected = '1' and RegBus_Adr = x"CF" else
+                        x"C1" when mapper_2003_selected = '1' and RegBus_Adr = x"D0" else
+                        x"C2" when mapper_2003_selected = '1' and RegBus_Adr = x"D2" else
+                        x"C3" when mapper_2003_selected = '1' and RegBus_Adr = x"D4" else
+                        RegBus_Adr;
+
+   iREG_BANK_ROM2   : entity work.eReg generic map ( REG_BANK_ROM2   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 0), BANK_ROM2    , BANK_ROM2);
+   iREG_BANK_SRAM   : entity work.eReg generic map ( REG_BANK_SRAM   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 1), BANK_SRAM    , BANK_SRAM);
+   iREG_BANK_ROM0   : entity work.eReg generic map ( REG_BANK_ROM0   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 2), BANK_ROM0    , BANK_ROM0);
+   iREG_BANK_ROM1   : entity work.eReg generic map ( REG_BANK_ROM1   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 3), BANK_ROM1    , BANK_ROM1);
                                                                                                                                                      
    iREG_HW_FLAGS    : entity work.eReg generic map ( REG_HW_FLAGS    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 4), HW_FLAGS_read, open, HW_FLAGS_written); 
 

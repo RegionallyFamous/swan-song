@@ -77,6 +77,7 @@ MEM_SPACES = {
     "absent_sram",
 }
 ORIGIN_STATUSES = {"exact", "unattributed", "not_applicable"}
+BANK_ADDRESSES = {0xC0, 0xC1, 0xC2, 0xC3, 0xCF, 0xD0, 0xD2, 0xD4}
 
 
 def number(value: str, field: str, line: int, maximum: int) -> int:
@@ -217,10 +218,12 @@ def bank_address_set(value: str) -> set[int]:
         raise argparse.ArgumentTypeError("bank addresses must be comma-separated integers") from error
     if not result:
         raise argparse.ArgumentTypeError("at least one bank address is required")
-    invalid = sorted(address for address in result if not 0xC0 <= address <= 0xC3)
+    invalid = sorted(address for address in result if address not in BANK_ADDRESSES)
     if invalid:
         rendered = ", ".join(f"{address:#x}" for address in invalid)
-        raise argparse.ArgumentTypeError(f"bank addresses must be within 0xc0..0xc3: {rendered}")
+        raise argparse.ArgumentTypeError(
+            f"bank addresses are not documented mapper bank ports: {rendered}"
+        )
     return result
 
 
@@ -339,8 +342,11 @@ def verify(
                 empty(row, tuple(bank_empty_fields), line)
                 address = number(row["address"], "address", line, 0xFF)
                 number(row["value"], "value", line, 0xFF)
-                if not 0xC0 <= address <= 0xC3:
-                    raise ValueError(f"line {line}: bank address is outside 0xc0..0xc3: {address:#x}")
+                if address not in BANK_ADDRESSES:
+                    raise ValueError(
+                        f"line {line}: bank address is not a documented mapper "
+                        f"bank port: {address:#x}"
+                    )
                 if schema >= 5:
                     instruction_id = number(
                         row["instruction_id"], "instruction_id", line, 0xFFFFFFFF

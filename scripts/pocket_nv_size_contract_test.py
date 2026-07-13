@@ -166,9 +166,9 @@ def check_wonderswan(source: str) -> list[str]:
     rtc_assignments = re.findall(r"\bassign\s+has_rtc\s*=\s*([^;]+);", active)
     if len(rtc_assignments) != 1:
         errors.append("wonderswan must have exactly one active has_rtc assignment")
-    elif compact_expression(rtc_assignments[0]) != "lastdata[1][8]":
+    elif compact_expression(rtc_assignments[0]) != "lastdata[1][15:8]==8'h01":
         errors.append(
-            "wonderswan has_rtc must use ROM footer lastdata[1][8], never a forced value"
+            "wonderswan has_rtc must require canonical ROM-footer RTC value 0x01"
         )
 
     compact = compact_expression(active)
@@ -575,20 +575,20 @@ def run_mutations() -> int:
                 source_mutation(
                     WONDERSWAN,
                     r"(assign\s+has_rtc\s*=\s*)lastdata\s*\[\s*1\s*\]\s*"
-                    r"\[\s*8\s*\](\s*;)",
+                    r"\[\s*15\s*:\s*8\s*\]\s*==\s*8'h01(\s*;)",
                     r"\g<1>1'b1\g<2>",
                 ),
-                "never a forced value",
+                "canonical ROM-footer RTC value",
             ),
             (
-                "wrong-rtc-header-bit",
+                "wrong-rtc-footer-value",
                 source_mutation(
                     WONDERSWAN,
                     r"(assign\s+has_rtc\s*=\s*lastdata\s*\[\s*1\s*\]\s*"
-                    r"\[\s*)8(\s*\]\s*;)",
-                    r"\g<1>7\g<2>",
+                    r"\[\s*15\s*:\s*8\s*\]\s*==\s*8'h)01(\s*;)",
+                    r"\g<1>02\g<2>",
                 ),
-                "lastdata[1][8]",
+                "canonical ROM-footer RTC value",
             ),
             (
                 "rtc-trailer-too-large",
@@ -664,7 +664,7 @@ def main() -> int:
     )
     print(
         "PASS Pocket nonvolatile exact-byte contract "
-        f"payloads={payloads} RTC=header-bit+12 size_maximum={MAXIMUM_FILE_BYTES} "
+        f"payloads={payloads} RTC=footer-01+12 size_maximum={MAXIMUM_FILE_BYTES} "
         f"mutations={mutation_count}"
     )
     return 0
