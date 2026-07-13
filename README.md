@@ -7,7 +7,8 @@ boundary between console logic and Pocket integration. Hardware equivalence has
 not yet been confirmed; see [PHASE_STATUS.md](PHASE_STATUS.md).
 
 Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md),
-[PHASE_STATUS.md](PHASE_STATUS.md), and the
+[PHASE_STATUS.md](PHASE_STATUS.md), the
+[Pocket launcher/Library audit](POCKET_LAUNCHER_LIBRARY.md), and the
 [homebrew/WonderWitch guide](HOMEBREW_WONDERWITCH.md). No BIOS, WonderWitch
 firmware, or commercial cartridge image is included or downloaded.
 
@@ -51,9 +52,11 @@ ROMs should be placed in `/Assets/wonderswan/common/`.
 
 Optional per-game Pocket presets can provide each ROM with its own documented
 Interact defaults and Controls definition through APF's path-mirrored
-`Presets` folders. Pocket owns the actual saved control remaps, whose storage
-format is not public; Pocket behavior still needs hardware verification. The
-offline generator does not read or catalogue ROMs; see
+`Presets` folders. The official openFPGA `input.json` interface is currently
+read-only: a default or per-game Controls definition changes the labels Pocket
+shows, but does not remap the PAD signals delivered to the core. Pocket
+behavior still needs hardware verification. The offline generator does not
+read or catalogue ROMs; see
 [PER_GAME_PRESETS.md](PER_GAME_PRESETS.md).
 
 For the shortest supported boot path, choose **Startup Action > openFPGA** in
@@ -61,11 +64,14 @@ Pocket Settings. This opens openFPGA at power-on; it does not add Swan Song or
 individual games to Analogue Library and does not select a title by itself.
 
 The cartridge data slot is configured to ask Pocket to reuse the last selected
-game on the next normal launch. Reopening Swan Song from openFPGA—including
-through **Recent** on current [Pocket firmware
-2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0)—is therefore
-expected to return to that title, but this direct-title flow remains pending
-Pocket verification. Use **Core Settings > Cartridge** to switch games.
+game on the next normal launch. Current [Pocket firmware
+2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0) adds a host-owned
+openFPGA **Recent** category. If that surface reopens Swan Song, the persistent
+slot is expected to return to the last title, but the complete flow remains
+pending Pocket verification. APF provides no supported field for pre-seeding or
+pinning Recent. Use **Core Settings > Cartridge** to switch games. The exact
+launcher and Library boundary is documented in
+[POCKET_LAUNCHER_LIBRARY.md](POCKET_LAUNCHER_LIBRARY.md).
 **Reset all to defaults** clears the remembered browser choices; Pocket
 firmware 2.3 is the minimum because that release fixed browser-history reset
 behavior.
@@ -216,6 +222,17 @@ game-visible input behavior tied to the emulated hardware.
 | -       |Fast Forward|
 
 </td></tr></table>
+
+Pocket's built-in controls and a Dock controller use this same Player 1 digital
+mapping. Dock controllers reported as digital or analog-capable are accepted,
+but analog axes are not consumed; controllers 2-4, keyboards, and mice are not
+game inputs for this single-player core. `Core Settings > Controls` is
+read-only mapping help under the current openFPGA specification, not a
+remapper. PocketOS owns its menu/system actions. The documented Dock fallback
+menu chord on controllers without a menu button uses Select + Down, so its
+interaction with Select-based Fast Forward remains a physical-hardware gate.
+See [`FIRST_CLASS_INPUT_DOCK.md`](FIRST_CLASS_INPUT_DOCK.md) for the researched
+capability boundary and acceptance matrix.
 
 ### System Settings
 

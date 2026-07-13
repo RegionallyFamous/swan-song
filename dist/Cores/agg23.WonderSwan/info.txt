@@ -23,3 +23,9 @@ The game's native orientation still controls its button matrix.
 Display Orientation and Landscape 180 degrees affect presentation only.
 
 Memories and Sleep + Wake remain disabled pending end-to-end Pocket validation.
+
+Controls and Dock:
+* Pocket and Dock use the same Player 1 digital mapping
+* Controllers 2-4, analog axes, keyboard, and mouse are not used
+* Controls is read-only mapping help, not a remapper
+* Vertical games use D-pad for Y and face buttons for X

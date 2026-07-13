@@ -309,7 +309,9 @@ images with both legally obtained BIOS files. It uses APF for data slots,
 video, audio, input, saves, settings, and Dock transport. It does not enable
 Pocket's physical cartridge adapter or link port, does not participate in the
 first-party physical-cartridge/Library launch flow, and does not bundle BIOS or
-commercial game data.
+commercial game data. [POCKET_LAUNCHER_LIBRARY.md](POCKET_LAUNCHER_LIBRARY.md)
+records the current firmware, Recent, platform-art, Library-image, cartridge
+adapter, and unsupported-firmware boundaries behind that statement.
 
 Only Auto, WonderSwan, and WonderSwan Color are exposed as system types.
 PocketChallenge v2 is outside the supported boundary: this core does not
