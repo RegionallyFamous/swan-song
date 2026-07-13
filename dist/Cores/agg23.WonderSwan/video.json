@@ -18,6 +18,20 @@
         "rotation": 270,
         "mirror": 0
       }
-    ]
+    ],
+    "display_modes": [
+      {
+        "id": "0x20"
+      },
+      {
+        "id": "0x30"
+      },
+      {
+        "id": "0x40"
+      }
+    ],
+    "defaults": {
+      "sharpness": 3
+    }
   }
 }

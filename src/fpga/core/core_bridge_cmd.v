@@ -61,6 +61,10 @@ input   wire    [31:0]  savestate_size,
 input   wire    [31:0]  savestate_maxloadsize,
 
 output  reg             osnotify_inmenu,
+output  reg             osnotify_docked,
+output  reg     [7:0]   osnotify_displaymode_id,
+output  reg             osnotify_displaymode_grayscale,
+input   wire            displaymode_grayscale_ack,
 
 output  reg             savestate_start,        // core should detect rising edge on this,
 input   wire            savestate_start_ack,    // and then assert ack for at least 1 cycle
@@ -188,6 +192,9 @@ initial begin
     savestate_start <= 0;
     savestate_load <= 0;
     osnotify_inmenu <= 0;
+    osnotify_docked <= 0;
+    osnotify_displaymode_id <= 0;
+    osnotify_displaymode_grayscale <= 0;
     
     status_setup_done_queue <= 0;
     target_dataslot_read_queue <= 0;
@@ -429,6 +436,32 @@ always @(posedge clk) begin
             // OS Notify: Menu State
             osnotify_inmenu <= host_20[0];
             hstate <= ST_DONE_OK;
+        end
+        16'h00B2: begin
+            // OS Notify: Docked State
+            osnotify_docked <= host_20[0];
+            hstate <= ST_DONE_OK;
+        end
+        16'h00B8: begin
+            // OS Notify: Display Mode
+            osnotify_displaymode_id <= host_20[15:8];
+            osnotify_displaymode_grayscale <= host_20[0];
+
+            // 0x444D affirms that the core has actually switched its video
+            // output to grayscale.  Hold the command busy until the video
+            // implementation explicitly acknowledges the requested state.
+            host_40 <= 32'h0000_0000;
+            // An omitted or unknown acknowledgement must fail closed.  Waiting
+            // for both assertion and deassertion also prevents a color mode
+            // from being acknowledged while the pixel domain is still gray.
+            case({host_20[0], displaymode_grayscale_ack})
+                2'b11: begin
+                    host_40 <= 32'h0000_444D;
+                    hstate <= ST_DONE_OK;
+                end
+                2'b00: hstate <= ST_DONE_OK;
+                default: hstate <= ST_PARSE;
+            endcase
         end
         default: begin
             hstate <= ST_DONE_ERR;

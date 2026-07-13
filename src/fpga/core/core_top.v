@@ -432,6 +432,12 @@ module core_top (
   wire savestate_load_err;
 
   wire osnotify_inmenu;
+  wire osnotify_docked;
+  wire [7:0] osnotify_displaymode_id;
+  wire osnotify_displaymode_grayscale;
+  wire displaymode_grayscale_video;
+  reg displaymode_grayscale_applied = 1'b0;
+  wire displaymode_grayscale_ack;
 
   // bridge target commands
   // synchronous to clk_74a
@@ -492,6 +498,10 @@ module core_top (
       .savestate_load_err (savestate_load_err),
 
       .osnotify_inmenu(osnotify_inmenu),
+      .osnotify_docked(osnotify_docked),
+      .osnotify_displaymode_id(osnotify_displaymode_id),
+      .osnotify_displaymode_grayscale(osnotify_displaymode_grayscale),
+      .displaymode_grayscale_ack(displaymode_grayscale_ack),
 
       .datatable_addr(datatable_addr),
       .datatable_wren(datatable_wren),
@@ -902,6 +912,12 @@ module core_top (
   reg de_prev;
 
   wire de = ~(h_blank || v_blank);
+  wire [23:0] displaymode_video_rgb;
+  apf_grayscale_video displaymode_video (
+      .rgb(vid_rgb_core),
+      .enabled(displaymode_grayscale_applied),
+      .rgb_out(displaymode_video_rgb)
+  );
   // If any vertical orientation, use second slot
   wire video_orientation = configured_orientation_s == 0 ?  // Auto
   is_vertical : configured_orientation_s == 2;  // Vertical
@@ -915,7 +931,7 @@ module core_top (
     if (de) begin
       video_de_reg  <= 1;
 
-      video_rgb_reg <= vid_rgb_core;
+      video_rgb_reg <= displaymode_video_rgb;
     end else if (de_prev && ~de) begin
       video_rgb_reg <= video_slot_rgb;
     end
@@ -935,6 +951,9 @@ module core_top (
 
     // Set VSync to be high for a single cycle on the rising edge of the VSync coming out of the core
     video_vs_reg <= ~vs_prev && video_vs_core;
+    if (~vs_prev && video_vs_core) begin
+      displaymode_grayscale_applied <= displaymode_grayscale_video;
+    end
     hs_prev <= video_hs_core;
     vs_prev <= video_vs_core;
     de_prev <= de;
@@ -965,6 +984,22 @@ module core_top (
   wire clk_vid_3_75_90deg;
 
   wire pll_core_locked;
+
+  // B8 is received on the 74.25 MHz BRIDGE clock.  Apply it only after the
+  // request crosses into the pixel domain and is applied on a frame boundary,
+  // then synchronize that applied state back before core_bridge_cmd returns
+  // Pocket's 0x444D affirmation.
+  synch_3 displaymode_grayscale_to_video (
+      osnotify_displaymode_grayscale,
+      displaymode_grayscale_video,
+      clk_vid_3_75
+  );
+
+  synch_3 displaymode_grayscale_to_bridge (
+      displaymode_grayscale_applied,
+      displaymode_grayscale_ack,
+      clk_74a
+  );
 
   mf_pllbase mp1 (
       .refclk(clk_74a),
