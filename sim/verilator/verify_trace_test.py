@@ -52,6 +52,14 @@ def main() -> None:
             encoding="utf-8",
         )
         run(v3, "--allowed", "mem", "--require", "mem", "--mem-initiator", "gdma")
+        run(
+            v3,
+            "--require-mem-initiators",
+            "gdma",
+            "--require-origin-statuses",
+            "not_applicable",
+        )
+        run(v3, "--require-origin-statuses", "exact", succeeds=False)
         invalid_origin = root / "invalid-origin.csv"
         invalid_origin.write_text(
             "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
@@ -61,7 +69,23 @@ def main() -> None:
         )
         run(invalid_origin, "--allowed", "mem", succeeds=False)
 
-    print("PASS structured trace verifier v1/v2/v3 compatibility")
+        v4 = root / "v4.csv"
+        v4.write_text(
+            "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
+            "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status,"
+            "fetch_value,fetch_collision\n"
+            "5,vram,,,,8192,,screen1_tile,,,,,,,,,4660,0\n",
+            encoding="utf-8",
+        )
+        run(v4, "--allowed", "vram", "--require", "vram", "--require-fetch-values")
+        collision = root / "v4-collision.csv"
+        collision.write_text(
+            v4.read_text(encoding="utf-8").replace(",4660,0\n", ",4660,1\n"),
+            encoding="utf-8",
+        )
+        run(collision, "--reject-fetch-collisions", succeeds=False)
+
+    print("PASS structured trace verifier v1/v2/v3/v4 compatibility")
 
 
 if __name__ == "__main__":

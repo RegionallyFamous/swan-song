@@ -52,6 +52,25 @@ Capture completed GDMA transfers from the linear ROM window into IRAM:
   --trace-mem-space cart_rom_linear,iram
 ```
 
+Build a confirmation-grade IRAM writer report for every completed display read:
+
+```sh
+./sim/verilator/run.sh \
+  --rom /path/to/game.wsc \
+  --frames 10 \
+  --event-trace build/sim/text.csv \
+  --trace-events mem,vram
+python3 sim/verilator/correlate_provenance.py \
+  build/sim/text.csv \
+  --output build/sim/text-provenance.csv \
+  --fail-on-mismatch \
+  --require-complete-coverage
+```
+
+Do not apply memory or display filters to the capture used for complete
+provenance. Apply `correlate_provenance.py` output filters afterward so the
+tool can reconstruct the full IRAM history.
+
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` filters
 only `cpu` events; bank and VRAM events remain visible, which makes a mixed
 trace useful even when instruction logging is tightly scoped.
@@ -80,7 +99,7 @@ override the file. `format` is `csv` or `jsonl`; when omitted, a `.jsonl` or
 
 ## Events and schema
 
-New traces use the provenance-aware v3 fields below. Numbers are unsigned decimal
+New traces use the fetched-value-aware v4 fields below. Numbers are unsigned decimal
 values; inapplicable CSV fields are empty and inapplicable JSONL fields are
 `null`.
 
@@ -105,12 +124,24 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `instruction_id` | monotonic CPU instruction-chain identity when `origin_status=exact` |
 | `origin_pc` | first byte of the owning instruction, including its first prefix, when exact |
 | `origin_status` | `exact`, `unattributed` for CPU prefetch/IRQ traffic, or `not_applicable` for DMA |
+| `fetch_value` | completed 16-bit display-read word for `vram` |
+| `fetch_collision` | 1 when the CPU/DMA write port addressed the same IRAM word on the display-read edge; otherwise 0 |
 
 `cpu` is sampled on the instruction-complete pulse. `bank` reports actual
 post-mux writes to cartridge bank registers C0-C3 and de-duplicates a write
-level that spans adjacent system clocks. `vram` reports active graphics RAM
-arbiter issue slots on the system clock; sound-RAM and completed/idle
-background slots are excluded by the RTL tap.
+level that spans adjacent system clocks. `vram` reports completed active
+graphics IRAM reads. Address/role request metadata is delayed through the same
+synchronous-RAM pipeline as `fetch_value`; sound-RAM and completed/idle
+background slots are excluded. Repeated reads during the background fetch
+wait state remain visible because they are real physical bus reads, not unique
+logical screen cells.
+
+Intel does not define [mixed-port read-during-write
+data](https://www.intel.com/content/www/us/en/programmable/quartushelp/current/hdl/mega/mega_file_altsynch_ram_d1289e822.htm)
+for this inferred dual-port RAM unless a mode is selected. A collision-marked simulator value is
+useful diagnostically but is not hardware-independent evidence. The collision
+bit is delayed with the request and returned word so analysis can preserve that
+uncertainty rather than choosing old or new data.
 
 `mem` is a completed transaction, not a sampled request level. The RTL latches
 the one-clock CPU/DMA request and resolved mapping, then captures returned data
@@ -131,7 +162,8 @@ The screen roles distinguish tile-map attribute reads from tile bitmap reads.
 `sprite_table` identifies sprite-table DMA reads into the core's internal
 sprite buffer, while `sprite_tile` identifies sprite bitmap reads. A role
 describes an active fetch source, not a guarantee that the word contributes a
-visible pixel, and the trace does not currently include the fetched word.
+visible pixel. V4 includes the completed fetched word, but raw physical reads
+can still include pipeline or prefetch work that does not contribute a pixel.
 
 This split follows the [WSdev display and unified-memory
 model](https://ws.nesdev.org/w/index.php?title=Display&oldid=555) and pinned
@@ -143,8 +175,27 @@ Data](https://ws.nesdev.org/w/index.php?title=Display/Tile_Data&oldid=504).
 The seven-column schema is v1 and the role-aware eight-column schema is v2.
 `verify_trace.py` accepts both exact legacy headers; assertions requiring
 missing role or provenance data fail explicitly. V3 appends the eight memory
-fields without changing the first eight columns. JSONL contains the same v3
-properties, although the standalone verifier currently validates CSV only.
+fields without changing the first eight columns. V4 appends `fetch_value` and
+`fetch_collision`. JSONL contains the same v4 properties, although the
+standalone verifier currently validates CSV only.
+
+Every successful event capture also writes `FILE.manifest.json`. The manifest
+records whether capture began at reset release, reached its requested frame
+target, included unfiltered `mem` and `vram` history, avoided save-state input,
+and can therefore use the defined zero power-up state of IRAM. The correlator
+only labels coverage `complete_from_reset` when all of those conditions hold;
+otherwise it reports `observed_only` and never treats an absent write as zero.
+
+`correlate_provenance.py` maintains IRAM per byte, respects partial and odd
+writes, preserves exact CPU origins, and pairs GDMA reads/writes only in
+protocol order with matching value and byte enable. For every display read it
+compares the returned word with the independently reconstructed bytes and
+reports the low/high writer and any mapped ROM source. A collision produces
+`unspecified_collision`, while a non-collision disagreement produces
+`mismatch` and can fail the run. This proves graphics-data provenance; it does
+not by itself prove that a tile index is a character code. Rasterized text can
+write glyph bitmaps into preassigned canvas tiles, as documented for
+[WonderWitch Shift-JIS text](https://ws.nesdev.org/wiki/WonderWitch/FreyaBIOS/Text).
 
 The structured trace is simulation-only and does not imply Pocket hardware
 behavior. A model translated without the debug tap ports still builds and runs,
@@ -160,7 +211,7 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 ./build/trace_logger_test
 ```
 
-`make regression` runs that unit test plus explicit v1/v2/v3 verifier fixtures,
+`make regression` runs that unit test plus explicit v1/v2/v3/v4 verifier fixtures,
 requires all six display-role encodings and exact CPU memory origins from a
 translated open ROM, and generates temporary bank and WSC GDMA probes. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
@@ -169,3 +220,8 @@ including known values and mapped offsets. SRAM, ROM0, ROM1, BIOS, and
 absent-SRAM formulas are RTL-reviewed but do not yet have dedicated runtime
 probes.
 Generated ROMs remain under `build/` and are never checked in.
+
+The six-frame display-provenance regression currently requires 78,760/78,760
+non-collision display words to match the complete-from-reset IRAM scoreboard:
+78,754 are tied to exact CPU writer instructions and six to the defined
+power-up value. Any value mismatch fails regression.

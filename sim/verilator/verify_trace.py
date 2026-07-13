@@ -22,6 +22,8 @@ MEM_FIELDS = [
     "origin_status",
 ]
 FIELDS_V3 = [*FIELDS_V2, *MEM_FIELDS]
+FETCH_FIELDS = ["fetch_value", "fetch_collision"]
+FIELDS_V4 = [*FIELDS_V3, *FETCH_FIELDS]
 EVENTS = {"cpu", "bank", "vram", "mem"}
 VRAM_ROLES = {
     "screen1_map",
@@ -198,10 +200,16 @@ def verify(
     mem_offset_filter: tuple[tuple[int, int], ...] | None,
     origin_status_filter: set[str] | None,
     origin_pc_filter: tuple[int, int] | None,
+    require_fetch_values: bool,
+    reject_fetch_collisions: bool,
+    required_mem_initiators: set[str],
+    required_origin_statuses: set[str],
 ) -> Counter[str]:
     counts: Counter[str] = Counter()
     bank_addresses: set[int] = set()
     vram_roles: set[str] = set()
+    mem_initiators: set[str] = set()
+    origin_statuses: set[str] = set()
     previous_cycle = -1
 
     with path.open(newline="", encoding="utf-8") as source:
@@ -212,6 +220,8 @@ def verify(
             schema = 2
         elif reader.fieldnames == FIELDS_V3:
             schema = 3
+        elif reader.fieldnames == FIELDS_V4:
+            schema = 4
         else:
             raise ValueError(f"unexpected CSV header: {reader.fieldnames!r}")
         if schema == 1 and (vram_role_filter is not None or required_vram_roles):
@@ -227,15 +237,19 @@ def verify(
                 origin_status_filter,
                 origin_pc_filter,
             )
-        ) or "mem" in required
+        ) or "mem" in required or required_mem_initiators or required_origin_statuses
         if schema < 3 and mem_assertions:
             raise ValueError("legacy v1/v2 trace has no memory provenance fields; memory assertions require v3")
+        if schema < 4 and (require_fetch_values or reject_fetch_collisions):
+            raise ValueError("legacy v1/v2/v3 trace has no fetched display values; assertion requires v4")
 
         for line, row in enumerate(reader, start=2):
             if schema == 1:
                 row["role"] = ""
             if schema < 3:
                 row.update({field: "" for field in MEM_FIELDS})
+            if schema < 4:
+                row.update({field: "" for field in FETCH_FIELDS})
             event = row["event"]
             if event not in allowed:
                 raise ValueError(f"line {line}: event {event!r} is not allowed")
@@ -248,7 +262,7 @@ def verify(
                 physical_pc = number(row["physical_pc"], "physical_pc", line, 0xFFFFF)
                 cs = number(row["cs"], "cs", line, 0xFFFF)
                 ip = number(row["ip"], "ip", line, 0xFFFF)
-                empty(row, ("address", "value", "role", *MEM_FIELDS), line)
+                empty(row, ("address", "value", "role", *MEM_FIELDS, *FETCH_FIELDS), line)
                 expected_pc = ((cs << 4) + ip) & 0xFFFFF
                 if physical_pc != expected_pc:
                     raise ValueError(
@@ -257,7 +271,7 @@ def verify(
                 if pc_filter and not pc_filter[0] <= physical_pc <= pc_filter[1]:
                     raise ValueError(f"line {line}: CPU PC {physical_pc:#x} escaped requested filter")
             elif event == "bank":
-                empty(row, ("physical_pc", "cs", "ip", "role", *MEM_FIELDS), line)
+                empty(row, ("physical_pc", "cs", "ip", "role", *MEM_FIELDS, *FETCH_FIELDS), line)
                 address = number(row["address"], "address", line, 0xFF)
                 number(row["value"], "value", line, 0xFF)
                 if not 0xC0 <= address <= 0xC3:
@@ -281,10 +295,17 @@ def verify(
                     if vram_role_filter is not None and role not in vram_role_filter:
                         raise ValueError(f"line {line}: VRAM role {role!r} escaped requested filter")
                     vram_roles.add(role)
+                if schema >= 4:
+                    number(row["fetch_value"], "fetch_value", line, 0xFFFF)
+                    collision = number(row["fetch_collision"], "fetch_collision", line, 1)
+                    if reject_fetch_collisions and collision:
+                        raise ValueError(f"line {line}: display fetch collided with an IRAM write")
+                else:
+                    empty(row, tuple(FETCH_FIELDS), line)
             elif event == "mem":
                 if schema < 3:
                     raise ValueError(f"line {line}: memory event requires v3 schema")
-                empty(row, ("physical_pc", "cs", "ip", "role"), line)
+                empty(row, ("physical_pc", "cs", "ip", "role", *FETCH_FIELDS), line)
                 address = number(row["address"], "address", line, 0xFFFFF)
                 number(row["value"], "value", line, 0xFFFF)
                 number(row["byte_enable"], "byte_enable", line, 3)
@@ -355,6 +376,8 @@ def verify(
                         raise ValueError(f"line {line}: DMA memory event must use not_applicable origin")
                     if origin_pc_filter:
                         raise ValueError(f"line {line}: unattributed event escaped origin PC filter")
+                mem_initiators.add(initiator)
+                origin_statuses.add(origin_status)
             counts[event] += 1
 
     missing = required - counts.keys()
@@ -367,6 +390,16 @@ def verify(
     missing_vram_roles = required_vram_roles - vram_roles
     if missing_vram_roles:
         raise ValueError(f"missing required VRAM role(s): {', '.join(sorted(missing_vram_roles))}")
+    missing_mem_initiators = required_mem_initiators - mem_initiators
+    if missing_mem_initiators:
+        raise ValueError(
+            f"missing required memory initiator(s): {', '.join(sorted(missing_mem_initiators))}"
+        )
+    missing_origin_statuses = required_origin_statuses - origin_statuses
+    if missing_origin_statuses:
+        raise ValueError(
+            f"missing required origin status(es): {', '.join(sorted(missing_origin_statuses))}"
+        )
     return counts
 
 
@@ -407,6 +440,28 @@ def main() -> None:
     parser.add_argument("--mem-offset", type=mem_offset_ranges)
     parser.add_argument("--mem-origin", type=origin_status_set)
     parser.add_argument("--origin-pc", type=pc_range)
+    parser.add_argument(
+        "--require-fetch-values",
+        action="store_true",
+        help="require the v4 fetched display word fields",
+    )
+    parser.add_argument(
+        "--reject-fetch-collisions",
+        action="store_true",
+        help="fail if a display read shares an IRAM word with a CPU/DMA write",
+    )
+    parser.add_argument(
+        "--require-mem-initiators",
+        type=mem_initiator_set,
+        default=set(),
+        metavar="INITIATOR,...",
+    )
+    parser.add_argument(
+        "--require-origin-statuses",
+        type=origin_status_set,
+        default=set(),
+        metavar="STATUS,...",
+    )
     args = parser.parse_args()
 
     try:
@@ -426,6 +481,10 @@ def main() -> None:
             args.mem_offset,
             args.mem_origin,
             args.origin_pc,
+            args.require_fetch_values,
+            args.reject_fetch_collisions,
+            args.require_mem_initiators,
+            args.require_origin_statuses,
         )
     except (OSError, ValueError) as error:
         raise SystemExit(f"{args.trace}: {error}") from error

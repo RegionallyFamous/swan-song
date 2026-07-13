@@ -41,6 +41,70 @@ static void write_rgb(const fs::path& path,
   }
 }
 
+static std::string json_escape(const std::string& value) {
+  std::string escaped;
+  for (const unsigned char character : value) {
+    switch (character) {
+      case '\\': escaped += "\\\\"; break;
+      case '"': escaped += "\\\""; break;
+      case '\n': escaped += "\\n"; break;
+      case '\r': escaped += "\\r"; break;
+      case '\t': escaped += "\\t"; break;
+      default:
+        if (character < 0x20) throw std::runtime_error("control byte in manifest path");
+        escaped += static_cast<char>(character);
+    }
+  }
+  return escaped;
+}
+
+static void write_trace_manifest(const swansong::trace::Config& config,
+                                 uint64_t capture_cycles, unsigned frames,
+                                 size_t rom_size) {
+  fs::path path = config.output;
+  path += ".manifest.json";
+  if (path.has_parent_path()) fs::create_directories(path.parent_path());
+  std::ofstream output(path, std::ios::out | std::ios::trunc);
+  if (!output) throw std::runtime_error("cannot write " + path.string());
+
+  const bool memory_filters =
+      config.mem_initiators != swansong::trace::kAllMemInitiators ||
+      config.mem_accesses != swansong::trace::kAllMemAccesses ||
+      config.mem_spaces != swansong::trace::kAllMemSpaces ||
+      config.origin_statuses != swansong::trace::kAllOriginStatuses ||
+      !config.mem_address.empty() || !config.mem_offset.empty() ||
+      config.origin_pc.has_value();
+  const bool display_filters =
+      config.vram_roles != swansong::trace::kAllVramRoles ||
+      !config.vram_address.empty();
+  const bool has_mem = config.includes(swansong::trace::EventType::Mem);
+  const bool has_vram = config.includes(swansong::trace::EventType::Vram);
+
+  output << "{\n"
+         << "  \"schema\": \"swan-song-trace-manifest-v1\",\n"
+         << "  \"trace_schema\": 4,\n"
+         << "  \"trace_file\": \"" << json_escape(config.output.string()) << "\",\n"
+         << "  \"capture_start\": \"reset_release\",\n"
+         << "  \"capture_completed\": true,\n"
+         << "  \"capture_cycles\": " << capture_cycles << ",\n"
+         << "  \"completed_frames\": " << frames << ",\n"
+         << "  \"rom_size\": " << rom_size << ",\n"
+         << "  \"iram_initial_state\": \"zero\",\n"
+         << "  \"savestate_inputs_asserted\": false,\n"
+         << "  \"events\": {\n"
+         << "    \"cpu\": " << (config.includes(swansong::trace::EventType::Cpu) ? "true" : "false") << ",\n"
+         << "    \"bank\": " << (config.includes(swansong::trace::EventType::Bank) ? "true" : "false") << ",\n"
+         << "    \"vram\": " << (has_vram ? "true" : "false") << ",\n"
+         << "    \"mem\": " << (has_mem ? "true" : "false") << "\n"
+         << "  },\n"
+         << "  \"memory_filters_active\": " << (memory_filters ? "true" : "false") << ",\n"
+         << "  \"display_filters_active\": " << (display_filters ? "true" : "false") << ",\n"
+         << "  \"complete_memory_history\": " << (has_mem && !memory_filters ? "true" : "false") << ",\n"
+         << "  \"complete_display_history\": " << (has_vram && !display_filters ? "true" : "false") << "\n"
+         << "}\n";
+  if (!output) throw std::runtime_error("failed to write " + path.string());
+}
+
 static void usage(const char* argv0) {
   std::cerr
       << "usage: " << argv0 << " --rom FILE [OPTIONS]\n\n"
@@ -89,6 +153,8 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_gpu_vram_valid),
                      decltype(std::declval<Top>().debug_gpu_vram_addr),
                      decltype(std::declval<Top>().debug_gpu_vram_role),
+                     decltype(std::declval<Top>().debug_gpu_vram_value),
+                     decltype(std::declval<Top>().debug_gpu_vram_collision),
                      decltype(std::declval<Top>().debug_mem_valid),
                      decltype(std::declval<Top>().debug_mem_write),
                      decltype(std::declval<Top>().debug_mem_initiator),
@@ -117,7 +183,9 @@ struct DebugTapAdapter<
     if (top.debug_gpu_vram_valid) {
       logger.vram(cycle, top.debug_gpu_vram_addr,
                   swansong::trace::vram_role_from_code(
-                      top.debug_gpu_vram_role));
+                      top.debug_gpu_vram_role),
+                  top.debug_gpu_vram_value,
+                  top.debug_gpu_vram_collision != 0);
     }
     if (top.debug_mem_valid) {
       const auto origin_status = swansong::trace::origin_status_from_code(
@@ -372,6 +440,9 @@ int main(int argc, char** argv) {
     std::cerr << "simulation timed out after " << max_cycles
               << " system cycles; completed " << frames << " frame(s)\n";
     return 1;
+  }
+  if (event_trace) {
+    write_trace_manifest(event_trace_config, trace_cycle, frames, rom.size());
   }
   return 0;
 }

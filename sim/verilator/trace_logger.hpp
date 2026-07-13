@@ -524,6 +524,8 @@ struct Event {
   std::optional<uint32_t> instruction_id = std::nullopt;
   std::optional<uint32_t> origin_pc = std::nullopt;
   std::optional<OriginStatus> origin_status = std::nullopt;
+  std::optional<uint32_t> fetch_value = std::nullopt;
+  std::optional<uint32_t> fetch_collision = std::nullopt;
 };
 
 inline const char* event_name(EventType type) {
@@ -564,7 +566,8 @@ class Writer {
     if (format_ == Format::Csv) {
       output_ << "cycle,event,physical_pc,cs,ip,address,value,role,"
                   "initiator,access,byte_enable,space,mapped_offset,"
-                  "instruction_id,origin_pc,origin_status\n";
+                  "instruction_id,origin_pc,origin_status,fetch_value,"
+                  "fetch_collision\n";
     }
   }
 
@@ -616,6 +619,10 @@ class Writer {
     csv_optional(output_, event.origin_pc);
     output_ << ',';
     if (event.origin_status) output_ << origin_status_name(*event.origin_status);
+    output_ << ',';
+    csv_optional(output_, event.fetch_value);
+    output_ << ',';
+    csv_optional(output_, event.fetch_collision);
     output_ << '\n';
   }
 
@@ -647,6 +654,8 @@ class Writer {
     if (event.origin_status)
       output_ << '\"' << origin_status_name(*event.origin_status) << '\"';
     else output_ << "null";
+    json_optional(output_, "fetch_value", event.fetch_value);
+    json_optional(output_, "fetch_collision", event.fetch_collision);
     output_ << "}\n";
   }
 
@@ -679,11 +688,15 @@ class Logger {
                     std::nullopt, address, value, std::nullopt});
   }
 
-  void vram(uint64_t cycle, uint16_t address, VramRole role) {
+  void vram(uint64_t cycle, uint16_t address, VramRole role, uint16_t value,
+            bool collision) {
     if (!config_.includes(EventType::Vram)) return;
     if (!config_.includes(role) || !config_.includes_vram_address(address)) return;
-    writer_->write({cycle, EventType::Vram, std::nullopt, std::nullopt,
-                    std::nullopt, address, std::nullopt, role});
+    Event event{cycle, EventType::Vram, std::nullopt, std::nullopt,
+                std::nullopt, address, std::nullopt, role};
+    event.fetch_value = value;
+    event.fetch_collision = collision ? 1 : 0;
+    writer_->write(event);
   }
 
   void mem(uint64_t cycle, MemInitiator initiator, MemAccess access,

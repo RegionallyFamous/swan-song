@@ -13,6 +13,7 @@ mkdir -p "$BUILD"
 "$BUILD/trace_logger_test"
 echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
+python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 
 # Always rebuild the VHDL translation and simulator. Otherwise a local source
 # edit can be checked against a stale VSwanTop binary left in build/sim.
@@ -22,16 +23,21 @@ rm -rf "$BUILD/bootstrap"
   --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
   --event-trace "$BUILD/bootstrap/events.csv" \
   --trace-events cpu,vram,mem --trace-pc 0xf0000-0xfffff \
-  --trace-vram-role all \
-  --trace-vram-address 0x0000-0xbfff \
-  --trace-mem-initiator cpu --trace-mem-origin exact \
-  --trace-origin-pc 0xf0000-0xfffff >/dev/null
+  >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bootstrap/events.csv" \
   --allowed cpu,vram,mem --require cpu,vram,mem --pc-range 0xf0000-0xfffff \
   --vram-role all --require-vram-roles all \
   --vram-address 0x0000-0xbfff \
-  --mem-initiator cpu --mem-origin exact --origin-pc 0xf0000-0xfffff
+  --require-fetch-values --require-mem-initiators cpu \
+  --require-origin-statuses exact,unattributed
+python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+  "$BUILD/bootstrap/events.csv" \
+  --output "$BUILD/bootstrap/provenance.csv" \
+  --fail-on-mismatch --require-complete-coverage \
+  --expect-count fetches=78760 --expect-count match=78760 \
+  --expect-count collision=0 --expect-count cpu_exact=78754 \
+  --expect-count initial_powerup=6 --expect-count gdma_rom=0
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see

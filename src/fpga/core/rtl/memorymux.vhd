@@ -39,6 +39,7 @@ entity memorymux is
       debug_mem_space        : out std_logic_vector(3 downto 0) := (others => '0');
       debug_mem_offset       : out std_logic_vector(23 downto 0) := (others => '0');
       debug_mem_offset_valid : out std_logic := '0';
+      debug_gpu_collision    : out std_logic := '0';
       
       GPU_addr             : in  std_logic_vector(15 downto 0);
       GPU_dataread         : out std_logic_vector(15 downto 0);   
@@ -139,6 +140,13 @@ architecture arch of memorymux is
    signal ss_wired_or : t_ss_wired_or;
 
 begin 
+
+   -- Intel altsyncram leaves mixed-port read-during-write data unspecified
+   -- unless a mode is selected. Flag same-word collisions so simulation
+   -- provenance does not overstate the returned display word's certainty.
+   debug_gpu_collision <= '1' when RAM_dataWriteEnable /= "00" and
+                                  RAM_addressCPU = GPU_addr(15 downto 1)
+                          else '0';
 
    iREG_BANK_ROM2   : entity work.eReg generic map ( REG_BANK_ROM2   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 0), BANK_ROM2    , BANK_ROM2); 
    iREG_BANK_SRAM   : entity work.eReg generic map ( REG_BANK_SRAM   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 1), BANK_SRAM    , BANK_SRAM); 
@@ -576,5 +584,4 @@ begin
    
 
 end architecture;
-
 

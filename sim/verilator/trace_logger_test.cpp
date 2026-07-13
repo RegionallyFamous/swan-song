@@ -128,9 +128,12 @@ int main() {
                     std::nullopt, std::nullopt, std::nullopt});
   csv_writer.write({8, EventType::Bank, std::nullopt, std::nullopt,
                     std::nullopt, 0xc2, 0x34, std::nullopt});
-  csv_writer.write({9, EventType::Vram, std::nullopt, std::nullopt,
-                    std::nullopt, 0x4321, std::nullopt,
-                    VramRole::Screen2Tile});
+  Event csv_vram{9, EventType::Vram, std::nullopt, std::nullopt,
+                 std::nullopt, 0x4321, std::nullopt,
+                 VramRole::Screen2Tile};
+  csv_vram.fetch_value = 0xbeef;
+  csv_vram.fetch_collision = 0;
+  csv_writer.write(csv_vram);
   csv_writer.write({10, EventType::Mem, std::nullopt, std::nullopt,
                     std::nullopt, 0x4000, 0x1234, std::nullopt,
                     MemInitiator::Gdma, MemAccess::Write, 3,
@@ -138,24 +141,29 @@ int main() {
                     OriginStatus::NotApplicable});
   assert(csv.str() ==
          "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
-         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status\n"
-         "7,cpu,703710,43981,302,,,,,,,,,,,\n"
-         "8,bank,,,,194,52,,,,,,,,,\n"
-         "9,vram,,,,17185,,screen2_tile,,,,,,,,\n"
-         "10,mem,,,,16384,4660,,gdma,write,3,iram,16384,,,not_applicable\n");
+         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status,"
+         "fetch_value,fetch_collision\n"
+         "7,cpu,703710,43981,302,,,,,,,,,,,,,\n"
+         "8,bank,,,,194,52,,,,,,,,,,,\n"
+         "9,vram,,,,17185,,screen2_tile,,,,,,,,,48879,0\n"
+         "10,mem,,,,16384,4660,,gdma,write,3,iram,16384,,,not_applicable,,\n");
 
   std::ostringstream jsonl;
   Writer jsonl_writer(jsonl, Format::Jsonl);
-  jsonl_writer.write({9, EventType::Vram, std::nullopt, std::nullopt,
-                      std::nullopt, 0x4321, std::nullopt,
-                      VramRole::SpriteTile});
+  Event json_vram{9, EventType::Vram, std::nullopt, std::nullopt,
+                  std::nullopt, 0x4321, std::nullopt,
+                  VramRole::SpriteTile};
+  json_vram.fetch_value = 0xcafe;
+  json_vram.fetch_collision = 1;
+  jsonl_writer.write(json_vram);
   assert(jsonl.str() ==
          "{\"cycle\":9,\"event\":\"vram\",\"physical_pc\":null,"
          "\"cs\":null,\"ip\":null,\"address\":17185,\"value\":null,"
          "\"role\":\"sprite_tile\",\"initiator\":null,\"access\":null,"
          "\"byte_enable\":null,\"space\":null,\"mapped_offset\":null,"
          "\"instruction_id\":null,\"origin_pc\":null,"
-         "\"origin_status\":null}\n");
+         "\"origin_status\":null,\"fetch_value\":51966,"
+         "\"fetch_collision\":1}\n");
 
   std::ostringstream mem_jsonl;
   Writer mem_jsonl_writer(mem_jsonl, Format::Jsonl);
@@ -169,7 +177,8 @@ int main() {
          "\"role\":null,\"initiator\":\"cpu\",\"access\":\"write\","
          "\"byte_enable\":3,\"space\":\"iram\",\"mapped_offset\":16384,"
          "\"instruction_id\":7,\"origin_pc\":983056,"
-         "\"origin_status\":\"exact\"}\n");
+         "\"origin_status\":\"exact\",\"fetch_value\":null,"
+         "\"fetch_collision\":null}\n");
 
   const std::filesystem::path filtered_path =
       std::filesystem::temp_directory_path() / "swansong-trace-filter-test.csv";
@@ -182,21 +191,22 @@ int main() {
   {
     swansong::trace::Logger logger(filtered);
     logger.cpu(1, 0x12345, 0x1234, 5);
-    logger.vram(2, 0x2000, VramRole::Screen1Map);
-    logger.vram(3, 0x1fff, VramRole::Screen1Tile);
-    logger.vram(4, 0x2000, VramRole::Screen1Tile);
-    logger.vram(5, 0x2fff, VramRole::Screen1Tile);
-    logger.vram(6, 0x3000, VramRole::Screen1Tile);
+    logger.vram(2, 0x2000, VramRole::Screen1Map, 0x1002, false);
+    logger.vram(3, 0x1fff, VramRole::Screen1Tile, 0x1003, false);
+    logger.vram(4, 0x2000, VramRole::Screen1Tile, 0x1004, false);
+    logger.vram(5, 0x2fff, VramRole::Screen1Tile, 0x1005, true);
+    logger.vram(6, 0x3000, VramRole::Screen1Tile, 0x1006, false);
   }
   std::ifstream filtered_input(filtered_path);
   const std::string filtered_text((std::istreambuf_iterator<char>(filtered_input)),
                                   std::istreambuf_iterator<char>());
   assert(filtered_text ==
          "cycle,event,physical_pc,cs,ip,address,value,role,initiator,access,"
-         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status\n"
-         "1,cpu,74565,4660,5,,,,,,,,,,,\n"
-         "4,vram,,,,8192,,screen1_tile,,,,,,,,\n"
-         "5,vram,,,,12287,,screen1_tile,,,,,,,,\n");
+         "byte_enable,space,mapped_offset,instruction_id,origin_pc,origin_status,"
+         "fetch_value,fetch_collision\n"
+         "1,cpu,74565,4660,5,,,,,,,,,,,,,\n"
+         "4,vram,,,,8192,,screen1_tile,,,,,,,,,4100,0\n"
+         "5,vram,,,,12287,,screen1_tile,,,,,,,,,4101,1\n");
   std::filesystem::remove(filtered_path);
 
   const std::filesystem::path mem_filtered_path =
@@ -240,7 +250,7 @@ int main() {
       (std::istreambuf_iterator<char>(mem_filtered_input)),
       std::istreambuf_iterator<char>());
   assert(mem_filtered_text.find(
-             "3,mem,,,,16384,4660,,cpu,write,3,iram,16384,7,983056,exact\n") !=
+             "3,mem,,,,16384,4660,,cpu,write,3,iram,16384,7,983056,exact,,\n") !=
          std::string::npos);
   assert(mem_filtered_text.find("1,mem") == std::string::npos);
   assert(mem_filtered_text.find("2,mem") == std::string::npos);

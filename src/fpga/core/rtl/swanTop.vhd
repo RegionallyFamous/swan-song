@@ -113,6 +113,8 @@ entity SwanTop is
       debug_gpu_vram_addr        : out std_logic_vector(15 downto 0) := (others => '0');
       debug_gpu_vram_valid       : out std_logic := '0';
       debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0');
+      debug_gpu_vram_value       : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_gpu_vram_collision   : out std_logic := '0';
       debug_mem_valid            : out std_logic := '0';
       debug_mem_write            : out std_logic := '0';
       debug_mem_initiator        : out std_logic_vector(1 downto 0) := (others => '0');
@@ -183,6 +185,7 @@ architecture arch of SwanTop is
    signal mux_debug_mem_space        : std_logic_vector(3 downto 0);
    signal mux_debug_mem_offset       : std_logic_vector(23 downto 0);
    signal mux_debug_mem_offset_valid : std_logic;
+   signal mux_debug_gpu_collision    : std_logic;
 
    signal mem_stage1_valid        : std_logic := '0';
    signal mem_stage1_write        : std_logic := '0';
@@ -254,6 +257,16 @@ architecture arch of SwanTop is
    signal GPU_dataread           : std_logic_vector(15 downto 0); 
    signal GPU_vram_fetch_valid   : std_logic;
    signal GPU_vram_fetch_role    : std_logic_vector(2 downto 0);
+
+   signal vram_stage1_valid      : std_logic := '0';
+   signal vram_stage1_address    : std_logic_vector(15 downto 0) := (others => '0');
+   signal vram_stage1_role       : std_logic_vector(2 downto 0) := (others => '0');
+   signal vram_stage1_collision  : std_logic := '0';
+   signal vram_stage2_valid      : std_logic := '0';
+   signal vram_stage2_address    : std_logic_vector(15 downto 0) := (others => '0');
+   signal vram_stage2_role       : std_logic_vector(2 downto 0) := (others => '0');
+   signal vram_stage2_value      : std_logic_vector(15 downto 0) := (others => '0');
+   signal vram_stage2_collision  : std_logic := '0';
 
    signal Color_addr             : std_logic_vector(7 downto 0);
    signal Color_dataread         : std_logic_vector(15 downto 0);    
@@ -503,9 +516,26 @@ begin
          if (reset = '1' or is_simu /= '1') then
             mem_stage1_valid <= '0';
             mem_stage2_valid <= '0';
+            vram_stage1_valid <= '0';
+            vram_stage2_valid <= '0';
          else
             mem_stage1_valid <= bus_read or bus_write;
             mem_stage2_valid <= mem_stage1_valid;
+            vram_stage1_valid <= GPU_vram_fetch_valid;
+            vram_stage2_valid <= vram_stage1_valid;
+
+            if (GPU_vram_fetch_valid = '1') then
+               vram_stage1_address <= GPU_addr;
+               vram_stage1_role    <= GPU_vram_fetch_role;
+               vram_stage1_collision <= mux_debug_gpu_collision;
+            end if;
+
+            if (vram_stage1_valid = '1') then
+               vram_stage2_address <= vram_stage1_address;
+               vram_stage2_role    <= vram_stage1_role;
+               vram_stage2_value   <= GPU_dataread;
+               vram_stage2_collision <= vram_stage1_collision;
+            end if;
 
             if (bus_read = '1' or bus_write = '1') then
                mem_stage1_write        <= bus_write;
@@ -594,6 +624,7 @@ begin
       debug_mem_space        => mux_debug_mem_space,
       debug_mem_offset       => mux_debug_mem_offset,
       debug_mem_offset_valid => mux_debug_mem_offset_valid,
+      debug_gpu_collision    => mux_debug_gpu_collision,
 
       GPU_addr             => GPU_addr,    
       GPU_dataread         => GPU_dataread,   
@@ -1023,9 +1054,11 @@ begin
       debug_reg_write      <= RegBus_wren;
       debug_reg_addr       <= RegBus_Adr;
       debug_reg_data       <= RegBus_Din;
-      debug_gpu_vram_addr  <= GPU_addr;
-      debug_gpu_vram_valid <= GPU_vram_fetch_valid;
-      debug_gpu_vram_role  <= GPU_vram_fetch_role;
+      debug_gpu_vram_addr  <= vram_stage2_address;
+      debug_gpu_vram_valid <= vram_stage2_valid;
+      debug_gpu_vram_role  <= vram_stage2_role;
+      debug_gpu_vram_value <= vram_stage2_value;
+      debug_gpu_vram_collision <= vram_stage2_collision;
       debug_mem_valid          <= mem_stage2_valid;
       debug_mem_write          <= mem_stage2_write;
       debug_mem_initiator      <= mem_stage2_initiator;
@@ -1052,6 +1085,8 @@ begin
       debug_gpu_vram_addr  <= (others => '0');
       debug_gpu_vram_valid <= '0';
       debug_gpu_vram_role  <= (others => '0');
+      debug_gpu_vram_value <= (others => '0');
+      debug_gpu_vram_collision <= '0';
       debug_mem_valid          <= '0';
       debug_mem_write          <= '0';
       debug_mem_initiator      <= (others => '0');
