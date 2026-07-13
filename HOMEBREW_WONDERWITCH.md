@@ -66,9 +66,12 @@ In Verilator it proves:
 - Use a supported SRAM/EEPROM footer type. Swan Song currently allocates
   32/128/256/512 KiB for SRAM `01/02`/`03`/`04`/`05`, and 128/2048/1024 bytes
   for EEPROM `10`/`20`/`50`; RTC adds a 12-byte Pocket save trailer.
-- Keep mapper assumptions explicit. The regular 2001/2003 paths are covered;
-  the core accepts at most 16 MiB even though the later mapper exposes a wider
-  theoretical bank range.
+- Keep mapper assumptions explicit. Bandai 2001 C0-C3 banking is covered. For
+  canonical footer RTC value `01h` (used as the Bandai 2003 selector), the
+  `CFh`, `D0h`, `D2h`, and `D4h` low-byte aliases resolve through the same bank
+  registers. The core accepts
+  at most 16 MiB, does not implement the high bytes at `D1h`/`D3h`/`D5h`, and
+  therefore does not claim the 2003 mapper's wider ROM range.
 - Do not target PocketChallenge v2 (`.pc2`). Its pinstrap boot, keypad matrix,
   absent internal EEPROM, and asset path are not implemented.
 - Test both orientations and the real keypad matrix. Pocket display forcing
@@ -83,12 +86,13 @@ only an open ROM plus the simulator's generated open boot image.
 
 ## WonderWitch boundary
 
-Wonderful's `wwitch` target is experimental and produces an `.fx` application,
-not a self-contained cartridge ROM. The target assumes DS points to SRAM at
-`1000h`, SS points to console IRAM, and system services are supplied by
-FreyaBIOS/FreyaOS. WSdev documents FreyaBIOS in the final 64 KiB of a
-WonderWitch cartridge and FreyaOS in the preceding 64 KiB; FreyaOS owns the
-filesystem and launches `.fx` programs:
+Wonderful's `wwitch` target remains less mature than native `wswan`. It emits a
+traditional `.fx` application and current Wonderful can also assemble that
+application into a self-contained `.ws` with `wf-wwitchtool mkrom`. The target
+assumes DS points to SRAM at `1000h`, SS points to console IRAM, and system
+services are supplied by a Freya-compatible BIOS/OS. WSdev documents FreyaBIOS
+in the final 64 KiB of a WonderWitch cartridge and FreyaOS in the preceding
+64 KiB; FreyaOS owns the filesystem and launches `.fx` programs:
 
 - [Wonderful WonderWitch target notes](https://wonderful.asie.pl/docs/target/wswan/#wonderwitch)
 - [FreyaBIOS](https://ws.nesdev.org/wiki/WonderWitch/FreyaBIOS)
@@ -96,30 +100,60 @@ filesystem and launches `.fx` programs:
 - [FreyaOS filesystem](https://ws.nesdev.org/wiki/WonderWitch/Filesystem)
 - [WonderWitch memory map](https://ws.nesdev.org/wiki/WonderWitch/Memory_map)
 
-The current Wonderful template successfully compiles to `.fx`, but its ROM
-assembly tool requires an installed OS/BIOS package. That dependency is the
-environment, not something Swan Song may silently replace with a standard
-WonderSwan BIOS. OpenWitch's
+The current
+[Wonderful WonderWitch guide](https://wonderful.asie.pl/wiki/doku.php?id=wswan%3Aguide%3Awwitch)
+documents `mkrom` as the emulator/flash-cartridge path. Its required clean-room
+firmware comes from the separately installed `target-wswan-athenaos` package,
+not from a standard WonderSwan BIOS. OpenWitch's
 [AthenaOS](https://github.com/OpenWitch/AthenaOS/tree/d37beae7482616313883dcfa4bdb7114d1ef5749)
-is an open Freya-compatible implementation and is the appropriate future test
-source, but no Athena/Freya image is bundled here.
+is the open Freya-compatible implementation behind that package. Swan Song
+does not check in the generated firmware or composite ROM.
 
-Swan Song does **not** currently claim WonderWitch compatibility:
+Swan Song now makes one narrow WonderWitch claim: the pinned Wonderful hello
+fixture, wrapped as a read-only AthenaOS `mkrom` image, boots and executes BIOS
+text/input services in the translated system model. See
+[`WONDERWITCH_VALIDATION.md`](WONDERWITCH_VALIDATION.md). The remaining boundary
+is explicit:
 
-- APF exposes `.ws`/`.wsc` cartridge assets, not standalone `.fx` files or a
-  host-managed Freya filesystem;
+- APF launches the generated `.ws`; it does not expose standalone `.fx` files
+  or a host-managed Freya filesystem;
 - the inherited mapper has no implementation of WonderWitch's MBM29DL400TC
   flash command state or the Bandai 2003 port-`CEh` write window documented by
   [WSdev](https://ws.nesdev.org/wiki/WonderWitch/Flash); and
-- no complete, redistributable AthenaOS cartridge image has been run through
-  this simulator or on Pocket hardware.
+- the generated image has not been run on Pocket hardware, and writable
+  WonderWitch software remains unverified.
 
-A responsible WonderWitch milestone is therefore: build a pinned AthenaOS
-image locally from source, create a deterministic filesystem containing a
-small open `.fx`, implement/verify the required port-`CEh` flash behavior if
-the workload exercises it, and bind boot, launch, filesystem, visible output,
-and persistence in simulation before enabling any Pocket file extension or
-making a compatibility claim.
+The mapper audit is intentionally narrower than an emulator feature list:
+
+| Cartridge interface | Current status | Evidence boundary |
+| --- | --- | --- |
+| Bandai 2001 C0-C3 banks | Implemented | Generated 2 MiB runtime mapper traces |
+| Bandai 2001 external EEPROM | Implemented | Controller/backing simulation and Pocket save contracts |
+| Bandai 2003 RTC | Implemented | Deterministic RTC/save regressions; Pocket timing remains hardware-gated |
+| Bandai 2003 CF/D0/D2/D4 low aliases | Implemented for canonical footer RTC/2003 selector `01h` | Black-box VHDL readback plus resolved ROM/RAM offsets |
+| Bandai 2003 D1/D3/D5 high bank bytes | Not implemented | Requires widening the core's 24-bit ROM path and APF limit |
+| Bandai 2003 CE self-flash and MBM29DL400 commands | Not implemented | Required before a writable WonderWitch cartridge claim |
+| Bandai 2003 GPO | Not implemented | No current Pocket-facing cartridge peripheral use case |
+| KARNAK / PocketChallenge v2 timer, ADPCM, IRQ, boot mode | Not implemented | Separate machine/peripheral target, not a `.pc2` filename alias |
+
+This ordering follows the current public hardware documentation: the common
+[mapper](https://ws.nesdev.org/wiki/Mapper) defines C0-C3; the
+[Bandai 2003](https://ws.nesdev.org/wiki/Bandai_2003) page defines the aliases,
+wider banks, GPO, RTC, and CE window; the
+[WonderWitch flash](https://ws.nesdev.org/wiki/WonderWitch/Flash) page binds CE
+to the MBM29DL400TC; and [KARNAK](https://ws.nesdev.org/wiki/KARNAK) adds the
+PocketChallenge-specific timer/ADPCM path. Current ares independently models
+the same split in its pinned
+[I/O mapper](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/io.cpp),
+[memory mapper](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/memory.cpp),
+and [WonderWitch detector](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/mia/medium/wonderswan.cpp).
+
+The first responsible milestone is complete: a pinned AthenaOS package, a
+deterministic filesystem containing an open `.fx`, and bound boot, launch,
+BIOS-call, CPU, and visible-output evidence. The next milestone is deliberately
+separate: implement and verify port `CEh` plus MBM29DL400 program/erase state,
+bind filesystem persistence in simulation, and then run both read-only and
+writable cases on Pocket before expanding the compatibility claim.
 
 ## Research pins
 
@@ -131,6 +165,9 @@ making a compatibility claim.
   [`811b739`](https://github.com/WonderfulToolchain/target-wswan-examples/tree/811b739ab1f0203336a08da8db34365d29869617)
 - Open AthenaOS:
   [`d37beae`](https://github.com/OpenWitch/AthenaOS/tree/d37beae7482616313883dcfa4bdb7114d1ef5749)
+- Current WonderWitch development guide, including `mkrom`, reviewed at its
+  2026-01-08 revision:
+  [Wonderful Wiki](https://wonderful.asie.pl/wiki/doku.php?id=wswan%3Aguide%3Awwitch)
 - WSdev pages were reviewed at FreyaBIOS revision 699, FreyaOS revision 676,
   filesystem revision 593, and flash revision 482.
 - Pinned MiSTer system reference:

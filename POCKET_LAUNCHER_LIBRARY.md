@@ -120,8 +120,8 @@ and the [Analogue EULA](https://assets.analogue.co/pdf/43478bf701eb4905172acbecc
 
 The most useful work is to make the supported path feel immediate and reliable:
 
-- require current firmware for the 2.6.0 Recent experience while retaining the
-  accurate 2.3 technical minimum;
+- retain framework/PocketOS 2.3 as the technical minimum and recommend
+  PocketOS 2.6.0 for its Recent and quit-to-openFPGA experience;
 - validate Startup Action, Recent, last-title relaunch, clean title switching,
   and save flushes on real Pocket hardware;
 - keep the WonderSwan platform art, metadata, About text, controls, display

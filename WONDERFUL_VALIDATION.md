@@ -126,8 +126,11 @@ successful `MEDIUM-SRAM OK` console cells, terminal HLT, and final raw RGB
 SHA-256 `3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b`.
 The focused verifier rejects source and ROM mutations.
 
-The complete targeting guidance and the deliberately separate WonderWitch
-boundary are in [`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md). A
-Wonderful `.fx` build requires FreyaBIOS/FreyaOS and a filesystem; the current
-core does not implement the WonderWitch flash command/port-`CEh` path and makes
-no WonderWitch compatibility claim. No firmware is bundled.
+The complete targeting guidance is in
+[`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md). Current Wonderful can
+assemble `.fx` files with its pinned clean-room AthenaOS into an ordinary `.ws`;
+Swan Song now boots that read-only `mkrom` path and executes BIOS text/input
+services in the translated system model. The separately reproducible result is
+recorded in [`WONDERWITCH_VALIDATION.md`](WONDERWITCH_VALIDATION.md). Writable
+flash/port-`CEh`, direct `.fx` APF loading, and Pocket hardware remain unclaimed,
+and no firmware is bundled.

@@ -44,6 +44,7 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_rtc_save_loader_tb.sh"
 "$ROOT/sim/rtl/run_apf_reset_sync_tb.sh"
 "$ROOT/sim/rtl/run_apf_gamepad_filter_tb.sh"
+"$ROOT/sim/rtl/run_apf_console_setup_tb.sh"
 "$ROOT/sim/rtl/run_apf_settings_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_ram_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_arbiter_tb.sh"
@@ -63,6 +64,7 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_internal_eeprom_tb.sh"
 "$ROOT/sim/rtl/run_pocket_console_eeprom_init_tb.sh"
 "$ROOT/sim/rtl/run_console_eeprom_roundtrip_tb.sh"
+"$ROOT/sim/rtl/run_mapper_2003_alias_tb.sh"
 "$ROOT/sim/rtl/run_pocket_save_init_tb.sh"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
@@ -89,6 +91,7 @@ python3 "$ROOT/sim/verilator/verify_sound_dma_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_internal_eeprom_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_wonderful_medium_sram_fixture_test.py"
+python3 "$ROOT/sim/verilator/verify_wonderwitch_athena_fixture_test.py"
 python3 "$ROOT/scripts/migrate_type01_save_test.py"
 python3 "$ROOT/scripts/migrate_legacy_eeprom_save_test.py"
 python3 "$ROOT/scripts/pocket_per_game_preset_test.py"
@@ -100,6 +103,7 @@ python3 "$ROOT/scripts/pocket_launcher_library_contract_test.py"
 python3 "$ROOT/scripts/pocket_save_metadata_constraint_test.py"
 python3 "$ROOT/scripts/pocket_control_cdc_contract_test.py"
 python3 "$ROOT/scripts/pocket_pad_contract_test.py"
+python3 "$ROOT/scripts/pocket_console_setup_contract_test.py"
 python3 "$ROOT/scripts/pocket_input_dock_contract_test.py"
 python3 "$ROOT/scripts/pocket_hardware_qa_test.py"
 python3 "$ROOT/scripts/known_title_compatibility_test.py"
@@ -388,7 +392,7 @@ python3 "$ROOT/sim/verilator/generate_bank_probe.py" \
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bank-probe/events.csv" \
   --allowed bank --require bank \
-  --require-bank-addresses 0xc0,0xc1,0xc2,0xc3
+  --require-bank-addresses 0xc0,0xc1,0xc2,0xc3,0xcf,0xd0,0xd2,0xd4
 python3 "$ROOT/sim/verilator/verify_bank_probe.py" \
   "$BUILD/bank-probe/events.csv"
 
