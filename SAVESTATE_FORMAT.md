@@ -27,9 +27,12 @@ The frozen target revision is documented in
 layout test define the fixed header, payload regions, title/model identity,
 active-size rules, and deterministic padding. Exact synthesis-tested RTC and
 internal/cartridge EEPROM controller ports now freeze, export, and restore their
-complete local sequential state under an executable device ABI. Production
-ties those ports off: they are deliberately not yet connected to a global v2
-owner, and EEPROM backing RAM is not yet walked into the payload.
+complete local sequential state under an executable device ABI. An isolated
+atomic owner and EEPROM backing-memory walker exercise the intended ordering
+and failure boundaries, but production ties the device ports off and
+instantiates neither module. Both modules are absent from `ap_core.qsf`,
+`savestate_supported` remains false in the production top level, and the shipped
+core descriptor keeps `sleep_supported` false.
 
 Reference coverage is consistent with this decision: pinned
 [ares system serialization](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/system/serialization.cpp#L40-L49)
@@ -48,6 +51,35 @@ and [Host/Target Commands](https://www.analogue.co/developer/docs/host-target-co
 The inherited FIFO streamer does not satisfy that random-access staging
 contract, so `savestate_supported` and `sleep_supported` deliberately remain
 false.
+
+## Isolated v2 verification slices
+
+The isolated owner first enforces pause at an instruction/HALT boundary. It then
+asserts device freeze and waits in one acquisition state for both all-device
+freeze acknowledgement and global SDRAM quiescence; those two acknowledgements
+are not ordered relative to each other. Only then does it acquire staging, run
+one data-plane operation, and release staging, devices, and runtime in reverse
+ownership order. It locks staged-image replacement and snapshots the generation
+for restore. Generation loss is recoverable before the irreversible apply pulse
+and fatal afterward. Restore failures after that barrier, plus any capture
+failure whose mutation/ownership state cannot be proved safe, retain a sticky
+fatal reset hold until lifecycle reset. Terminals are not published until the
+data plane is drained and runtime pause acknowledgement has fallen.
+
+The isolated walker captures complete fixed EEPROM sections and restores them
+in two passes: validate the entire staged section and its padding before any
+write, then reread and apply active words while the owner keeps staging
+immutable. Any timeout enters poison; a restore failure after a write may have
+committed does the same. Poison rejects restart and retains freeze/ownership
+until lifecycle reset; late completions cannot publish a result or release
+ownership.
+
+Both behavior tests run unconditionally for valid runner settings. Their Yosys
+synthesis checks are skipped by default and become mandatory only with
+`SWAN_REQUIRE_YOSYS=1`; values other than `0` or `1` are rejected. These tests
+do not claim production instantiation, Quartus fit, complete payload
+serialization/validation, lossless global clock-domain integration, or Pocket
+hardware support.
 
 ## Version 1 compatibility envelope
 
@@ -97,9 +129,10 @@ query size to payload plus the 32-byte envelope: `0x90320`.
 
 ## What remains before Memories can be enabled
 
-The new module is intentionally not connected to `save_state_controller.sv`.
-Its payload output is an interface for a future full-size staging-memory writer,
-not a live-state streaming interface.
+The version-1 envelope and isolated v2 owner/walker are intentionally not
+connected as a production Memories path. The owner is only a future control
+plane, and the walker covers only the fixed EEPROM backing sections; together
+they are not a complete serializer, validator, transport, or rollback system.
 
 The inherited load FIFO holds 4,096 32-bit words (16 KiB), and its save FIFO
 holds four 64-bit words (32 bytes). That is incompatible with APF's complete
@@ -113,18 +146,23 @@ needs:
 3. A4 validation of the complete envelope before asserting any live v2
    state-load/apply signal; malformed input must leave all emulated state
    untouched.
-4. Title compatibility binding, interruption/reset behavior, repeated
+4. Production integration of the owner, staged-image generation lock, EEPROM
+   walker, remaining state serializers, lossless clock-domain crossings, and
+   bounds derived for the real data paths.
+5. Title compatibility binding, interruption/reset behavior, repeated
    save/load, and older-format rejection tests through the compiled wrapper.
-5. Pocket/Dock hardware validation across mono/Color, every RAM type,
+6. Pocket/Dock hardware validation across mono/Color, every RAM type,
    EEPROM/RTC, audio activity, fast-forward, both orientations, and repeated
    Sleep + Wake cycles.
 
 The device-local prerequisite is no longer hypothetical: focused GHDL behavior
 and synthesis tests prove prior-cycle freeze/load ordering, exact RTC transient
 replay, EEPROM pending-write drain, no synthetic MMIO commands, hidden legacy
-state normalization, and synchronous-RAM settling. The remaining work is to
-coordinate those boundaries with CPU/DMA/PPU/APU/mapper pause, capture the
-separate EEPROM backing memories, and transact the complete validated blob.
+state normalization, and synchronous-RAM settling. The isolated owner/walker
+tests additionally prove the intended ordering, generation, two-pass EEPROM,
+drain, and poison rules. The remaining work is to connect those contracts to
+CPU/DMA/PPU/APU/mapper pause, route the EEPROM walker through protected
+staging, and transact the complete validated blob.
 
 Until those gates pass, unsupported A0/A4 requests are rejected in the command
 handler without reaching the legacy controller.

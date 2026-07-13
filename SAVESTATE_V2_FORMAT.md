@@ -1,15 +1,19 @@
 # WonderSwan Memories v2 fixed ABI
 
-Status: **fixed layout plus exact RTC/EEPROM controller boundaries implemented
-and focused-tested; the atomic v2 owner is not integrated.** The production
-core still advertises neither Memories nor Sleep + Wake. This document,
+Status: **fixed layout, exact RTC/EEPROM controller boundaries, and isolated
+atomic-owner/EEPROM-walker slices implemented and focused-tested; none is
+integrated into production.** The production core still advertises neither
+Memories nor Sleep + Wake. This document,
 `src/fpga/core/apf_savestate_v2_layout_pkg.sv`, and
 `src/fpga/core/apf_savestate_v2_device_abi_pkg.sv` freeze the target binary
 contract. The live RTC and both EEPROM instances expose synthesis-tested
 freeze/export/load ports, but every production instance ties those ports off.
-Neither v2 package is in `ap_core.qsf`, and there is still no v2 serializer,
-backing-memory walker, validator/loader owner, or change to the version-1
-transport.
+The isolated owner and EEPROM walker are not instantiated and are absent from
+`ap_core.qsf`; the production top level still sets `savestate_supported` false
+and the shipped core descriptor still sets `sleep_supported` false. These
+slices prove bounded control- and data-plane contracts only. There is no
+complete v2 serializer/validator/reader/writer, global clock-domain integration,
+production owner wiring, or change to the version-1 transport.
 
 Version 1 is not a migration source. Its 32-byte envelope and `0x90300` payload
 omit CPU pipeline state, live PPU/APU pipelines, RTC protocol/timing, EEPROM
@@ -230,6 +234,71 @@ The package's `v2_fixed_zero_payload_byte` and
 `v2_fixed_zero_header_byte` helpers identify bytes that are zero for every v2
 image; model/title-dependent zero tails are additional validation.
 
+## Isolated owner and EEPROM walker
+
+`apf_savestate_v2_owner.sv` and `apf_savestate_v2_eeprom_walker.sv` are
+deliberately isolated verification slices. Neither is in `ap_core.qsf`, neither
+is instantiated by the production core, and no current Pocket command reaches
+either module.
+
+### Atomic owner ordering and failure boundary
+
+The owner admits one operation at a time. Restore additionally requires a valid
+staged image. It locks staged-image replacement for the complete transaction,
+snapshots the image generation when accepting restore, and checks that
+generation through application. A generation change before the irreversible
+restore-apply pulse is a recoverable rejection; the same change at or after
+that pulse is fatal.
+
+The acquisition order is fixed:
+
+1. Request the runtime pause and wait for an instruction/HALT-boundary
+   acknowledgement.
+2. Assert device freeze, then remain in the same acquisition state until all
+   device acknowledgements and global SDRAM quiescence are both observed; the
+   two acknowledgements are not ordered relative to each other.
+3. Acquire staging ownership and wait for its data plane to be idle.
+4. Issue exactly one capture-start or restore-apply pulse.
+
+Global SDRAM quiescence is an acquisition condition, not a condition imposed on
+legitimate staging traffic or refresh after ownership transfers. A terminal
+result is not released until the independent staging data plane is quiescent.
+Release is the reverse ownership order: staging, devices, then runtime; the
+owner publishes the result only after the runtime pause acknowledgement falls.
+Stale terminals, wrong-operation terminals, and late same-edge failures fail
+closed, while cancellation drains any request already in flight.
+
+A capture abort is recoverable only while the owner can prove that no live
+mutation or ambiguous outstanding ownership remains. Restore error, cancel,
+timeout, or generation loss at or after the apply barrier asserts a sticky
+fatal-reset hold. An unprovable capture drain/release failure does the same.
+Fatal hold preserves the runtime/device freeze boundary and is cleared only by
+the lifecycle reset. `MAX_PHASE_CYCLES=1` is intentionally unusable as a
+production timeout; integration must supply a derived bound.
+
+### EEPROM backing-memory walker
+
+The walker maps the physical x16 EEPROM RAMs into normalized v2 bytes: internal
+Color words `0..1023`, internal mono words `1024..1087`, and cartridge words
+`0..1023`. Capture emits each complete fixed section, including deterministic
+zeroes for inactive banks, inactive cartridge bytes, and padding.
+
+Restore is a strict two-pass operation. The first pass reads and validates the
+entire fixed section, including zero padding, without issuing a backing-memory
+write. Only after that succeeds does the second pass reread the image and apply
+active words. The external owner must keep staging immutable across both
+passes. Staging and backing-memory requests are one-cycle edge pulses, and an
+abort drains every acknowledged outstanding request before normal ownership can
+be released.
+
+A timeout enters poison because a late completion can no longer be attributed
+safely. The walker records when a restore write may have committed and when a
+successful write was acknowledged; any restore failure after a possible write
+is also poison. Poison rejects restart, retains `ownership_retained` and
+`frozen_ack`, and ignores late completions as results until lifecycle reset.
+This proves the EEPROM-section traversal and failure boundary, not the
+production SDRAM mux, complete payload transport, or global rollback policy.
+
 ## Atomicity and rejection
 
 A0 must freeze at a CPU instruction/HALT boundary, drain DMA and SDRAM, stop
@@ -242,9 +311,10 @@ The RTC and EEPROM device-local pieces of that protocol now exist. A load is
 ignored until a prior-cycle freeze acknowledgement; an acknowledged export is
 stable across bus writes and bus resets. EEPROM freeze drains its pending RAM
 write, consumes both effects of any pending legacy EEPROM-register load, and
-makes stale hidden legacy state irrelevant to future reset behavior. These are
-device boundaries only: the global pause/drain coordinator, EEPROM backing-RAM
-walker, payload writer/reader, and all-live-state rollback policy remain open.
+makes stale hidden legacy state irrelevant to future reset behavior. The
+isolated owner and walker exercise those boundaries, but the production
+pause/drain integration, complete payload writer/reader, lossless clock-domain
+crossings, and all-live-state rollback policy remain open.
 
 Pocket's `0090` event seeds time once at boot; it is not a continuously updated
 host clock. V2 therefore maintains a live epoch from that seed and the RTC
@@ -280,6 +350,8 @@ Run:
 ./sim/rtl/run_apf_savestate_v2_device_abi_tb.sh
 ./sim/rtl/run_rtc_state_tb.sh
 ./sim/rtl/run_eeprom_state_tb.sh
+./sim/rtl/run_apf_savestate_v2_eeprom_walker_tb.sh
+./sim/rtl/run_apf_savestate_v2_owner_tb.sh
 ```
 
 The layout test checks every region boundary and sum, header compound-field
@@ -288,6 +360,17 @@ v1 rejection, and fixed-zero byte count. The device ABI adds exhaustive masks,
 native/payload adapters, controller reachability, all 65,536 EEPROM word values,
 and exact backing byte order. The GHDL tests exercise the real RTC/EEPROM RTL,
 including synthesis, transient RTC replay, all EEPROM FSMs, pending-write drain,
-legacy-state normalization, reset ordering, and synchronous-read settling. All
-four are part of `make regression`; the v2 packages and owner remain outside
-the Quartus project.
+legacy-state normalization, reset ordering, and synchronous-read settling. The
+walker test covers both EEPROM layouts, two-pass restore, padding rejection,
+late staging/backing-memory completions, restart rejection, and ownership held
+through poison. The owner test covers acquisition/release ordering, generation
+locking, stale and wrong-operation terminals, legal non-quiescent staging
+traffic, recoverable pre-apply aborts, sticky fatal restore, lifecycle reset,
+and phase timeouts.
+
+All six behavior tests are part of `make regression`. The owner and walker
+runners skip Yosys by default even when it is installed; setting
+`SWAN_REQUIRE_YOSYS=1` makes synthesis mandatory, including tool availability
+and a nonempty netlist. Only `0` and `1` are accepted. Passing these isolated
+tests is not evidence of Quartus fit, production integration, or Pocket
+hardware behavior; both modules remain outside the Quartus project.
