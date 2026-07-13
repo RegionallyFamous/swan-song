@@ -86,6 +86,17 @@ the final 16-byte reset-vector/header footer from the open `spritepriority.ws`
 carrier above; the provenance probe changes the footer's color flag so the
 color-only GDMA block can be exercised.
 
+The deterministic input-replay regression likewise generates its 128 KiB mono
+cartridge and controller schedule under `build/`. Its 80186 program, identity
+marker, footer, checksum, and input text are repository-authored and contain no
+third-party code, ROM, firmware, or game data. The keypad contract was reviewed
+first against the current `joypad.vhd`, then the pinned ares [matrix
+implementation](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cpu/keypad.cpp#L1-L38)
+and WSdev's pinned [keypad register and physical
+layout](https://ws.nesdev.org/w/index.php?title=Keypad&oldid=618). Those primary
+sources corroborate that B5h bit 5 selects the horizontal X row and physical X2
+appears in bit 1; no external source bytes are copied into the generated probe.
+
 The mapper-memory and boot-overlay regressions are also generated under
 `build/`, but are fully self-contained: they synthesize their own valid
 cartridge footers/checksums and open simulation-only 4 KiB/8 KiB boot test

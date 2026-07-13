@@ -1,0 +1,26 @@
+# Swan Song deterministic controller replay, schema v1.
+#
+# Each non-comment line is: DECIMAL_SYSTEM_CYCLE FULL_CONTROLLER_STATE
+# Controller names are the physical WonderSwan labels:
+# x1,x2,x3,x4,y1,y2,y3,y4,start,a,b
+# Use `none` to release every button. States replace rather than modify the
+# preceding state, and gaps retain the most recently declared state.
+#
+# The clock is 36.864 MHz: 36,864 cycles = 1 ms and 3,686,400 cycles = 100 ms.
+# Cycle 0 is the first cycle after reset release. An event at cycle N is visible
+# before the rising edge recorded as trace cycle N.
+
+# At 100 ms, hold the physical Start button.
+3686400 start
+
+# At 200 ms, release every button.
+7372800 none
+
+# At 300 ms, hold physical X2 and A together.
+11059200 x2,a
+
+# At 350 ms, replace that state with A only; X2 is released here.
+12902400 a
+
+# A script must end by releasing every button.
+14745600 none

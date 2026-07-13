@@ -12,6 +12,12 @@ mkdir -p "$BUILD"
   -o "$BUILD/trace_logger_test"
 "$BUILD/trace_logger_test"
 echo "PASS structured trace parser and writer"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
+  -I"$ROOT/sim/verilator" \
+  "$ROOT/sim/verilator/input_script_test.cpp" \
+  -o "$BUILD/input_script_test"
+"$BUILD/input_script_test"
+echo "PASS deterministic controller input-script parser"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
@@ -23,6 +29,10 @@ python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_input_script_manifest_test.py"
+python3 "$ROOT/sim/verilator/verify_input_replay_probe_test.py"
+python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
+python3 "$ROOT/scripts/package_core_test.py"
 
 require_bg_layers() {
   local summary="$1"
@@ -94,6 +104,63 @@ require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
   cpu_rom_movsb_cells=26222 cpu_rom_movsb_bytes=4096 \
   cpu_rom_movsb_origins=2
+
+# Prove that cycle-addressed controller replay crosses the real keypad matrix.
+# The generated mono ROM selects B5's horizontal row, waits for physical X2,
+# emits the exact bank-register marker "IN", waits for release, then emits
+# "P". Without a script the same ROM completes a frame but cannot emit any
+# marker. Two routed runs must be byte-identical, and their success manifests
+# bind both the raw script and its normalized full-state schedule.
+INPUT_OUT="$BUILD/input-replay-probe"
+rm -rf "$INPUT_OUT"
+python3 "$ROOT/sim/verilator/generate_input_replay_probe.py" \
+  "$INPUT_OUT/fixture" >/dev/null
+"$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --frames 1 --max-cycles 1000000 \
+  --out "$INPUT_OUT/no-input/frames" \
+  --event-trace "$INPUT_OUT/no-input/events.csv" \
+  --trace-events bank >/dev/null
+for replay_run in a b; do
+  "$SIM" \
+    --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+    --input-script "$INPUT_OUT/fixture/input_replay_probe.input" \
+    --frames 1 --max-cycles 1000000 \
+    --out "$INPUT_OUT/run-$replay_run/frames" \
+    --event-trace "$INPUT_OUT/run-$replay_run/events.csv" \
+    --trace-events bank >/dev/null
+done
+python3 "$ROOT/sim/verilator/verify_input_replay_probe.py" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --script "$INPUT_OUT/fixture/input_replay_probe.input" \
+  --no-input-trace "$INPUT_OUT/no-input/events.csv" \
+  --trace-a "$INPUT_OUT/run-a/events.csv" \
+  --frame-a "$INPUT_OUT/run-a/frames/frame-0.rgb" \
+  --trace-b "$INPUT_OUT/run-b/events.csv" \
+  --frame-b "$INPUT_OUT/run-b/frames/frame-0.rgb"
+python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
+  "$INPUT_OUT/run-a/events.csv" \
+  "$INPUT_OUT/fixture/input_replay_probe.input"
+python3 "$ROOT/sim/verilator/verify_input_script_manifest.py" \
+  "$INPUT_OUT/run-b/events.csv" \
+  "$INPUT_OUT/fixture/input_replay_probe.input"
+
+# A final event at --max-cycles can never be applied because simulation runs
+# [0,max-cycles). Reject it before simulation and invalidate the prior success
+# certificate for a reused trace path.
+test -f "$INPUT_OUT/run-a/events.csv.manifest.json"
+if "$SIM" \
+  --rom "$INPUT_OUT/fixture/input_replay_probe.ws" \
+  --input-script "$INPUT_OUT/fixture/input_replay_probe.input" \
+  --frames 1 --max-cycles 5000 \
+  --out "$INPUT_OUT/impossible-frames" \
+  --event-trace "$INPUT_OUT/run-a/events.csv" \
+  --trace-events bank >/dev/null 2>&1; then
+  echo "input script ending at max-cycles unexpectedly ran" >&2
+  exit 1
+fi
+test ! -e "$INPUT_OUT/run-a/events.csv.manifest.json"
+echo "PASS impossible input schedule invalidates prior trace certificate"
 
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see

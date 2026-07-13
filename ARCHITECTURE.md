@@ -129,18 +129,19 @@ jumps through the cartridge reset vector.
 
 ### Simulation observability
 
-`SwanTop` exposes 39 observability outputs when its `is_simu` generic is set.
+`SwanTop` exposes 47 observability outputs when its `is_simu` generic is set.
 They carry completed-instruction location; accepted mapper-write identity;
 completion-aligned display reads and mixed-port collision status; promoted
-Screen 1/2 background-cell metadata; and completed CPU/GDMA/SDMA transactions
-with resolved memory space, backing offset, and exact CPU origin where the CPU
-can prove one. With `is_simu = '0'`, all public debug outputs are constants;
+Screen 1/2 background-cell metadata; admitted sprite descriptor/row metadata;
+and completed CPU/GDMA/SDMA transactions with resolved memory space, backing
+offset, and exact CPU origin where the CPU can prove one. With `is_simu = '0'`,
+all public debug outputs are constants;
 the checked-in translated-model regression exercises `is_simu = '1'`, so
 production-generic GHDL elaboration and Quartus resource/timing impact are not
 part of the current automated gate. These are observation points, not evidence
 of Pocket hardware behavior.
 
-The Verilator adapter converts the raw taps into five event classes:
+The Verilator adapter converts the raw taps into six event classes:
 
 | Event | Source | Harness behavior |
 | --- | --- | --- |
@@ -149,11 +150,14 @@ The Verilator adapter converts the raw taps into five event classes:
 | `vram` | GPU unified-IRAM arbiter | records each completed aligned 16-bit display read, returned word, collision flag, and one of six Screen 1/2 map/tile or sprite table/tile roles; physical background prefetches remain visible while a layer is disabled |
 | `mem` | completed system-memory bridge | records CPU, GDMA, and SDMA reads/writes with raw address/value/lane mask, resolved space/offset, and exact, unattributed, or inapplicable CPU origin status |
 | `bg_cell` | Screen 1/2 background promotion boundary | binds one decoded map word to the exact 2bpp/4bpp row entering a pixel buffer, including tile mode, flips, palette, coordinates, contributing bytes, and collisions; it is not a final-compositor visibility claim |
+| `sprite_row` | sprite next-line admission boundary | binds one exact cached OAM descriptor generation and contributing 2bpp/4bpp tile row to its line-load epoch and slot; it precedes X visibility, windows, transparency, priority, palette lookup, and final composition |
 
 Structured capture begins after reset is released and uses 36.864 MHz system
 cycles as its timebase. New CSV and JSON Lines traces use the 36-field v5
-schema; the CSV verifier retains exact v1-v4 compatibility without inventing
-fields absent from those legacy headers. Command-line or `KEY=VALUE` config
+schema unless `sprite_row` is requested, in which case they use the append-only
+43-field v6 schema. Captures without `sprite_row` retain byte-for-byte v5
+serialization, and the CSV verifier preserves exact v1-v5 compatibility without
+inventing fields absent from older headers. Command-line or `KEY=VALUE` config
 filters can independently select events, CPU PCs, display addresses/roles, and
 memory initiators/accesses/addresses/spaces/offsets/origins. Each successful
 capture writes a manifest that binds its ROM/boot inputs, filters, reset start,

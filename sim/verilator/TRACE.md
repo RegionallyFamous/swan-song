@@ -52,6 +52,96 @@ Capture completed GDMA transfers from the linear ROM window into IRAM:
   --trace-mem-space cart_rom_linear,iram
 ```
 
+## Deterministic controller replay
+
+`--input-script FILE` replays complete WonderSwan controller states at exact
+system cycles. It is a simulation option, not a structured-trace filter, so it
+is intentionally not a key in `trace.example.conf`. The v1 input-script grammar
+is line-oriented:
+
+```text
+SYSTEM_CYCLE STATE
+```
+
+Blank lines and text from `#` to the end of a line are ignored. Every other
+line must contain exactly two whitespace-separated fields:
+
+- `SYSTEM_CYCLE` is an unsigned decimal integer. Hexadecimal, signs, and
+  suffixes are not accepted, and event cycles must be strictly increasing.
+- `STATE` is either `none` or a comma-separated list drawn from the
+  case-sensitive physical console labels `x1`, `x2`, `x3`, `x4`, `y1`, `y2`,
+  `y3`, `y4`, `start`, `a`, and `b`. These are the two WonderSwan directional
+  clusters and three buttons as presented to the system core, not logical
+  Pocket directions or rotation-dependent aliases. Embedded spaces, unknown
+  labels, empty entries, and duplicate buttons are rejected.
+
+Each event replaces the complete controller state; it is not a press/release
+delta. For example, changing `x2,a` to `a` releases `x2` and keeps `a` held.
+The state persists through every gap until the next event. Before the first
+event all buttons are released. A valid script must contain at least one
+non-`none` state, and its final event must be `none` so the replay finishes
+with every button released.
+Source files are limited to 4 MiB and 65,536 parsed events.
+
+Cycle 0 is the first 36.864 MHz system cycle after reset is released. An event
+at cycle N is applied before the rising system-clock edge reported as trace
+cycle N. Convert cycles to time with `seconds = cycles / 36,864,000`, or
+`milliseconds = cycles / 36,864`; for example, 3,686,400 cycles is 100 ms.
+This timing is exact for the simulator clock, while the game decides when it
+polls the controller.
+
+Start from the commented `input.example.input` and keep a title-specific copy
+with the user's private artifacts:
+
+```sh
+mkdir -p build/private
+cp sim/verilator/input.example.input build/private/title.input
+
+./sim/verilator/run.sh \
+  --rom /path/to/personally-owned-title.wsc \
+  --input-script build/private/title.input \
+  --frames 35 \
+  --max-cycles 20000000 \
+  --out build/private/title-route \
+  --event-trace build/private/title-route/events.csv \
+  --trace-events cpu,bank,vram,mem,bg_cell,sprite_row
+```
+
+The final release event must be earlier than `--max-cycles`; an impossible
+schedule is rejected before the model runs. The run also fails if its requested
+frame target is reached before every input event has been applied. A failed or
+incomplete attempt does not receive a success manifest.
+
+For a successful event trace, `FILE.manifest.json` contains an optional
+`input_script` object with the v1 schema name, raw source byte size and FNV-1a
+digest, normalized schedule digest, declared and applied event counts,
+completion state, and released final state. The raw binding detects changes to
+comments and formatting; the normalized binding records parsed cycles and full
+button masks. As with the ROM, boot-image, and trace digests, these are
+deterministic stale-artifact checks rather than cryptographic authentication.
+
+Before treating a private route and trace as one evidence bundle, verify that
+the exact script still matches the success manifest and trace bytes:
+
+```sh
+python3 sim/verilator/verify_input_script_manifest.py \
+  build/private/title-route/events.csv \
+  build/private/title.input
+```
+
+This generic verifier reparses the v1 grammar independently, checks both script
+identities and all completion fields, and rejects a changed script, trace, or
+manifest.
+
+For a user-owned title, first use a private script and framebuffer output to
+reach a readable text surface reproducibly. Then repeat that same reset-to-screen
+route with unfiltered `mem`, `vram`, and the relevant `bg_cell`/`sprite_row`
+events before running the provenance correlators below. Complete provenance
+depends on history from reset release, so do not replace it with a late trace
+start. Keep the ROM, optional legally obtained firmware, input script, raw
+frames, traces, glyph tables, and other title-derived artifacts private; this
+repository needs only reusable code, open fixtures, and privacy-safe notes.
+
 Build confirmation-grade reports for every completed display read and every
 background cell promoted into a pixel-producing buffer:
 
@@ -102,9 +192,9 @@ identity. `--contact-mode unique-exact` keeps the CSV complete while drawing
 one provenance-rich exact epoch for each distinct bitmap in the PNG; every
 `E###` label points back to the original CSV epoch. Use `exact` or `all` when repeated
 placements or incomplete/collision-marked candidates need visual inspection.
-Because v5 has no frame marker, repeated normalized rows delimit occurrences;
-the report retains exact cycle spans instead of presenting that heuristic as
-frame identity.
+Because structured traces currently have no frame marker, repeated normalized
+rows delimit occurrences; the report retains exact cycle spans instead of
+presenting that heuristic as frame identity.
 
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` accepts
 one or more comma-separated inclusive `START-END` ranges and treats them as a

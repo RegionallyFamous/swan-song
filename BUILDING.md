@@ -121,6 +121,7 @@ Requirements:
 - Verilator 5.x
 - a C++17 compiler
 - Python 3
+- Tcl (`tclsh`, for the reproducible build-ID contract)
 
 Run the regression suite:
 
@@ -159,7 +160,7 @@ On macOS this command verifies the multi-architecture Verilator image and the
 amd64 GHDL image, but a simulator compiled inside the Linux container cannot run
 as a native macOS executable. The complete container-backed regression is
 therefore a Linux CI contract. GitHub's `ubuntu-24.04` host still supplies Bash,
-Make, Docker, and Python 3; their patch releases are platform-managed rather
+Make, Docker, Python 3, Tcl, and Git; their patch releases are platform-managed rather
 than independently image-pinned, while the regression's exact output hashes
 remain the behavioral drift gate. No successful remote run is claimed until
 this branch is pushed to a configured repository.
@@ -182,7 +183,7 @@ harness never searches for or downloads firmware.
 
 The VCD option captures the whole translated design. For a smaller,
 machine-readable stream, select one or more of the `cpu`, `bank`, `vram`, `mem`,
-and `bg_cell` event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
+`bg_cell`, and `sprite_row` event classes. `translate_vhdl.sh` sets the compile-time `SwanTop.is_simu`
 generic for this simulator build; the production default leaves it disabled.
 
 ```sh
@@ -202,7 +203,7 @@ activity remains available in a mixed trace:
   --rom /path/to/legally-obtained-title.wsc \
   --frames 10 \
   --event-trace build/sim/text-renderer.jsonl \
-  --trace-events cpu,bank,vram,mem,bg_cell \
+  --trace-events cpu,bank,vram,mem,bg_cell,sprite_row \
   --trace-pc 0x80000-0x8ffff,0xf0000-0xfffff \
   --trace-vram-role screen1_tile \
   --trace-vram-address 0x2000-0x5fff
@@ -228,7 +229,7 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 
 This unit test proves config parsing, filtering primitives, and serialization.
 `make regression` separately runs `verify_trace.py` against an end-to-end ROM
-capture to check all five CSV schema versions, event-specific fields, monotonic cycles,
+capture to check all six CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) minimal open bank-write,
 WSC GDMA/SDMA, dual-format 4bpp, paired mapper-memory, and mono/Color
@@ -243,6 +244,16 @@ instruction origins for probe-owned accesses across the paired trace-space
 coverage.
 The boot probes bind both input images and prove the overlay-to-cartridge
 transition at identical physical addresses.
+
+The simulator also accepts a strict `--input-script FILE` schedule keyed to
+36.864 MHz system cycles from reset release. The integrated regression uses an
+authored, build-generated keypad probe to prove that physical X2 crosses the
+real B5 matrix, that no marker is reachable without input, and that two runs
+produce identical trace/frame bytes. Scripted trace manifests bind raw and
+normalized schedule identities; `verify_input_script_manifest.py` rejects
+changed scripts, traces, or completion fields. The exact grammar and a private
+user-owned-title workflow are documented in `sim/verilator/TRACE.md` and
+`sim/verilator/input.example.input`.
 The 4bpp probes are repository-authored 80186 code and data with no assembler,
 SDK, carrier ROM, or checked-in binary. Their strict verifier binds the
 generated ROM hashes and footer checksums, complete v5 manifests, all 16 GDMA

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include "VSwanTop.h"
+#include "input_script.hpp"
 #include "trace_logger.hpp"
 
 namespace fs = std::filesystem;
@@ -25,6 +27,28 @@ static std::vector<uint8_t> read_file(const fs::path& path) {
   std::ifstream stream(path, std::ios::binary);
   if (!stream) throw std::runtime_error("cannot open " + path.string());
   return {std::istreambuf_iterator<char>(stream), {}};
+}
+
+static std::vector<uint8_t> read_file_limited(const fs::path& path,
+                                              size_t limit,
+                                              const char* description) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) throw std::runtime_error("cannot open " + path.string());
+  std::vector<uint8_t> result;
+  result.reserve(std::min<size_t>(limit, 64u * 1024u));
+  std::array<char, 16u * 1024u> buffer{};
+  while (stream) {
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const size_t count = static_cast<size_t>(stream.gcount());
+    if (count > limit - result.size()) {
+      throw std::runtime_error(
+          std::string(description) + " exceeds " + std::to_string(limit) +
+          "-byte limit: " + path.string());
+    }
+    result.insert(result.end(), buffer.begin(), buffer.begin() + count);
+  }
+  if (!stream.eof()) throw std::runtime_error("cannot read " + path.string());
+  return result;
 }
 
 static void write_rgb(const fs::path& path,
@@ -104,7 +128,9 @@ static std::string bytes_fnv1a64(const std::vector<uint8_t>& bytes) {
 static void write_trace_manifest(const swansong::trace::Config& config,
                                  uint64_t capture_cycles, unsigned frames,
                                  const std::vector<uint8_t>& rom,
-                                 const std::vector<uint8_t>& bios) {
+                                 const std::vector<uint8_t>& bios,
+                                 const swansong::input::Script* input_script,
+                                 size_t applied_input_events) {
   const fs::path path = trace_manifest_path(config.output);
   if (path.has_parent_path()) fs::create_directories(path.parent_path());
   std::ofstream output(path, std::ios::out | std::ios::trunc);
@@ -143,7 +169,24 @@ static void write_trace_manifest(const swansong::trace::Config& config,
          << "  \"bios_size\": " << bios.size() << ",\n"
          << "  \"bios_fnv1a64\": \"" << bytes_fnv1a64(bios) << "\",\n"
          << "  \"iram_initial_state\": \"zero\",\n"
-         << "  \"savestate_inputs_asserted\": false,\n"
+         << "  \"savestate_inputs_asserted\": false";
+  if (input_script) {
+    output << ",\n"
+           << "  \"input_script\": {\n"
+           << "    \"schema\": \"" << swansong::input::kSchema << "\",\n"
+           << "    \"source_size_bytes\": "
+           << input_script->source_size_bytes << ",\n"
+           << "    \"source_fnv1a64\": \""
+           << input_script->source_fnv1a64 << "\",\n"
+           << "    \"normalized_fnv1a64\": \""
+           << input_script->normalized_fnv1a64 << "\",\n"
+           << "    \"event_count\": " << input_script->events.size() << ",\n"
+           << "    \"applied_events\": " << applied_input_events << ",\n"
+           << "    \"completed\": true,\n"
+           << "    \"final_state\": \"released\"\n"
+           << "  }";
+  }
+  output << ",\n"
          << "  \"events\": {\n"
          << "    \"cpu\": " << (config.includes(swansong::trace::EventType::Cpu) ? "true" : "false") << ",\n"
          << "    \"bank\": " << (config.includes(swansong::trace::EventType::Bank) ? "true" : "false") << ",\n"
@@ -175,6 +218,7 @@ static void usage(const char* argv0) {
       << "  --frames N              stop after N complete frames (default: 1)\n"
       << "  --out DIR               raw/PNG frame directory\n"
       << "  --max-cycles N          timeout in 36.864 MHz system cycles\n"
+      << "  --input-script FILE     system-cycle controller state replay\n"
       << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
@@ -343,6 +387,7 @@ int main(int argc, char** argv) {
   fs::path bios_path;
   fs::path out_dir = "build/sim/frames";
   fs::path trace_path;
+  fs::path input_script_path;
   swansong::trace::Config event_trace_config;
   uint64_t max_cycles = 36'864'000;
   unsigned target_frames = 1;
@@ -357,6 +402,7 @@ int main(int argc, char** argv) {
     else if (arg == "--bios") bios_path = value("--bios");
     else if (arg == "--frames") target_frames = std::stoul(value("--frames"));
     else if (arg == "--out") out_dir = value("--out");
+    else if (arg == "--input-script") input_script_path = value("--input-script");
     else if (arg == "--trace") trace_path = value("--trace");
     else if (arg == "--event-trace") event_trace_config.output = value("--event-trace");
     else if (arg == "--trace-events") {
@@ -402,6 +448,26 @@ int main(int argc, char** argv) {
   }
   if (rom_path.empty()) { usage(argv[0]); return 2; }
 
+  // A manifest certifies one successful trace. Invalidate any older
+  // certificate before validating inputs that could abort this attempted run.
+  if (event_trace_config.enabled()) {
+    fs::remove(trace_manifest_path(event_trace_config.output));
+  }
+
+  std::optional<swansong::input::Script> input_script;
+  if (!input_script_path.empty()) {
+    const auto input_bytes = read_file_limited(
+        input_script_path, swansong::input::kMaxSourceSizeBytes,
+        "input script");
+    const std::string input_text(input_bytes.begin(), input_bytes.end());
+    input_script = swansong::input::parse_script(
+        input_text, input_script_path.string());
+    if (input_script->events.back().cycle >= max_cycles) {
+      std::cerr << "input script final release must occur before --max-cycles\n";
+      return 2;
+    }
+  }
+
   const auto rom = read_file(rom_path);
   if (rom.size() < 16 || rom.size() > (1u << 24)) {
     throw std::runtime_error("ROM size must be between 16 bytes and 16 MiB");
@@ -436,9 +502,6 @@ int main(int argc, char** argv) {
   }
   std::unique_ptr<swansong::trace::Logger> event_trace;
   if (event_trace_config.enabled()) {
-    // A manifest is a success certificate for one exact trace. Invalidate any
-    // older certificate before Logger truncates/replaces that trace.
-    fs::remove(trace_manifest_path(event_trace_config.output));
     event_trace = std::make_unique<swansong::trace::Logger>(event_trace_config);
   }
   std::unique_ptr<VerilatedVcdC> trace;
@@ -547,8 +610,13 @@ int main(int argc, char** argv) {
   std::array<uint16_t, 224 * 144> frame{};
   unsigned frames = 0;
   bool wrote_pixel = false;
+  std::optional<swansong::input::Replay> input_replay;
+  if (input_script) input_replay.emplace(*input_script);
   for (uint64_t cycle_count = 0; cycle_count < max_cycles && frames < target_frames;
        ++cycle_count) {
+    if (input_replay) {
+      swansong::input::apply(input_replay->state_for_cycle(cycle_count), *top);
+    }
     cycle();
     if (top->pixel_out_we && top->pixel_out_addr < frame.size()) {
       frame[top->pixel_out_addr] = top->pixel_out_data;
@@ -569,9 +637,16 @@ int main(int argc, char** argv) {
               << " system cycles; completed " << frames << " frame(s)\n";
     return 1;
   }
+  if (input_replay && !input_replay->completed()) {
+    std::cerr << "simulation reached its frame target before applying the "
+                 "complete input script\n";
+    return 1;
+  }
   if (event_trace) {
     event_trace.reset();
-    write_trace_manifest(event_trace_config, trace_cycle, frames, rom, bios);
+    write_trace_manifest(event_trace_config, trace_cycle, frames, rom, bios,
+                         input_script ? &*input_script : nullptr,
+                         input_replay ? input_replay->applied_events() : 0);
   }
   return 0;
 }
