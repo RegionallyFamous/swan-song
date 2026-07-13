@@ -311,15 +311,31 @@ def verify(
                 ):
                     raise ValueError(f"line {line}: CPU PC {physical_pc:#x} escaped requested filter")
             elif event == "bank":
-                empty(
-                    row,
-                    ("physical_pc", "cs", "ip", "role", *MEM_FIELDS, *FETCH_FIELDS, *BG_FIELDS),
-                    line,
-                )
+                bank_empty_fields = ["physical_pc", "cs", "ip", "role"]
+                if schema >= 5:
+                    bank_empty_fields.extend(MEM_FIELDS[:5])
+                else:
+                    bank_empty_fields.extend(MEM_FIELDS)
+                bank_empty_fields.extend(FETCH_FIELDS)
+                bank_empty_fields.extend(BG_FIELDS)
+                empty(row, tuple(bank_empty_fields), line)
                 address = number(row["address"], "address", line, 0xFF)
                 number(row["value"], "value", line, 0xFF)
                 if not 0xC0 <= address <= 0xC3:
                     raise ValueError(f"line {line}: bank address is outside 0xc0..0xc3: {address:#x}")
+                if schema >= 5:
+                    instruction_id = number(
+                        row["instruction_id"], "instruction_id", line, 0xFFFFFFFF
+                    )
+                    if instruction_id == 0:
+                        raise ValueError(
+                            f"line {line}: v5 bank instruction_id must be nonzero"
+                        )
+                    number(row["origin_pc"], "origin_pc", line, 0xFFFFF)
+                    if row["origin_status"] != "exact":
+                        raise ValueError(
+                            f"line {line}: v5 bank event requires exact origin_status"
+                        )
                 bank_addresses.add(address)
             elif event == "vram":
                 empty(

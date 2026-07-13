@@ -185,6 +185,9 @@ struct DebugTapAdapter<
                      decltype(std::declval<Top>().debug_reg_write),
                      decltype(std::declval<Top>().debug_reg_addr),
                      decltype(std::declval<Top>().debug_reg_data),
+                     decltype(std::declval<Top>().debug_reg_instruction_id),
+                     decltype(std::declval<Top>().debug_reg_origin_pc),
+                     decltype(std::declval<Top>().debug_reg_origin_status),
                      decltype(std::declval<Top>().debug_gpu_vram_valid),
                      decltype(std::declval<Top>().debug_gpu_vram_addr),
                      decltype(std::declval<Top>().debug_gpu_vram_role),
@@ -220,12 +223,13 @@ struct DebugTapAdapter<
     if (top.debug_cpu_done) {
       logger.cpu(cycle, top.debug_cpu_pc, top.debug_cpu_cs, top.debug_cpu_ip);
     }
-    const bool repeated_write = previous_reg_write_ &&
-                                previous_reg_addr_ == top.debug_reg_addr &&
-                                previous_reg_data_ == top.debug_reg_data;
-    if (top.debug_reg_write && !repeated_write && top.debug_reg_addr >= 0xc0 &&
+    if (top.debug_reg_write && top.debug_reg_addr >= 0xc0 &&
         top.debug_reg_addr <= 0xc3) {
-      logger.bank(cycle, top.debug_reg_addr, top.debug_reg_data);
+      logger.bank(
+          cycle, top.debug_reg_addr, top.debug_reg_data,
+          top.debug_reg_instruction_id, top.debug_reg_origin_pc,
+          swansong::trace::origin_status_from_code(
+              top.debug_reg_origin_status));
     }
     if (top.debug_gpu_vram_valid) {
       logger.vram(cycle, top.debug_gpu_vram_addr,
@@ -282,15 +286,7 @@ struct DebugTapAdapter<
           swansong::trace::mem_space_from_code(top.debug_mem_space),
           mapped_offset, instruction_id, origin_pc, origin_status);
     }
-    previous_reg_write_ = top.debug_reg_write;
-    previous_reg_addr_ = top.debug_reg_addr;
-    previous_reg_data_ = top.debug_reg_data;
   }
-
- private:
-  bool previous_reg_write_ = false;
-  uint8_t previous_reg_addr_ = 0;
-  uint8_t previous_reg_data_ = 0;
 };
 
 int main(int argc, char** argv) {

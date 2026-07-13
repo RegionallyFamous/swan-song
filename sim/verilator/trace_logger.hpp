@@ -794,10 +794,22 @@ class Logger {
                     std::nullopt, std::nullopt, std::nullopt});
   }
 
-  void bank(uint64_t cycle, uint8_t address, uint8_t value) {
+  void bank(uint64_t cycle, uint8_t address, uint8_t value,
+            uint32_t instruction_id, uint32_t origin_pc,
+            OriginStatus origin_status) {
+    if (address < 0xc0 || address > 0xc3 || instruction_id == 0 ||
+        origin_pc > 0x0f'ffff ||
+        origin_status != OriginStatus::Exact) {
+      throw std::runtime_error(
+          "bank trace event requires C0-C3 and a nonzero exact CPU origin");
+    }
     if (!config_.includes(EventType::Bank)) return;
-    writer_->write({cycle, EventType::Bank, std::nullopt, std::nullopt,
-                    std::nullopt, address, value, std::nullopt});
+    Event event{cycle, EventType::Bank, std::nullopt, std::nullopt,
+                std::nullopt, address, value, std::nullopt};
+    event.instruction_id = instruction_id;
+    event.origin_pc = origin_pc;
+    event.origin_status = origin_status;
+    writer_->write(event);
   }
 
   void vram(uint64_t cycle, uint16_t address, VramRole role, uint16_t value,

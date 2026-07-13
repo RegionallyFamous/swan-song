@@ -123,6 +123,52 @@ def main() -> None:
         )
         run(collision, "--reject-fetch-collisions", succeeds=False)
 
+        for schema, field_count in ((1, 7), (2, 8), (3, 16), (4, 18)):
+            legacy_bank = root / f"v{schema}-bank.csv"
+            with legacy_bank.open("w", newline="", encoding="utf-8") as output:
+                writer = csv.DictWriter(
+                    output, fieldnames=V5_FIELDS[:field_count], lineterminator="\n"
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {"cycle": 6, "event": "bank", "address": 0xC0, "value": 0x12}
+                )
+            run(legacy_bank, "--allowed", "bank", "--require", "bank")
+
+        bank: dict[str, object] = {
+            "cycle": 6,
+            "event": "bank",
+            "address": 0xC0,
+            "value": 0x12,
+            "instruction_id": 42,
+            "origin_pc": 0xF0010,
+            "origin_status": "exact",
+        }
+        v5_bank = root / "v5-bank.csv"
+        write_v5(v5_bank, [bank])
+        run(
+            v5_bank,
+            "--allowed",
+            "bank",
+            "--require",
+            "bank",
+            "--require-bank-addresses",
+            "0xc0",
+        )
+        invalid_bank_cases: dict[str, tuple[str, object]] = {
+            "instruction": ("instruction_id", ""),
+            "zero-instruction": ("instruction_id", 0),
+            "origin-pc": ("origin_pc", 0x100000),
+            "origin-status": ("origin_status", "not_applicable"),
+            "memory-field": ("initiator", "cpu"),
+        }
+        for name, (field, value) in invalid_bank_cases.items():
+            invalid_bank = root / f"v5-invalid-bank-{name}.csv"
+            row = dict(bank)
+            row[field] = value
+            write_v5(invalid_bank, [row])
+            run(invalid_bank, "--allowed", "bank", succeeds=False)
+
         bg1: dict[str, object] = {
             "cycle": 6,
             "event": "bg_cell",

@@ -14,11 +14,14 @@
   C++ unit test. The regression also validates CPU, display-RAM, and completed
   memory events from the
   translated model, including `CS:IP` conversion, inclusive PC/address filters,
-  exact CPU memory origins, resolved mapper offsets, completion-aligned display
-  words/collision status, and all six screen-map/tile and sprite-table/tile roles.
+  exact CPU memory origins, exact C0-C3 mapper-write instruction origins,
+  resolved mapper offsets, completion-aligned display words/collision status,
+  and all six screen-map/tile and sprite-table/tile roles.
   A byte-lane correlator independently reconstructs all 78,946 fetched words
   from complete IRAM history. The suite also generates build-only
-  ROMs that verify all C0-C3 bank writes and an exact GDMA ROM-to-IRAM chain.
+  ROMs that verify all C0-C3 bank writes with their owning instruction IDs/PCs,
+  including both accepted byte writes from one word `OUT`, and an exact GDMA
+  ROM-to-IRAM chain.
 - V5 atomic Screen 1/2 background-cell serialization, map/tile decode, 2bpp
   selected-word versus 4bpp two-word handling, collision semantics, and
   fetch-time writer snapshots pass focused C++/Python fixtures. The translated

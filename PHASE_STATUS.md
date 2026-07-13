@@ -22,7 +22,7 @@ timing closure, and optional device testing are performed.
 
 | Item | Status | Evidence needed or available |
 | --- | --- | --- |
-| ROM bank-switch writes | Verified with generated open probe | `make regression` executes C0-C3 writes with distinct values and requires all four serialized addresses; no probe binary is checked in |
+| ROM bank-switch writes | Verified with generated open probe | `make regression` executes distinct byte writes to C0-C3 plus a word write spanning C0-C1, and requires their exact accepted sequence, nonzero instruction IDs, and origin PCs (`0xf0003`, `0xf0007`, `0xf000b`, `0xf000f`, `0xf0014`); both bytes of the word write share one instruction identity; no probe binary is checked in |
 | VRAM/character fetch addresses | Raw and atomic runtime paths verified | open-ROM regression requires all six Screen 1/2 map/tile and sprite table/tile roles with aligned completion data and collision status; v5 additionally binds a promoted background map word to decoded tile attributes and its contributing row; the open WSC fixture proves map `0x5a20`, bank-1 tile `0x5fc0`, and 2bpp Color sprite table `0x5600`; title-specific glyph provenance remains open |
 | CPU PC ranges | Verified with running ROMs | regression checks `CS:IP` against wrapped physical PC and disjoint range-union containment; Wonderful execution terminates at the expected `0xff68b` loop |
 | Memory provenance | Linear ROM/IRAM verified with generated open WSC probe; other mappings RTL-reviewed | completed CPU/GDMA/SDMA transaction schema includes value, raw byte enable, distinct mapped space, exact resolved byte offset, and honest CPU origin status; regression proves two ordered GDMA ROM-read/IRAM-write value pairs |

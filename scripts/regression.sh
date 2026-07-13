@@ -82,6 +82,7 @@ require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
 # Generate a build-only probe that writes each cartridge bank register. The
 # open sprite-priority ROM supplies only its reset vector/header footer; see
 # generate_bank_probe.py and UPSTREAMS.md for provenance.
+python3 "$ROOT/sim/verilator/verify_bank_probe_test.py"
 rm -rf "$BUILD/bank-probe"
 python3 "$ROOT/sim/verilator/generate_bank_probe.py" \
   "$ROOT/testroms/spritepriority/spritepriority.ws" \
@@ -95,6 +96,8 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bank-probe/events.csv" \
   --allowed bank --require bank \
   --require-bank-addresses 0xc0,0xc1,0xc2,0xc3
+python3 "$ROOT/sim/verilator/verify_bank_probe.py" \
+  "$BUILD/bank-probe/events.csv"
 
 # Reusing a trace path for a failed capture must not leave the preceding
 # success manifest beside a newly truncated trace.

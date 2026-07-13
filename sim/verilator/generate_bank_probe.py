@@ -16,12 +16,16 @@ from pathlib import Path
 ROM_SIZE = 64 * 1024
 FOOTER_SIZE = 16
 
-# 80186 machine code, entered at F000:0000 by the carrier reset vector:
+# 80186 machine code, entered at F000:0000 by the carrier reset vector. The
+# comments below record the exact reset-to-probe instruction-chain identity and
+# physical origin PC expected by the regression verifier for each mapper write.
 #   cli
-#   mov al, 0x10; out 0xc0, al
-#   mov al, 0x21; out 0xc1, al
-#   mov al, 0x32; out 0xc2, al
-#   mov al, 0x43; out 0xc3, al
+#   mov al, 0x10; out 0xc0, al  # instruction 7,  PC 0xf0003
+#   mov al, 0x21; out 0xc1, al  # instruction 9,  PC 0xf0007
+#   mov al, 0x32; out 0xc2, al  # instruction 11, PC 0xf000b
+#   mov al, 0x43; out 0xc3, al  # instruction 13, PC 0xf000f
+#   mov ax, 0x6655
+#   out 0xc0, ax                 # instruction 15, PC 0xf0014; C0 then C1
 # hang: jmp hang
 PROGRAM = bytes(
     (
@@ -42,6 +46,11 @@ PROGRAM = bytes(
         0x43,
         0xE6,
         0xC3,
+        0xB8,
+        0x55,
+        0x66,
+        0xE7,
+        0xC0,
         0xEB,
         0xFE,
     )

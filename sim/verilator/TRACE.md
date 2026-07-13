@@ -134,9 +134,9 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `byte_enable` | raw two-bit logical bus lane mask, 0-3; zero is valid for prefetch reads |
 | `space` | `iram`, `cart_sram`, `cart_rom0`, `cart_rom1`, `cart_rom_linear`, `boot_rom`, `unmapped`, or `absent_sram` |
 | `mapped_offset` | exact resolved byte offset within the backing space, including address bit 0; cartridge offsets include the active mask; null for unmapped/absent SRAM |
-| `instruction_id` | monotonic CPU instruction-chain identity when `origin_status=exact` |
-| `origin_pc` | first byte of the owning instruction, including its first prefix, when exact |
-| `origin_status` | `exact`, `unattributed` for CPU prefetch/IRQ traffic, or `not_applicable` for DMA |
+| `instruction_id` | monotonic CPU instruction-chain identity for exact CPU-owned `mem` and `bank` events; required to be nonzero on v5 `bank` |
+| `origin_pc` | first byte of the owning instruction, including its first prefix, for exact CPU-owned `mem` and `bank` events |
+| `origin_status` | always `exact` for `bank`; `exact`, `unattributed` for CPU prefetch/IRQ traffic, or `not_applicable` for DMA on `mem` |
 | `fetch_value` | completed 16-bit display-read word for `vram` |
 | `fetch_collision` | 1 when the CPU/DMA write port addressed the same IRAM word on the display-read edge; otherwise 0 |
 | `bg_layer` | 1 for Screen 1 or 2 for Screen 2 on `bg_cell` |
@@ -149,10 +149,19 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `tile_row_address`, `tile_row_bytes`, `tile_row_value` | exact contributing tile row: one 16-bit word for 2bpp or both words, low word first, for 4bpp |
 | `map_collision`, `tile_row_collision` | mixed-port uncertainty on the promoted map word or contributing row |
 
-`cpu` is sampled on the instruction-complete pulse. `bank` reports actual
-post-mux writes to cartridge bank registers C0-C3 and de-duplicates a write
-level that spans adjacent system clocks. `vram` reports completed active
-graphics IRAM reads. Address/role request metadata is delayed through the same
+`cpu` is sampled on the instruction-complete pulse. `bank` reports one event
+for each accepted CPU commit to cartridge bank registers C0-C3. Each v5 bank
+event carries the exact owning instruction ID and first-byte physical PC; the
+harness does not infer ownership. A held, identical address/data/instruction
+tuple collapses to one transaction. A changed byte tuple is committed even
+without an intervening low level, so a word `OUT` produces ordered low-port and
+high-port events with one shared instruction origin. Distinct identical
+commits separated by a deassertion also remain visible.
+This byte-granular contract follows the documented
+[C0-C3 RW8 mapper ports](https://ws.nesdev.org/wiki/Mapper) and pinned Mesen's
+[per-port 16-bit split](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L1536-L1575).
+`vram` reports completed active graphics IRAM reads. Address/role
+request metadata is delayed through the same
 synchronous-RAM pipeline as `fetch_value`; sound-RAM and completed/idle
 background slots are excluded. Repeated reads during the background fetch
 wait state remain visible because they are real physical bus reads, not unique
@@ -217,8 +226,10 @@ The seven-column schema is v1 and the role-aware eight-column schema is v2.
 missing role or provenance data fail explicitly. V3 appends the eight memory
 fields without changing the first eight columns. V4 appends `fetch_value` and
 `fetch_collision`. V5 appends the 18 atomic background-cell fields without
-changing the v4 prefix. JSONL contains the same v5 properties, although the
-standalone verifier currently validates CSV only.
+changing the v4 prefix and requires exact instruction origin fields on bank
+events. Legacy v1-v4 bank rows retain empty provenance fields and remain
+accepted. JSONL contains the same v5 properties, although the standalone
+verifier currently validates CSV only.
 
 Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame

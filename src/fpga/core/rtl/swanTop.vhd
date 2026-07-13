@@ -110,6 +110,9 @@ entity SwanTop is
       debug_reg_write            : out std_logic := '0';
       debug_reg_addr             : out std_logic_vector(7 downto 0) := (others => '0');
       debug_reg_data             : out std_logic_vector(7 downto 0) := (others => '0');
+      debug_reg_instruction_id   : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_reg_origin_pc        : out std_logic_vector(19 downto 0) := (others => '0');
+      debug_reg_origin_status    : out std_logic_vector(1 downto 0) := (others => '0');
       debug_gpu_vram_addr        : out std_logic_vector(15 downto 0) := (others => '0');
       debug_gpu_vram_valid       : out std_logic := '0';
       debug_gpu_vram_role        : out std_logic_vector(2 downto 0) := (others => '0');
@@ -182,6 +185,17 @@ architecture arch of SwanTop is
    signal CPU_RegBus_Adr         : std_logic_vector(BUS_busadr-1 downto 0);
    signal CPU_RegBus_wren        : std_logic;
    signal CPU_RegBus_rden        : std_logic;
+
+   signal reg_prev_valid         : std_logic := '0';
+   signal reg_prev_addr          : std_logic_vector(7 downto 0) := (others => '0');
+   signal reg_prev_data          : std_logic_vector(7 downto 0) := (others => '0');
+   signal reg_prev_instruction   : std_logic_vector(31 downto 0) := (others => '0');
+   signal reg_stage_valid        : std_logic := '0';
+   signal reg_stage_addr         : std_logic_vector(7 downto 0) := (others => '0');
+   signal reg_stage_data         : std_logic_vector(7 downto 0) := (others => '0');
+   signal reg_stage_instruction  : std_logic_vector(31 downto 0) := (others => '0');
+   signal reg_stage_origin_pc    : std_logic_vector(19 downto 0) := (others => '0');
+   signal reg_stage_origin       : std_logic_vector(1 downto 0) := (others => '0');
    
    type t_reg_wired_or is array(0 to 7) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
@@ -538,11 +552,40 @@ begin
    begin
       if rising_edge(clk) then
          if (reset = '1' or is_simu /= '1') then
+            reg_prev_valid <= '0';
+            reg_stage_valid <= '0';
             mem_stage1_valid <= '0';
             mem_stage2_valid <= '0';
             vram_stage1_valid <= '0';
             vram_stage2_valid <= '0';
          else
+            -- eReg accepts CPU register writes on this edge. CPU_RegBus_wren
+            -- may remain asserted across CPU clock enables, and word OUT
+            -- changes the address/data tuple without a low cycle between its
+            -- two byte writes. Emit once per distinct accepted tuple while
+            -- excluding the savestate bus override and register reset.
+            reg_stage_valid <= '0';
+            if (CPU_RegBus_wren = '1' and sleep_savestate = '0' and RegBus_rst = '0') then
+               if (reg_prev_valid = '0' or
+                   CPU_RegBus_Adr /= reg_prev_addr or
+                   CPU_RegBus_Din /= reg_prev_data or
+                   cpu_debug_instruction_id /= reg_prev_instruction) then
+                  reg_stage_valid       <= '1';
+                  reg_stage_addr        <= CPU_RegBus_Adr;
+                  reg_stage_data        <= CPU_RegBus_Din;
+                  reg_stage_instruction <= cpu_debug_instruction_id;
+                  reg_stage_origin_pc   <= cpu_debug_instruction_pc;
+                  reg_stage_origin      <= "01"; -- exact
+               end if;
+
+               reg_prev_valid       <= '1';
+               reg_prev_addr        <= CPU_RegBus_Adr;
+               reg_prev_data        <= CPU_RegBus_Din;
+               reg_prev_instruction <= cpu_debug_instruction_id;
+            else
+               reg_prev_valid <= '0';
+            end if;
+
             mem_stage1_valid <= bus_read or bus_write;
             mem_stage2_valid <= mem_stage1_valid;
             vram_stage1_valid <= GPU_vram_fetch_valid;
@@ -1097,9 +1140,12 @@ begin
       -- The V30MZ has a 20-bit physical bus, so carry beyond bit 19 wraps.
       debug_cpu_pc         <= std_logic_vector((resize(cpu_export.reg_cs, 20) sll 4) +
                                                 resize(cpu_export.reg_ip, 20));
-      debug_reg_write      <= RegBus_wren;
-      debug_reg_addr       <= RegBus_Adr;
-      debug_reg_data       <= RegBus_Din;
+      debug_reg_write          <= reg_stage_valid;
+      debug_reg_addr           <= reg_stage_addr;
+      debug_reg_data           <= reg_stage_data;
+      debug_reg_instruction_id <= reg_stage_instruction;
+      debug_reg_origin_pc      <= reg_stage_origin_pc;
+      debug_reg_origin_status  <= reg_stage_origin;
       debug_gpu_vram_addr  <= vram_stage2_address;
       debug_gpu_vram_valid <= vram_stage2_valid;
       debug_gpu_vram_role  <= vram_stage2_role;
@@ -1137,9 +1183,12 @@ begin
       debug_cpu_cs         <= (others => '0');
       debug_cpu_ip         <= (others => '0');
       debug_cpu_pc         <= (others => '0');
-      debug_reg_write      <= '0';
-      debug_reg_addr       <= (others => '0');
-      debug_reg_data       <= (others => '0');
+      debug_reg_write          <= '0';
+      debug_reg_addr           <= (others => '0');
+      debug_reg_data           <= (others => '0');
+      debug_reg_instruction_id <= (others => '0');
+      debug_reg_origin_pc      <= (others => '0');
+      debug_reg_origin_status  <= (others => '0');
       debug_gpu_vram_addr  <= (others => '0');
       debug_gpu_vram_valid <= '0';
       debug_gpu_vram_role  <= (others => '0');

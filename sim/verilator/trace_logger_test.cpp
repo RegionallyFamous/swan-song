@@ -179,8 +179,12 @@ int main() {
   Writer csv_writer(csv, Format::Csv);
   csv_writer.write({7, EventType::Cpu, 0xabcde, 0xabcd, 0x012e,
                     std::nullopt, std::nullopt, std::nullopt});
-  csv_writer.write({8, EventType::Bank, std::nullopt, std::nullopt,
-                    std::nullopt, 0xc2, 0x34, std::nullopt});
+  Event csv_bank{8, EventType::Bank, std::nullopt, std::nullopt,
+                 std::nullopt, 0xc2, 0x34, std::nullopt};
+  csv_bank.instruction_id = 42;
+  csv_bank.origin_pc = 0xabcde;
+  csv_bank.origin_status = OriginStatus::Exact;
+  csv_writer.write(csv_bank);
   Event csv_vram{9, EventType::Vram, std::nullopt, std::nullopt,
                  std::nullopt, 0x4321, std::nullopt,
                  VramRole::Screen2Tile};
@@ -196,8 +200,8 @@ int main() {
   assert(csv.str() == std::string(kV5Header) +
                           "7,cpu,703710,43981,302,,,,,,,,,,,,," +
                           empty_bg_fields + "\n" +
-                          "8,bank,,,,194,52,,,,,,,,,,," + empty_bg_fields +
-                          "\n" +
+                          "8,bank,,,,194,52,,,,,,,42,703710,exact,," +
+                          empty_bg_fields + "\n" +
                           "9,vram,,,,17185,,screen2_tile,,,,,,,,,48879,0" +
                           empty_bg_fields + "\n" +
                           "10,mem,,,,16384,4660,,gdma,write,3,iram,16384,,,"
@@ -233,6 +237,18 @@ int main() {
          "\"role\":null,\"initiator\":\"cpu\",\"access\":\"write\","
          "\"byte_enable\":3,\"space\":\"iram\",\"mapped_offset\":16384,"
          "\"instruction_id\":7,\"origin_pc\":983056,"
+         "\"origin_status\":\"exact\",\"fetch_value\":null,"
+         "\"fetch_collision\":null" + std::string(kBgJsonNulls) + "}\n");
+
+  std::ostringstream bank_jsonl;
+  Writer bank_jsonl_writer(bank_jsonl, Format::Jsonl);
+  bank_jsonl_writer.write(csv_bank);
+  assert(bank_jsonl.str() ==
+         "{\"cycle\":8,\"event\":\"bank\",\"physical_pc\":null,"
+         "\"cs\":null,\"ip\":null,\"address\":194,\"value\":52,"
+         "\"role\":null,\"initiator\":null,\"access\":null,"
+         "\"byte_enable\":null,\"space\":null,\"mapped_offset\":null,"
+         "\"instruction_id\":42,\"origin_pc\":703710,"
          "\"origin_status\":\"exact\",\"fetch_value\":null,"
          "\"fetch_collision\":null" + std::string(kBgJsonNulls) + "}\n");
 
@@ -299,6 +315,31 @@ int main() {
                         "20,bg_cell,,,,,,,,,,,,,,,,,2,6210,60757,1,1,1,853,6,"
                         "1,1,4,1,3,43692,4,2309737967,1,0\n");
   std::filesystem::remove(bg_path);
+
+  const std::filesystem::path bank_path =
+      std::filesystem::temp_directory_path() / "swansong-bank-origin-test.csv";
+  Config bank_config;
+  bank_config.output = bank_path;
+  bank_config.events = static_cast<uint8_t>(EventType::Bank);
+  {
+    swansong::trace::Logger logger(bank_config);
+    expect_failure([&logger] {
+      logger.bank(11, 0xc0, 0xaa, 98, 0xf0000,
+                  OriginStatus::NotApplicable);
+    });
+    expect_failure([&logger] {
+      logger.bank(11, 0xc0, 0xaa, 0, 0xf0000, OriginStatus::Exact);
+    });
+    logger.bank(12, 0xc0, 0xaa, 99, 0xf0000, OriginStatus::Exact);
+  }
+  std::ifstream bank_input(bank_path);
+  const std::string bank_text((std::istreambuf_iterator<char>(bank_input)),
+                              std::istreambuf_iterator<char>());
+  assert(bank_text.find(
+             "12,bank,,,,192,170,,,,,,,99,983040,exact,,") !=
+         std::string::npos);
+  assert(bank_text.find("11,bank") == std::string::npos);
+  std::filesystem::remove(bank_path);
 
   const std::filesystem::path filtered_path =
       std::filesystem::temp_directory_path() / "swansong-trace-filter-test.csv";
