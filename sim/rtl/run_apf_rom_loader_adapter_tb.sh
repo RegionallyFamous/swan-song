@@ -16,6 +16,7 @@ if ! verilator \
     --top-module apf_rom_loader_adapter_tb \
     --Mdir "$BUILD/obj_dir" \
     -o apf_rom_loader_adapter_tb \
+    "$ROOT/src/fpga/core/apf_sdram_channel1_mux.sv" \
     "$ROOT/src/fpga/core/apf_rom_loader_adapter.sv" \
     "$ROOT/sim/rtl/apf_rom_loader_adapter_tb.sv" \
     >"$BUILD/verilator.log" 2>&1; then

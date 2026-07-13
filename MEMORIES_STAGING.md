@@ -1,9 +1,12 @@
 # Pocket Memories staging architecture
 
-Status: **isolated control plane implemented and adversarially tested; no
-production integration, fit, or hardware support is claimed.** `savestate_supported`
-and `sleep_supported` remain false. `apf_savestate_staging.sv` is intentionally
-absent from `ap_core.qsf` until its SDRAM and clock-domain adapters exist.
+Status: **isolated control plane plus a disabled production ownership boundary
+are implemented and adversarially tested; no working Memories path, fit, or
+hardware support is claimed.** `savestate_supported` and `sleep_supported`
+remain false. `apf_savestate_staging.sv` is intentionally absent from
+`ap_core.qsf` until its SDRAM and clock-domain adapters exist. The smaller
+`apf_sdram_channel1_mux.sv` is compiled in the live cartridge-ROM path, but its
+staging request/acquire inputs are tied low.
 
 ## Why a complete staging image is mandatory
 
@@ -70,21 +73,50 @@ controller exposes a 25-bit word address. The current byte ranges are:
 | --- | --- |
 | `0x0000000..0x0ffffff` | Cartridge ROM, maximum implemented 16 MiB |
 | `0x1000000..0x107ffff` | Maximum 512 KiB cartridge SRAM |
-| `0x1100000..0x119031f` | Proposed exact Memories staging reservation |
+| `0x1100000..0x11902ff` | Proposed maximum payload staging reservation; the 32-byte envelope is synthesized |
 
 The proposed staging base leaves a 512 KiB guard gap after maximum cartridge
-SRAM and consumes only one protected `0x90320`-byte region. It must be encoded
-once as a shared address-map constant and compile-time checked against every
-ROM/save/staging maximum; the literal is not yet present in production RTL.
+SRAM and consumes one protected `0x90300`-byte payload region. It must be
+encoded once as a shared address-map constant and compile-time checked against
+every ROM/save/staging maximum; the literal is not yet present in production
+RTL.
+
+## Channel-1 ownership boundary
+
+The existing ROM loader is the sole channel-1 client during startup and is
+idle during gameplay, so borrowing that channel is safer than changing the
+fixed-priority controller or adding a live fourth client. The compiled mux
+latches every accepted request until its completion, gives a held ROM request
+priority over acquisition, changes owner only after the prior request drains,
+routes ready/data by the latched owner, preserves a ROM word held across stage
+release, and makes illegal staging access a sticky fail-closed error. Its
+focused bench covers all of those cases, including the full 25-bit staging
+word address.
+
+This is still only a disabled boundary. Channel 1 has priority over the
+console's channel-3 cartridge/SRAM path, whose completion is not currently fed
+back to `SwanTop`. Allowing staging traffic now could delay a state-engine SRAM
+read past its inherited fixed wait and return stale data. The staging side
+therefore stays physically tied off until capture/restore is serialized and
+channel-3 completion plus global SDRAM quiescence are explicit.
+
+The closest current community precedent found is mincer-ray's
+[openFPGA-GBA v0.6.2 controller](https://github.com/mincer-ray/openfpga-GBA/blob/b08568fa60ff6f5f918cca5763f5b1923ed2d3db/src/fpga/core/save_state_controller.sv)
+and [channel-1 top-level mux](https://github.com/mincer-ray/openfpga-GBA/blob/b08568fa60ff6f5f918cca5763f5b1923ed2d3db/src/fpga/core/core_top.sv#L723-L789).
+That implementation validates channel 1 as a practical staging route, but its
+small FIFOs, early A0 completion, unobserved inbound-full condition, OR-based
+write selection, and lack of a drain acknowledgement are not copied here.
 
 ## Required production integration
 
 The isolated module is a control-plane contract, not a storage implementation.
 Integration requires all of the following:
 
-1. Add a fourth, low-priority client to `sdram.sv`, with explicit byte-lane
-   behavior, request completion, refresh fairness, and no alias with channels
-   1–3. A4 staging must coexist with a running machine; A0/restore may pause it.
+1. Add a cooperative console pause boundary and explicit SDRAM quiescence.
+   A0 must first let the inherited state engine reach `system_idle`; asserting
+   external pause before that point can strand a mid-instruction CPU forever.
+   Export real channel-3 completion and controller-idle state instead of using
+   the current refresh-counter/fixed-delay heuristic.
 2. Add lossless `clk_74a` ↔ `clk_mem_110_592` request/response crossings.
    Analogue's checked-in bridge peripheral says consecutive bridge words are
    at worst 88 clocks apart at 74.25 MHz, but the integration must still prove
@@ -93,10 +125,14 @@ Integration requires all of the following:
    Pocket, so a bare ready/valid connection is not sufficient.
 3. Adapt the MiSTer manager's 64-bit, byte-enabled stream to exact 32-bit
    staging words without changing its payload ordering or silently discarding
-   byte enables. Resolve and lock bridge/SDRAM/state-engine endianness.
-4. Give A0 bridge reads a read-ahead cache matching APF's buffered-read timing;
+   byte enables. Serialize each state-engine word completely through channel 1
+   before acknowledging it, so staging can never overlap the following
+   channel-3 SRAM access. Deterministically zero-pad smaller RAM-type captures
+   to the advertised maximum `0x90300` payload and lock endianness.
+4. Give A0 bridge reads a bounded cache matching APF's buffered-read timing;
    synthesize the 32-byte header and fetch payload words from SDRAM only after
-   `save_ready`.
+   `save_ready`. Read-ahead must stop before it can overlap a live channel-3
+   state-engine operation.
 5. Route A4 through the staged restore gate. No current `fifo_load_empty`
    shortcut may remain, and Reset Enter, title reload, menu interruption, PLL
    loss, or a new transaction must cancel safely without a delayed restore.

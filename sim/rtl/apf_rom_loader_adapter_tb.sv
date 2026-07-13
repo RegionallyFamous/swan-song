@@ -16,9 +16,14 @@ module apf_rom_loader_adapter_tb;
   reg [24:0] raw_write_addr = 25'd0;
   reg [15:0] raw_write_data = 16'd0;
   wire raw_write_complete;
+  wire adapter_sdram_req;
+  wire adapter_sdram_rnw;
+  wire [24:0] adapter_sdram_byte_addr;
+  wire [15:0] adapter_sdram_write_data;
+  wire adapter_sdram_ready;
   wire sdram_req;
   wire sdram_rnw;
-  wire [24:0] sdram_byte_addr;
+  wire [24:0] sdram_word_addr;
   wire [15:0] sdram_write_data;
   reg sdram_ready = 1'b0;
   wire plan_non_power_of_two;
@@ -45,16 +50,45 @@ module apf_rom_loader_adapter_tb;
       .raw_write_addr(raw_write_addr),
       .raw_write_data(raw_write_data),
       .raw_write_complete(raw_write_complete),
-      .sdram_req(sdram_req),
-      .sdram_rnw(sdram_rnw),
-      .sdram_byte_addr(sdram_byte_addr),
-      .sdram_write_data(sdram_write_data),
-      .sdram_ready(sdram_ready),
+      .sdram_req(adapter_sdram_req),
+      .sdram_rnw(adapter_sdram_rnw),
+      .sdram_byte_addr(adapter_sdram_byte_addr),
+      .sdram_write_data(adapter_sdram_write_data),
+      .sdram_ready(adapter_sdram_ready),
       .plan_non_power_of_two(plan_non_power_of_two),
       .mapped_mask(mapped_mask),
       .prepare_busy(prepare_busy),
       .image_ready(image_ready),
       .validation_failed(validation_failed)
+  );
+
+  // Exercise the production path, not just the adapter in isolation.  The
+  // future staging owner remains tied off exactly as it is in wonderswan.sv.
+  apf_sdram_channel1_mux channel1_owner (
+      .clk(clk),
+      .reset_n(reset_n),
+      .stage_acquire(1'b0),
+      .runtime_quiesced(1'b0),
+      .stage_granted(),
+      .protocol_error(),
+      .rom_req(adapter_sdram_req),
+      .rom_rnw(adapter_sdram_rnw),
+      .rom_addr({1'b0, adapter_sdram_byte_addr[24:1]}),
+      .rom_write_data(adapter_sdram_write_data),
+      .rom_ready(adapter_sdram_ready),
+      .rom_read_data(),
+      .stage_req(1'b0),
+      .stage_rnw(1'b1),
+      .stage_addr(25'd0),
+      .stage_write_data(16'd0),
+      .stage_ready(),
+      .stage_read_data(),
+      .sdram_req(sdram_req),
+      .sdram_rnw(sdram_rnw),
+      .sdram_addr(sdram_word_addr),
+      .sdram_write_data(sdram_write_data),
+      .sdram_ready(sdram_ready),
+      .sdram_read_data(16'd0)
   );
 
   task automatic fail(input string message);
@@ -98,10 +132,10 @@ module apf_rom_loader_adapter_tb;
     if (sdram_req && !previous_sdram_req) begin
       if (sdram_rnw) begin
         fail("ROM loader issued an unexpected SDRAM read");
-      end else if (sdram_byte_addr >= APERTURE_SIZE) begin
-        fail($sformatf("SDRAM address escaped aperture: %0h", sdram_byte_addr));
+      end else if (sdram_word_addr >= APERTURE_SIZE / 2) begin
+        fail($sformatf("SDRAM address escaped aperture: %0h", sdram_word_addr));
       end else begin
-        memory[sdram_byte_addr >> 1] <= sdram_write_data;
+        memory[sdram_word_addr] <= sdram_write_data;
         sdram_ready <= 1'b1;
       end
     end

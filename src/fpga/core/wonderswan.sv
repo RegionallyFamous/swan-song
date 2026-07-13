@@ -249,6 +249,18 @@ module wonderswan (
   wire [15:0] rom_sdram_write_data;
   wire rom_sdram_ready;
 
+  // Channel 1 is the only SDRAM path that is idle after cartridge setup.  Its
+  // ownership boundary is live in the ROM path now, while the staging side is
+  // deliberately tied off until the cross-domain pause/drain and serialized
+  // state-engine adapters are complete.  This proves ROM pass-through without
+  // making APF Memories capable of touching SDRAM prematurely.
+  wire ch1_sdram_req;
+  wire ch1_sdram_rnw;
+  wire [24:0] ch1_sdram_word_addr;
+  wire [15:0] ch1_sdram_write_data;
+  wire ch1_sdram_ready;
+  wire [15:0] ch1_sdram_read_data;
+
   apf_rom_loader_adapter rom_loader_adapter (
       .clk(clk_mem_110_592),
       .reset_n(pll_core_locked),
@@ -273,18 +285,45 @@ module wonderswan (
       .validation_failed(rom_validation_failed_mem)
   );
 
+  apf_sdram_channel1_mux channel1_owner (
+      .clk(clk_mem_110_592),
+      .reset_n(pll_core_locked),
+      .stage_acquire(1'b0),
+      .runtime_quiesced(1'b0),
+      .stage_granted(),
+      .protocol_error(),
+      .rom_req(rom_sdram_req),
+      .rom_rnw(rom_sdram_rnw),
+      .rom_addr({1'b0, rom_sdram_byte_addr[24:1]}),
+      .rom_write_data(rom_sdram_write_data),
+      .rom_ready(rom_sdram_ready),
+      .rom_read_data(),
+      .stage_req(1'b0),
+      .stage_rnw(1'b1),
+      .stage_addr(25'd0),
+      .stage_write_data(16'd0),
+      .stage_ready(),
+      .stage_read_data(),
+      .sdram_req(ch1_sdram_req),
+      .sdram_rnw(ch1_sdram_rnw),
+      .sdram_addr(ch1_sdram_word_addr),
+      .sdram_write_data(ch1_sdram_write_data),
+      .sdram_ready(ch1_sdram_ready),
+      .sdram_read_data(ch1_sdram_read_data)
+  );
+
   sdram sdram (
       .init(~pll_core_locked),
       .clk (clk_mem_110_592),
 
       .doRefresh(EXTRAM_doRefresh),
 
-      .ch1_addr (rom_sdram_byte_addr[24:1]),
-      .ch1_din  (rom_sdram_write_data),
-      .ch1_req  (rom_sdram_req),
-      .ch1_rnw  (rom_sdram_rnw),
-      .ch1_ready(rom_sdram_ready),
-      // .ch1_dout (),
+      .ch1_addr ({1'b0, ch1_sdram_word_addr}),
+      .ch1_din  (ch1_sdram_write_data),
+      .ch1_dout (ch1_sdram_read_data),
+      .ch1_req  (ch1_sdram_req),
+      .ch1_rnw  (ch1_sdram_rnw),
+      .ch1_ready(ch1_sdram_ready),
 
       .ch2_addr(clearing_sram ? {4'b1000, clear_save_word_addr} : {4'b1000, sd_buff_addr[20:1]}),
       .ch2_din(clearing_sram ? 16'b0 : sd_buff_dout),

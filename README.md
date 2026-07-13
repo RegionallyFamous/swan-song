@@ -250,9 +250,12 @@ Memories and Sleep + Wake are disabled in this development tree. The APF
 command handler now rejects unsupported requests in hardware, and a tested
 magic/version/length envelope defines the future blob. An isolated control
 plane now proves that no live restore can begin until every payload byte is
-validated and accepted by a full-size backend, but its required SDRAM/CDC
-storage path is deliberately not connected. The complete state controller and
-physical Pocket lifecycle have not passed the release gate; see
+validated and accepted by a full-size backend. A new fail-closed channel-1
+ownership mux is compiled in the live ROM path and tested for request draining,
+exclusive response routing, held-ROM preservation, and illegal stage access,
+but its staging side remains tied off until cooperative pause, real SDRAM
+quiescence, and lossless CDC exist. The complete state controller and physical
+Pocket lifecycle have not passed the release gate; see
 [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md) and
 [`MEMORIES_STAGING.md`](MEMORIES_STAGING.md).
 

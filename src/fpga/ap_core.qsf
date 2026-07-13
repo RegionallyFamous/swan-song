@@ -793,6 +793,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/apf_temporal_blend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_video_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_dataslot_guard.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rom_plan_cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_sdram_channel1_mux.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_save_metadata_cdc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_startup_sequencer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/wonderswan.sv
