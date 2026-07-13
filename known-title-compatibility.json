@@ -1,0 +1,812 @@
+{
+  "known_title_compatibility": {
+    "magic": "SWAN_SONG_KNOWN_TITLE_COMPATIBILITY_V1",
+    "catalogue_revision": 1,
+    "research_date": "2026-07-13",
+    "required_firmware_version": "2.6.0",
+    "run": {
+      "run_id": null,
+      "created_at": null,
+      "operator": null,
+      "core_commit": null,
+      "raw_rbf_sha256": null,
+      "firmware_version": null,
+      "pocket_hardware_revision": null,
+      "dock_hardware_revision": null
+    },
+    "cases": [
+      {
+        "id": "cho-denki-crash",
+        "class": "commercial",
+        "title": "Chou Denki Card Battle: Youfu Makai (Rev 3)",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/3",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/3#issuecomment-862657045",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/3#issuecomment-1086843589"
+        ],
+        "issue_signature": "A fresh run reaches gameplay but crashes after two Left presses; the reporter found that using the in-game Initialization menu first avoided the crash, suggesting a power-on or uninitialized-memory dependency.",
+        "scenarios": [
+          {
+            "id": "fresh-uninitialized",
+            "preconditions": [
+              "Remove or archive this title's existing save and evidence files; do not select the in-game Initialization option.",
+              "Cold-launch the core and record the exact owner-computed ROM SHA-256 and every input in operator_steps."
+            ],
+            "steps": [
+              "Select Scenario, then Part 1 Crimson Lotus, then From beginning.",
+              "Advance through the text to gameplay and press B to enter the playable scene.",
+              "Press Left exactly twice while recording uninterrupted video through the next ten seconds."
+            ],
+            "expected": "Gameplay remains live after both Left presses, with no crash, lockup, corrupt first table line, or core reset."
+          },
+          {
+            "id": "initialized-differential",
+            "preconditions": [
+              "Return to the same clean title state used for fresh-uninitialized.",
+              "Preserve the first run's capture so the paths can be compared."
+            ],
+            "steps": [
+              "Select the in-game Initialization menu entry and confirm it using the exact sequence recorded in operator_steps.",
+              "Repeat Scenario, Part 1, From beginning, text advance, B, and exactly two Left presses.",
+              "Record uninterrupted video through the next ten seconds and record whether the two paths differ."
+            ],
+            "expected": "The initialized and uninitialized paths both remain live; Initialization must not be required to avoid a crash."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the same two scenarios on an original WonderSwan with the same cartridge revision; an upstream failure image or emulator run is not a correct-behavior reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "meta-communication-name-select",
+        "class": "commercial",
+        "title": "Meta Communication (upstream shorthand: Meta comm)",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4"
+        ],
+        "issue_signature": "The current MiSTer issue list reports flicker in name select and supplies no exact navigation sequence or correct-hardware capture.",
+        "scenarios": [
+          {
+            "id": "name-select",
+            "preconditions": [
+              "Cold-launch the owner-supplied title and record the complete navigation from boot to name select in operator_steps.",
+              "Match the original-hardware reference's cartridge revision, selected options, and name-select state."
+            ],
+            "steps": [
+              "Enter name select using the recorded input sequence.",
+              "Leave the selector idle for ten seconds, then move across every available name-select position once at a steady one-input-per-second rate.",
+              "Record uninterrupted video from five seconds before entry until five seconds after the final position."
+            ],
+            "expected": "The name-select layer remains stable and matches the same-revision original-hardware capture, with no core-only flicker."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the identical name-select sequence on original hardware with the same cartridge revision because the issue report describes only the failure.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "star-hearts-trial-rain",
+        "class": "commercial",
+        "title": "Star Hearts: Hoshi to Daichi no Shisha Taikenban (Trial)",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4"
+        ],
+        "issue_signature": "The current MiSTer issue list reports flicker in the trial version's rain overlay and supplies no navigation sequence or correct-hardware capture.",
+        "scenarios": [
+          {
+            "id": "rain-overlay",
+            "preconditions": [
+              "Cold-launch the owner-supplied trial build and record the exact path to a rain-overlay scene in operator_steps.",
+              "Use the same scene, dialogue state, and cartridge revision as the original-hardware reference."
+            ],
+            "steps": [
+              "Navigate to the recorded rain-overlay scene without fast-forward.",
+              "Leave the scene unobstructed and unchanged for at least twenty seconds.",
+              "Record uninterrupted video including five seconds before the rain begins and the full twenty-second observation."
+            ],
+            "expected": "The rain overlay and background remain temporally stable and match original hardware, with no core-only flicker or dropped overlay frames."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the identical trial-version rain scene on original WonderSwan Color hardware; retail Star Hearts is not a substitute reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "final-lap-2000-track",
+        "class": "commercial",
+        "title": "Final Lap 2000",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/30"
+        ],
+        "issue_signature": "The timing list's shorthand Final Lap report identifies a flickering track; the explicitly titled Final Lap 2000 report identifies an incorrect England GP start line. This catalogue treats both as scenarios for the one source-identified WS title rather than binding one hash to two assumed titles.",
+        "scenarios": [
+          {
+            "id": "track-flicker",
+            "preconditions": [
+              "Cold-launch owner-supplied Final Lap 2000 and record the exact race/options path in operator_steps.",
+              "Use the same course, vehicle, camera, and start state as the original-hardware reference."
+            ],
+            "steps": [
+              "Start the recorded race and drive through one complete lap without fast-forward.",
+              "Record uninterrupted video from the grid through lap completion."
+            ],
+            "expected": "Track layers remain stable and match original hardware throughout the lap, with no core-only flicker."
+          },
+          {
+            "id": "final-lap-2000-england-start",
+            "preconditions": [
+              "Cold-launch owner-supplied Final Lap 2000 and record the exact path to England GP in operator_steps.",
+              "Use the same course start state as the original-hardware reference and upstream issue image."
+            ],
+            "steps": [
+              "Enter England GP and remain on or cross the start line at normal speed.",
+              "Record uninterrupted video from five seconds before the start line until ten seconds after crossing it."
+            ],
+            "expected": "The England GP start line and track match the same-revision original-hardware capture without corrupt or misplaced graphics."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Provide original-hardware captures for both Final Lap 2000 scenarios using the same owner cartridge revision; the MiSTer issue image is only a failure reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "one-piece-grand-battle-video",
+        "class": "commercial",
+        "title": "One Piece: Grand Battle Swan Colosseum",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/2",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/2#issuecomment-877572178"
+        ],
+        "issue_signature": "The report identifies garbage during a special move, a one-line glitch while changing characters at character select, and unstable health bars while jumping, but does not name characters, moves, or exact inputs.",
+        "scenarios": [
+          {
+            "id": "character-select-transition",
+            "preconditions": [
+              "Record the exact path, roster positions, and transition inputs in operator_steps.",
+              "Match the original-hardware reference's mode and character-select state."
+            ],
+            "steps": [
+              "At character select, alternate between the recorded adjacent characters ten times at one transition per second.",
+              "Record uninterrupted video for all ten transitions."
+            ],
+            "expected": "Every transition matches original hardware without a core-only one-line pixel glitch."
+          },
+          {
+            "id": "jump-health-bars",
+            "preconditions": [
+              "Record selected fighters, stage, and exact jump input in operator_steps."
+            ],
+            "steps": [
+              "Begin the recorded match with unchanged health.",
+              "Perform ten isolated jumps while neither fighter attacks and record the complete sequence."
+            ],
+            "expected": "Both health bars remain as stable as the original-hardware reference while jumping."
+          },
+          {
+            "id": "special-move",
+            "preconditions": [
+              "Record fighter, opponent, stage, meter setup, and the exact special-move input in operator_steps."
+            ],
+            "steps": [
+              "Trigger the same special move three times under the recorded conditions.",
+              "Record uninterrupted video beginning before input and ending after the third move completes."
+            ],
+            "expected": "All three moves match original hardware without garbage, corrupt layers, or unstable status graphics."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture all three scenarios on original hardware with the same title revision; the upstream report supplies failure descriptions only.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 3},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "makaimura-map-scroll",
+        "class": "commercial",
+        "title": "Makaimura",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/12",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/12#issuecomment-1101961578",
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/12#issuecomment-1104927908"
+        ],
+        "issue_signature": "The map's leftmost column flashes wrong data when scrolling begins after losing a life. A comment confirms the effect in MiSTer and Mednafen but asks whether original hardware also does it; no hardware answer is present.",
+        "scenarios": [
+          {
+            "id": "post-death-map-scroll",
+            "preconditions": [
+              "Record the exact path and actions used to trigger and lose a life in operator_steps.",
+              "Match the original-hardware reference's title revision, location, and map state."
+            ],
+            "steps": [
+              "Trigger gameplay and lose exactly one life using the recorded input sequence.",
+              "On the immediately following map screen, begin the same scroll as the reference.",
+              "Record loss, map entry, and the first five seconds of scrolling in high-frame-rate uninterrupted video."
+            ],
+            "expected": "The leftmost column matches the same-revision original-hardware capture frame by frame. Do not fail merely because MiSTer and Mednafen show a flash; the unresolved hardware reference decides correctness."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Original monochrome WonderSwan capture is mandatory because the upstream thread explicitly leaves real-hardware behavior unresolved.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "romancing-saga-text-box",
+        "class": "commercial",
+        "title": "Romancing SaGa (Japan)",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/15"
+        ],
+        "issue_signature": "The report shows sprites blinking at the lower left and lower right during text boxes but does not give the path to the pictured dialogue.",
+        "scenarios": [
+          {
+            "id": "dialogue-corner-sprites",
+            "preconditions": [
+              "Record the exact new-game/save path and dialogue inputs needed to reproduce the pictured text box in operator_steps.",
+              "Match the original-hardware reference's scene and dialogue page."
+            ],
+            "steps": [
+              "Open the recorded text box and remain on the matched page for ten seconds.",
+              "Advance through the next ten dialogue pages at one page per second.",
+              "Record uninterrupted video including the lower-left and lower-right corners."
+            ],
+            "expected": "Corner sprites and text-box layers match original hardware without core-only blinking."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the same dialogue pages on original WonderSwan Color hardware; issue screenshots document only the reported defect.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "digimon-battle-spirit-1.5-video",
+        "class": "commercial",
+        "title": "Digimon Battle Spirit 1.5",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/24"
+        ],
+        "issue_signature": "The report identifies a brief corrupt frame while Digimon sprites scale into the VS screen and a graphics glitch when Up and Down are pressed rapidly while a fight is paused.",
+        "scenarios": [
+          {
+            "id": "vs-sprite-scale",
+            "preconditions": [
+              "Record mode, fighters, stage, and exact navigation to the VS screen in operator_steps.",
+              "Match the original-hardware reference's VS pairing."
+            ],
+            "steps": [
+              "Enter the same VS screen five times from the same state.",
+              "Record every complete sprite scale-in at high frame rate without fast-forward."
+            ],
+            "expected": "Every scale-in matches original hardware with no missed or corrupt graphics frame."
+          },
+          {
+            "id": "paused-up-down",
+            "preconditions": [
+              "Record the same fight setup and pause input in operator_steps."
+            ],
+            "steps": [
+              "Pause during the recorded fight.",
+              "Alternate Up and Down exactly twenty times at five presses per second, then unpause.",
+              "Record five seconds before pausing through five seconds after unpausing."
+            ],
+            "expected": "Paused and resumed graphics match original hardware without corrupt tiles, sprites, or status layers."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture both sequences on original WonderSwan Color hardware with the same revision and pairing.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "super-robot-wars-compact-battle",
+        "class": "commercial",
+        "title": "Super Robot Wars Compact for WonderSwan Color",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/25",
+          "https://github.com/agg23/openfpga-wonderswan/issues/7"
+        ],
+        "issue_signature": "The mirrored MiSTer/Pocket report says black horizontal lines appear in battle; the only MiSTer follow-up asks for a core version and receives no answer.",
+        "scenarios": [
+          {
+            "id": "battle-horizontal-lines",
+            "preconditions": [
+              "Record the title revision, save/new-game route, battle, units, and exact commands in operator_steps.",
+              "Match the original-hardware reference's battle state."
+            ],
+            "steps": [
+              "Enter the recorded battle and execute the same attack/animation sequence three times.",
+              "Record uninterrupted video from the battle map through all three animation completions."
+            ],
+            "expected": "Battle maps and animations match original hardware without core-only black horizontal lines."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the same battle on original WonderSwan Color hardware; neither mirrored issue contains correct-output evidence.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "engacho-eeprom-persistence",
+        "class": "commercial",
+        "title": "Engacho!",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/agg23/openfpga-wonderswan/issues/3",
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1514058112",
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1535654039",
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1537277100"
+        ],
+        "issue_signature": "Pocket 1.0.0 generated a nonpersistent save for EEPROM titles. The reporter's 1.0.1 beta retest says both newly created Engacho progress and cartridge-dumped saves persisted and were recognized; this catalogue does not import either private save.",
+        "scenarios": [
+          {
+            "id": "new-progress-relaunch",
+            "preconditions": [
+              "Archive any prior title save, cold-launch the owner dump, and hash the empty/initial save if one is created.",
+              "Record exact puzzle inputs in operator_steps; do not import an upstream or third-party save."
+            ],
+            "steps": [
+              "Enter puzzle mode, solve puzzle 1, and quit to the title menu.",
+              "Enter puzzle mode again and confirm puzzle 2 is available.",
+              "Quit to Analogue OS, hash the generated save, relaunch the core and title, then enter puzzle mode.",
+              "Confirm puzzle 2 remains available, quit, and hash the final save."
+            ],
+            "expected": "Progress remains at puzzle 2 after the OS quit/relaunch and the save is nonempty, stable, and recognized."
+          },
+          {
+            "id": "title-switch-and-cold-boot",
+            "preconditions": [
+              "Begin from the persisted puzzle-2 state produced by new-progress-relaunch."
+            ],
+            "steps": [
+              "Load a different title, return to Engacho, and confirm puzzle 2 remains available.",
+              "Power the Pocket fully off, power it on, relaunch Engacho, and confirm puzzle 2 remains available.",
+              "Hash the save after each boundary and record all values in the run log."
+            ],
+            "expected": "Puzzle-2 progress survives title switch and cold power cycle without save mutation unrelated to an in-game write."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Run the same sequence on the owner cartridge and original hardware; the 1.0.1 issue confirmation is a regression expectation, not a substitute for this run's reference artifact.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["save"], "minimum": 3},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "another-heaven-eeprom-persistence",
+        "class": "commercial",
+        "title": "Another Heaven: Memory of Those Days",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1514058112",
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1535654039",
+          "https://github.com/agg23/openfpga-wonderswan/issues/3#issuecomment-1537277100"
+        ],
+        "issue_signature": "Pocket 1.0.0 lost Another Heaven's manual EEPROM save after leaving the core. The reporter's 1.0.1 beta retest says new saves persisted and the owner cartridge dump was recognized.",
+        "scenarios": [
+          {
+            "id": "manual-save-relaunch",
+            "preconditions": [
+              "Archive any prior title save, cold-launch the owner dump, and record all text-advance and save-menu inputs in operator_steps.",
+              "Do not import an upstream or third-party save."
+            ],
+            "steps": [
+              "Start a new game, advance through the recorded text pages, and use the manual save function.",
+              "Return to the title menu and confirm Continue appears.",
+              "Quit to Analogue OS, hash the save, relaunch the core and title, and confirm Continue still appears.",
+              "Load Continue, advance one further page, save again, quit, and hash the updated save."
+            ],
+            "expected": "Continue remains available after relaunch, the saved scene loads, and the second valid in-game save changes the artifact deterministically."
+          },
+          {
+            "id": "title-switch-and-cold-boot",
+            "preconditions": [
+              "Begin from the valid save produced by manual-save-relaunch."
+            ],
+            "steps": [
+              "Load a different title, return to Another Heaven, and confirm Continue remains available.",
+              "Power the Pocket fully off, power it on, relaunch Another Heaven, and confirm Continue remains available.",
+              "Hash the save at every boundary and record all values in the run log."
+            ],
+            "expected": "The manual save survives title switch and cold power cycle without disappearing or unrelated mutation."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Run the same sequence on the owner cartridge and original hardware; the closed 1.0.1 report defines a regression target but is not local reference evidence.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["save"], "minimum": 3},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "star-hearts-save-copy-protection",
+        "class": "commercial",
+        "title": "Star Hearts: Hoshi to Daichi no Shisha",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/agg23/openfpga-wonderswan/issues/2",
+          "https://github.com/agg23/openfpga-wonderswan/issues/2#issuecomment-1386283231",
+          "https://github.com/agg23/openfpga-wonderswan/issues/2#issuecomment-1386478759",
+          "https://github.com/agg23/openfpga-wonderswan/issues/2#issuecomment-1537277190"
+        ],
+        "issue_signature": "The stock header declares less SRAM than the game writes, leading Pocket 1.0.0 to present a corruption prompt and wipe the save. The issue was reproduced and later closed as not actionable; a header-patched ROM would evade, not test, this compatibility case.",
+        "scenarios": [
+          {
+            "id": "stock-header-save-relaunch",
+            "preconditions": [
+              "Use the owner's unpatched dump with its stock header; record its SHA-256 and archive any prior save.",
+              "Record every dialogue/menu input in operator_steps. Do not apply the emulator/header patch linked from the upstream issue."
+            ],
+            "steps": [
+              "Launch and select the only/default title option, then advance through character naming into gameplay.",
+              "Talk to the chief and advance his text to exit the starting tent.",
+              "Walk left two screens, enter the bottom-left hut, talk to the priestess, and receive the weapon and drum.",
+              "Exit the hut, press Y1, accept the default save choices, then hash the resulting save.",
+              "Quit to Analogue OS, relaunch the core and title, and load the save; record and hash the save before and after loading."
+            ],
+            "expected": "The stock dump starts without a corruption/wipe prompt and loads the saved state; out-of-header-range protection data is preserved across relaunch."
+          },
+          {
+            "id": "title-switch-and-cold-boot",
+            "preconditions": [
+              "Begin from the valid save produced by stock-header-save-relaunch."
+            ],
+            "steps": [
+              "Load a different title, return to stock Star Hearts, and load the save.",
+              "Power the Pocket fully off, power it on, relaunch stock Star Hearts, and load the save again.",
+              "Hash the save before and after every boundary and record all identities in the run log."
+            ],
+            "expected": "The save and protection bytes survive title switch and cold boot; no corruption prompt or automatic wipe occurs."
+          }
+        ],
+        "operator_steps_required": true,
+        "reference_requirement": "Capture the same stock-cartridge path on original WonderSwan Color hardware. A patched-header ROM, emulator patch, or upstream failure capture cannot satisfy the reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["video"], "minimum": 2},
+          {"kinds": ["save"], "minimum": 4},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": null,
+        "fixture_sha256": null,
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "open-80186-quirks",
+        "class": "open_sanity",
+        "title": "ws-test-suite 80186 quirks",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/asiekierka/ws-test-suite/tree/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/cpu/80186_quirks"
+        ],
+        "issue_signature": "Open, pinned CPU sanity fixture; this is not evidence for a named commercial title.",
+        "scenarios": [
+          {
+            "id": "three-pass-markers",
+            "preconditions": [
+              "Verify the checked-in fixture SHA-256 before copying it to the Pocket SD card."
+            ],
+            "steps": [
+              "Cold-launch the fixture and wait until the result screen stops changing.",
+              "Capture the complete screen and record whether all three source-defined result markers read PASS."
+            ],
+            "expected": "All three upstream-authored checks display PASS and remain stable."
+          }
+        ],
+        "operator_steps_required": false,
+        "reference_requirement": "The checked-in pinned open source, ROM identity, and source-defined PASS markers are the reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["pocket_screenshot", "photo"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": "testroms/ws-test-suite/80186_quirks/80186_quirks.ws",
+        "fixture_sha256": "b44090665f0165c7e3279da13359a0b27c69e3127823d55b2bb16f3dd4a2eb1c",
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "open-interrupts",
+        "class": "open_sanity",
+        "title": "ws-test-suite SoC interrupts",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/asiekierka/ws-test-suite/tree/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/soc/interrupts"
+        ],
+        "issue_signature": "Open, real-hardware-authored interrupt-controller sanity fixture; it is separate from commercial compatibility.",
+        "scenarios": [
+          {
+            "id": "thirteen-pass-markers",
+            "preconditions": [
+              "Verify the checked-in fixture SHA-256 before copying it to the Pocket SD card."
+            ],
+            "steps": [
+              "Cold-launch the fixture and wait until the result screen stops changing.",
+              "Capture the complete screen and record whether all thirteen source-defined result markers read PASS."
+            ],
+            "expected": "All thirteen upstream-authored checks display PASS and remain stable."
+          }
+        ],
+        "operator_steps_required": false,
+        "reference_requirement": "The pinned open source, exact ROM identity, and source-defined PASS markers are the reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["pocket_screenshot", "photo"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": "testroms/ws-test-suite/interrupts/interrupts.ws",
+        "fixture_sha256": "d8a4da6d6c33ad3f58e9bb9b105135788f832544db1b85f8f0e66e227d847da0",
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "open-internal-eeprom",
+        "class": "open_sanity",
+        "title": "ws-test-suite internal EEPROM",
+        "system": "ws",
+        "source_urls": [
+          "https://github.com/asiekierka/ws-test-suite/tree/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/mono/eeprom/internal"
+        ],
+        "issue_signature": "Open internal-EEPROM protocol sanity fixture; it does not exercise cartridge EEPROM persistence in Engacho or Another Heaven.",
+        "scenarios": [
+          {
+            "id": "twenty-three-pass-markers",
+            "preconditions": [
+              "Verify the checked-in fixture SHA-256 before copying it to the Pocket SD card."
+            ],
+            "steps": [
+              "Cold-launch the fixture and wait until the result screen stops changing.",
+              "Capture the complete screen and record whether all twenty-three mono-hardware result markers read PASS."
+            ],
+            "expected": "All twenty-three source-defined mono-hardware checks display PASS and remain stable."
+          }
+        ],
+        "operator_steps_required": false,
+        "reference_requirement": "The pinned open source, exact ROM identity, and source-defined PASS markers are the reference; no cartridge-save claim follows.",
+        "mode_evidence_requirements": [
+          {"kinds": ["pocket_screenshot", "photo"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": "testroms/ws-test-suite/internal_eeprom/internal.ws",
+        "fixture_sha256": "2e5c611fe7278703a810e7219c6cda7ecc25254bd9ff2b4c81650d78c73213db",
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "generated-shift-jis-glyphs",
+        "class": "open_sanity",
+        "title": "Swan Song Shift-JIS/Misaki glyph fixture",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/OpenWitch/AthenaOS/tree/d37beae7482616313883dcfa4bdb7114d1ef5749/fonts/misaki",
+          "https://littlelimit.net/misaki.htm"
+        ],
+        "issue_signature": "Generated, rebuildable Japanese-text sanity fixture with licensed glyph data; it is not a proxy for any commercial game's renderer.",
+        "scenarios": [
+          {
+            "id": "six-glyph-render",
+            "preconditions": [
+              "Verify the checked-in fixture SHA-256 before copying it to the Pocket SD card."
+            ],
+            "steps": [
+              "Cold-launch the fixture and wait for the static six-glyph display.",
+              "Capture the full screen and compare the six glyphs and their order with the fixture README."
+            ],
+            "expected": "The six licensed glyphs render in the documented order with stable black-on-white pixels and no corrupt tiles."
+          }
+        ],
+        "operator_steps_required": false,
+        "reference_requirement": "The checked-in source, pinned Misaki provenance, exact ROM identity, and documented glyph manifest are the reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["pocket_screenshot", "photo"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": "testroms/swan-song/sjis_glyph_provenance/sjis_glyph_provenance.wsc",
+        "fixture_sha256": "b199451af07c3693c7f4329a01710b4616187a73084f7fb791804855ffbe81fa",
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      },
+      {
+        "id": "generated-medium-sram",
+        "class": "open_sanity",
+        "title": "Wonderful medium-SRAM probe",
+        "system": "wsc",
+        "source_urls": [
+          "https://github.com/WonderfulToolchain/target-wswan-examples/tree/811b739ab1f0203336a08da8db34365d29869617",
+          "https://codeberg.org/WonderfulToolchain/target-wswan-syslibs/src/commit/d7d97ce9490c54aff3ad8ad5f4b60f1c547757ab"
+        ],
+        "issue_signature": "Generated, rebuildable Color/32-KiB-SRAM runtime sanity fixture; it is not a substitute for stock Star Hearts protection behavior.",
+        "scenarios": [
+          {
+            "id": "medium-sram-ok",
+            "preconditions": [
+              "Verify the checked-in fixture SHA-256 before copying it to the Pocket SD card."
+            ],
+            "steps": [
+              "Cold-launch the fixture and wait for its terminal screen.",
+              "Capture the complete screen and record whether MEDIUM-SRAM OK appears without a FAIL marker."
+            ],
+            "expected": "The fixture reaches and holds MEDIUM-SRAM OK with no FAIL marker."
+          }
+        ],
+        "operator_steps_required": false,
+        "reference_requirement": "The checked-in rebuildable source, exact ROM identity, and source-defined OK marker are the reference.",
+        "mode_evidence_requirements": [
+          {"kinds": ["pocket_screenshot", "photo"], "minimum": 1},
+          {"kinds": ["log"], "minimum": 1}
+        ],
+        "fixture_path": "testroms/swan-song/wonderful_medium_sram/medium_sram_probe.wsc",
+        "fixture_sha256": "b7f6a4e1e3a73eb4fa615a73f5e9a4cbb8c46a6b5157ade4e1d814c30da034aa",
+        "owner_rom_sha256": null,
+        "operator_steps": [],
+        "reference": {"source": null, "artifact_ids": [], "notes": null},
+        "modes": {
+          "pocket": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null},
+          "dock": {"status": "pending", "started_at": null, "completed_at": null, "artifact_ids": [], "notes": null}
+        }
+      }
+    ],
+    "artifacts": [],
+    "attestation": {
+      "physical_hardware_observed": null,
+      "results_not_inferred_from_simulation": null,
+      "reviewer": null,
+      "reviewed_at": null
+    }
+  }
+}
