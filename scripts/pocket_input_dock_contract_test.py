@@ -47,6 +47,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
     platform_json = bundle["platform_json"]
     info = bundle["info"]
     readme = bundle["readme"]
+    presets = bundle["presets"]
     core_top_source = bundle["core_top"]
     wonderswan_source = bundle["wonderswan"]
     joypad_source = bundle["joypad"]
@@ -141,6 +142,21 @@ def verify_contract(bundle: dict[str, object]) -> None:
     if "Pocket owns the actual saved control remaps" in readme:
         raise ValueError("README makes an unsupported saved-remap claim")
 
+    for statement in (
+        "**currently read-only**",
+        "present public contract and makes no editable-remap or remap-persistence claim",
+        "generating this file does not remap a\nbutton or make that screen editable",
+    ):
+        if statement not in presets:
+            raise ValueError(f"per-game presets omit read-only Controls boundary: {statement}")
+    for stale_claim in (
+        "perform the actual host-managed remap",
+        "all eight remaps take effect and survive relaunch",
+        "specifies per-asset Input lookup and host remapping",
+    ):
+        if stale_claim in presets:
+            raise ValueError(f"per-game presets retain stale remapping claim: {stale_claim}")
+
     core_top = compact(core_top_source)
     wonderswan = compact(wonderswan_source)
     joypad = compact(joypad_source)
@@ -226,6 +242,7 @@ def load_bundle() -> dict[str, object]:
         "platform_json": json.loads((ROOT / "dist/Platforms/wonderswan.json").read_text()),
         "info": (CORE_DIR / "info.txt").read_text(),
         "readme": (ROOT / "README.md").read_text(),
+        "presets": (ROOT / "PER_GAME_PRESETS.md").read_text(),
         "core_top": (ROOT / "src/fpga/core/core_top.v").read_text(),
         "wonderswan": (ROOT / "src/fpga/core/wonderswan.sv").read_text(),
         "joypad": (ROOT / "src/fpga/core/rtl/joypad.vhd").read_text(),
@@ -292,6 +309,15 @@ def main() -> None:
                 (
                     "readme",
                     bundle["readme"].replace("currently\nread-only", "writable", 1),
+                ),
+            ),
+            (
+                "per-game read-only boundary",
+                (
+                    "presets",
+                    bundle["presets"].replace(
+                        "**currently read-only**", "**editable**", 1
+                    ),
                 ),
             ),
             (

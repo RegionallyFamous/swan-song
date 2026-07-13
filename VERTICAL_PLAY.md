@@ -68,8 +68,9 @@ orientation-dependent matrix preserves that independence; it does not wire the
 same Pocket key to both native clusters at once. Analogue permits at most eight mappings in
 [`input.json`](https://www.analogue.co/developer/docs/core-definition-files/input-json),
 so Start and Fast Forward consume the last two default entries. The official
-per-asset override path can provide title-specific labels and bindings without
-adding an undocumented runtime remapper.
+per-asset override path can provide title-specific Controls definitions and
+labels. Swan Song's generator clones the default bindings and does not claim an
+editable runtime remapper.
 
 ## Verification boundary
 
