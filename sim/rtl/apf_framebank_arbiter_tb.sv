@@ -6,8 +6,12 @@ module apf_framebank_arbiter_tb;
   reg enable = 1'b0;
   reg producer_frame_done = 1'b0;
   reg consumer_frame_boundary = 1'b0;
+  reg defer_candidate = 1'b0;
+  reg protect_pending = 1'b0;
 
   wire [2:0] write_bank;
+  wire pending_valid;
+  wire [2:0] pending_bank;
   wire [2:0] history_newest;
   wire [2:0] history_previous;
   wire [2:0] history_oldest;
@@ -26,7 +30,11 @@ module apf_framebank_arbiter_tb;
       .enable(enable),
       .producer_frame_done(producer_frame_done),
       .consumer_frame_boundary(consumer_frame_boundary),
+      .defer_candidate(defer_candidate),
+      .protect_pending(protect_pending),
       .write_bank(write_bank),
+      .pending_valid_out(pending_valid),
+      .pending_bank_out(pending_bank),
       .history_newest(history_newest),
       .history_previous(history_previous),
       .history_oldest(history_oldest),
@@ -48,14 +56,14 @@ module apf_framebank_arbiter_tb;
             (write_bank == history_oldest || history_newest == history_oldest ||
              history_previous == history_oldest))
           $fatal(1, "writer/history collision at depth 3");
-        if (dut.pending_valid) begin
-          if (dut.pending_bank == write_bank)
+        if (pending_valid) begin
+          if (pending_bank == write_bank)
             $fatal(1, "pending bank collided with writer");
-          if (history_valid_count >= 1 && dut.pending_bank == history_newest)
+          if (history_valid_count >= 1 && pending_bank == history_newest)
             $fatal(1, "pending bank collided with newest history");
-          if (history_valid_count >= 2 && dut.pending_bank == history_previous)
+          if (history_valid_count >= 2 && pending_bank == history_previous)
             $fatal(1, "pending bank collided with previous history");
-          if (history_valid_count >= 3 && dut.pending_bank == history_oldest)
+          if (history_valid_count >= 3 && pending_bank == history_oldest)
             $fatal(1, "pending bank collided with oldest history");
         end
       end else if (write_bank != 3'd0 || history_valid_count != 2'd0) begin

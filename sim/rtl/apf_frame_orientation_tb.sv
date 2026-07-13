@@ -9,6 +9,8 @@ module apf_frame_orientation_tb;
   reg producer_orientation = 1'b0;
 
   wire [2:0] write_bank;
+  wire pending_valid;
+  wire [2:0] pending_bank;
   wire [2:0] history_newest;
   wire [2:0] history_previous;
   wire [2:0] history_oldest;
@@ -29,7 +31,11 @@ module apf_frame_orientation_tb;
       .enable(enable),
       .producer_frame_done(producer_frame_done),
       .consumer_frame_boundary(consumer_frame_boundary),
+      .defer_candidate(1'b0),
+      .protect_pending(1'b0),
       .write_bank(write_bank),
+      .pending_valid_out(pending_valid),
+      .pending_bank_out(pending_bank),
       .history_newest(history_newest),
       .history_previous(history_previous),
       .history_oldest(history_oldest),
@@ -45,7 +51,10 @@ module apf_frame_orientation_tb;
       .consumer_frame_boundary(consumer_frame_boundary),
       .buffered_frame_visible(buffered_frame_visible),
       .history_newest(history_newest),
-      .presented_orientation(presented_orientation)
+      .candidate_bank(pending_bank),
+      .candidate_uses_live_orientation(1'b0),
+      .presented_orientation(presented_orientation),
+      .candidate_orientation()
   );
 
   task automatic drive(input bit produce, input bit consume);

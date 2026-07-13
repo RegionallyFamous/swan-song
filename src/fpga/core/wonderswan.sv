@@ -50,6 +50,8 @@ module wonderswan (
 
     input wire use_triple_buffer,
     input wire [1:0] configured_flickerblend,
+    input wire [1:0] configured_orientation,
+    input wire use_flip_horizontal,
     input wire configured_color_profile,
 
     input wire use_fastforward_sound,
@@ -106,6 +108,7 @@ module wonderswan (
     output wire [7:0] video_b,
 
     output wire is_vertical,
+    output wire [2:0] scaler_slot_command,
 
     // Audio
     output wire [15:0] audio_l,
@@ -451,6 +454,10 @@ module wonderswan (
   wire [2:0] framebank_previous;
   wire [2:0] framebank_oldest;
   wire [1:0] framebank_valid_count;
+  wire framebank_pending_valid;
+  wire [2:0] framebank_pending;
+  wire framebank_defer_candidate;
+  wire framebank_protect_pending;
 
   // 397 * 258 pixels at 6.144 MHz is 59.984769 Hz.  The dedicated cadence
   // block keeps the APF raster exact and independently simulation-testable.
@@ -493,7 +500,11 @@ module wonderswan (
       .enable(buffervideo),
       .producer_frame_done(producer_frame_done),
       .consumer_frame_boundary(scanout_frame_boundary),
+      .defer_candidate(framebank_defer_candidate),
+      .protect_pending(framebank_protect_pending),
       .write_bank(framebank_write),
+      .pending_valid_out(framebank_pending_valid),
+      .pending_bank_out(framebank_pending),
       .history_newest(framebank_newest),
       .history_previous(framebank_previous),
       .history_oldest(framebank_oldest),
@@ -581,6 +592,14 @@ module wonderswan (
       framebank_valid_count >= 3 ? framebank_rgb(framebank_oldest) : buffered_previous;
   wire use_buffered_history = buffervideo && framebank_valid_count != 2'd0;
   wire presented_vertical;
+  wire candidate_vertical;
+  wire framebank_candidate_valid = framebank_protect_pending ?
+      framebank_pending_valid : (producer_frame_done || framebank_pending_valid);
+  wire [2:0] framebank_candidate = framebank_protect_pending ?
+      framebank_pending :
+      producer_frame_done ? framebank_write : framebank_pending;
+  wire candidate_uses_live_orientation =
+      !framebank_protect_pending && producer_frame_done;
 
   // Presentation follows the orientation stored beside the frame that owns
   // the pixels. The live `vertical` signal remains connected directly to the
@@ -595,7 +614,33 @@ module wonderswan (
       .consumer_frame_boundary(scanout_frame_boundary),
       .buffered_frame_visible(use_buffered_history),
       .history_newest(framebank_newest),
-      .presented_orientation(presented_vertical)
+      .candidate_bank(framebank_candidate),
+      .candidate_uses_live_orientation(candidate_uses_live_orientation),
+      .presented_orientation(presented_vertical),
+      .candidate_orientation(candidate_vertical)
+  );
+
+  wire [2:0] expected_applied_slot;
+  wire [2:0] presentation_slot;
+  wire blank_presentation;
+  apf_orientation_transition_guard orientation_transition (
+      .clk(clk_sys_36_864),
+      .reset(reset),
+      .frame_boundary(scanout_frame_boundary),
+      .buffered_mode(buffervideo),
+      .current_frame_valid(use_buffered_history),
+      .current_orientation(presented_vertical),
+      .producer_orientation(vertical),
+      .candidate_valid(framebank_candidate_valid),
+      .candidate_orientation(candidate_vertical),
+      .configured_orientation(configured_orientation),
+      .landscape_180(use_flip_horizontal),
+      .defer_candidate(framebank_defer_candidate),
+      .protect_pending(framebank_protect_pending),
+      .command_slot(scaler_slot_command),
+      .expected_applied_slot(expected_applied_slot),
+      .presentation_slot(presentation_slot),
+      .blank_presentation(blank_presentation)
   );
 
   wire [11:0] direct_or_blank =
@@ -631,7 +676,7 @@ module wonderswan (
     if (!div) begin
       ce_pix <= 1;
 
-      {r, g, b} <= temporal_video_rgb;
+      {r, g, b} <= blank_presentation ? 24'd0 : temporal_video_rgb;
 
       // Rotation is handled by the Pocket scaler
       if (x == 224 + 31) hbl <= 1;

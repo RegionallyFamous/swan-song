@@ -22,7 +22,11 @@ module apf_frame_orientation (
     input  wire       buffered_frame_visible,
     input  wire [2:0] history_newest,
 
-    output wire       presented_orientation
+    input  wire [2:0] candidate_bank,
+    input  wire       candidate_uses_live_orientation,
+
+    output wire       presented_orientation,
+    output wire       candidate_orientation
 );
   reg [4:0] bank_orientation = 5'b00000;
   reg direct_orientation = 1'b0;
@@ -58,18 +62,25 @@ module apf_frame_orientation (
     end
   end
 
-  reg buffered_orientation;
-  always @(*) begin
-    case (history_newest)
-      3'd0: buffered_orientation = bank_orientation[0];
-      3'd1: buffered_orientation = bank_orientation[1];
-      3'd2: buffered_orientation = bank_orientation[2];
-      3'd3: buffered_orientation = bank_orientation[3];
-      3'd4: buffered_orientation = bank_orientation[4];
-      default: buffered_orientation = 1'b0;
-    endcase
-  end
+  function automatic stored_orientation;
+    input [2:0] bank;
+    begin
+      case (bank)
+        3'd0: stored_orientation = bank_orientation[0];
+        3'd1: stored_orientation = bank_orientation[1];
+        3'd2: stored_orientation = bank_orientation[2];
+        3'd3: stored_orientation = bank_orientation[3];
+        3'd4: stored_orientation = bank_orientation[4];
+        default: stored_orientation = 1'b0;
+      endcase
+    end
+  endfunction
 
   assign presented_orientation = buffered_frame_visible ?
-      buffered_orientation : direct_orientation;
+      stored_orientation(history_newest) : direct_orientation;
+  // On a producer/consumer coincidence the newest complete candidate is the
+  // current writer, whose metadata is captured on that same edge. Use the live
+  // completion value for the guard decision rather than the bank's old bits.
+  assign candidate_orientation = candidate_uses_live_orientation ?
+      producer_orientation : stored_orientation(candidate_bank);
 endmodule

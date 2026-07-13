@@ -1,27 +1,30 @@
 `timescale 1ns/1ps
 
-// Frame-atomic Analogue Pocket scaler-slot selection.
+// Frame-atomic Analogue Pocket scaler-slot command transport.
 //
-// The system domain reduces the two user-facing controls to one of three
-// legal video.json slots:
+// The system-domain orientation guard supplies one of three legal video.json
+// slots:
 //   0: landscape
 //   1: portrait
 //   2: landscape rotated 180 degrees
 // Portrait takes precedence, so the legacy landscape-180 option can never
 // turn a portrait title upside down.
 //
-// The selected slot crosses clock domains as bundled data. slot_hold_sys is
+// The commanded slot crosses clock domains as bundled data. slot_hold_sys is
 // frozen before request_toggle_sys changes and remains frozen until the video
 // domain acknowledges capture. The destination may receive several updates
 // during one frame, but exposes only the newest complete update and only at a
-// frame boundary. Integration must constrain the two-bit bundled payload in
+// frame boundary. The emitted EOL command applies to the following APF frame;
+// the orientation guard separately tracks that expected-applied state.
+// Only slots 0-2 are legal here, so the acknowledged payload remains two bits;
+// the APF-facing output zero-extends it to the protocol's three-bit field.
+// Integration must constrain the complete two-bit bundled payload in
 // the same way as the other acknowledged bundled-data CDCs in this core.
 module apf_scaler_selector (
     input  wire        reset_n,
 
     input  wire        clk_sys,
-    input  wire        effective_vertical_sys,
-    input  wire        landscape_180_sys,
+    input  wire [2:0]  requested_slot_sys,
     output wire        update_pending_sys,
 
     input  wire        clk_video,
@@ -33,13 +36,13 @@ module apf_scaler_selector (
   localparam [1:0] SLOT_PORTRAIT = 2'd1;
   localparam [1:0] SLOT_LANDSCAPE_180 = 2'd2;
 
-  function automatic [2:0] legal_video_slot;
-    input [1:0] candidate;
+  function automatic [1:0] legal_video_slot;
+    input [2:0] candidate;
     begin
       case (candidate)
-        SLOT_PORTRAIT: legal_video_slot = 3'd1;
-        SLOT_LANDSCAPE_180: legal_video_slot = 3'd2;
-        default: legal_video_slot = 3'd0;
+        3'd1: legal_video_slot = SLOT_PORTRAIT;
+        3'd2: legal_video_slot = SLOT_LANDSCAPE_180;
+        default: legal_video_slot = SLOT_LANDSCAPE;
       endcase
     end
   endfunction
@@ -61,9 +64,7 @@ module apf_scaler_selector (
     else video_reset_sync <= {video_reset_sync[0], 1'b1};
   end
 
-  wire [1:0] desired_slot_sys =
-      effective_vertical_sys ? SLOT_PORTRAIT :
-      landscape_180_sys ? SLOT_LANDSCAPE_180 : SLOT_LANDSCAPE;
+  wire [1:0] desired_slot_sys = legal_video_slot(requested_slot_sys);
 
   reg [1:0] slot_hold_sys;
   reg request_toggle_sys;
@@ -130,7 +131,7 @@ module apf_scaler_selector (
 
       if (frame_start_video && !request_arrived_video) begin
         if (pending_valid_video) begin
-          scaler_slot_video <= legal_video_slot(pending_slot_video);
+          scaler_slot_video <= {1'b0, pending_slot_video};
           pending_valid_video <= 1'b0;
         end
       end

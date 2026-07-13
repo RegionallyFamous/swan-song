@@ -4,8 +4,7 @@ module apf_scaler_selector_tb;
     reg reset_n = 1'b0;
     reg clk_sys = 1'b0;
     reg clk_video = 1'b0;
-    reg effective_vertical_sys = 1'b0;
-    reg landscape_180_sys = 1'b0;
+    reg [2:0] requested_slot_sys = 3'd0;
     reg frame_start_video = 1'b0;
 
     wire update_pending_sys;
@@ -14,6 +13,7 @@ module apf_scaler_selector_tb;
 
     integer frame_count = 0;
     integer update_count = 0;
+    integer boundary_budget_checks = 0;
     reg [2:0] slot_before_frame;
 
     // Deliberately unrelated clocks and non-integral phase offsets.
@@ -23,8 +23,7 @@ module apf_scaler_selector_tb;
     apf_scaler_selector dut (
         .reset_n(reset_n),
         .clk_sys(clk_sys),
-        .effective_vertical_sys(effective_vertical_sys),
-        .landscape_180_sys(landscape_180_sys),
+        .requested_slot_sys(requested_slot_sys),
         .update_pending_sys(update_pending_sys),
         .clk_video(clk_video),
         .frame_start_video(frame_start_video),
@@ -108,10 +107,9 @@ module apf_scaler_selector_tb;
         repeat (4) @(posedge clk_video);
         check_eol(3'd0);
 
-        // Portrait wins over the landscape-only 180-degree option.
+        // The system guard requests the portrait video.json slot.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b1;
-        landscape_180_sys = 1'b1;
+        requested_slot_sys = 3'd1;
         wait_for_video_pending();
         slot_before_frame = scaler_slot_video;
         repeat (5) @(posedge clk_video);
@@ -123,10 +121,8 @@ module apf_scaler_selector_tb;
         check_eol(3'd1);
         wait_for_source_idle();
 
-        // Disabling the ignored landscape option while portrait is active
-        // must not create a redundant CDC transaction or output change.
-        @(negedge clk_sys);
-        landscape_180_sys = 1'b0;
+        // Holding the same requested slot must not create a redundant CDC
+        // transaction or output change.
         repeat (8) @(posedge clk_sys);
         #1ps;
         if (update_pending_sys) begin
@@ -134,11 +130,10 @@ module apf_scaler_selector_tb;
         end
         check_eol(3'd1);
 
-        // Landscape plus the legacy flip selects the dedicated rotation-180
-        // scaler mode; the exact APF EOL word is 0x004000.
+        // Request the dedicated landscape-180 scaler mode; the exact APF EOL
+        // word is 0x004000.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b0;
-        landscape_180_sys = 1'b1;
+        requested_slot_sys = 3'd2;
         wait_for_video_pending();
         check_eol(3'd1);
         pulse_frame_start();
@@ -150,7 +145,7 @@ module apf_scaler_selector_tb;
 
         // Return to ordinary landscape.
         @(negedge clk_sys);
-        landscape_180_sys = 1'b0;
+        requested_slot_sys = 3'd0;
         wait_for_video_pending();
         pulse_frame_start();
         check_eol(3'd0);
@@ -164,8 +159,7 @@ module apf_scaler_selector_tb;
         // an older pending slot. It holds this frame and applies the newly
         // captured portrait slot on the following boundary.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b1;
-        landscape_180_sys = 1'b0;
+        requested_slot_sys = 3'd1;
         while (dut.request_sync_video == dut.request_seen_video) begin
             @(negedge clk_video);
         end
@@ -175,7 +169,7 @@ module apf_scaler_selector_tb;
         frame_count = frame_count + 1;
         #1ps;
         check_eol(3'd0);
-        if (!dut.pending_valid_video || dut.pending_slot_video !== 2'd1) begin
+        if (!dut.pending_valid_video || dut.pending_slot_video !== 3'd1) begin
             $fatal(1, "coincident request was not held in canonical pending state");
         end
         pulse_frame_start();
@@ -184,7 +178,7 @@ module apf_scaler_selector_tb;
 
         // Return to landscape before the rapid-supersession phase.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b0;
+        requested_slot_sys = 3'd0;
         wait_for_video_pending();
         pulse_frame_start();
         check_eol(3'd0);
@@ -194,14 +188,11 @@ module apf_scaler_selector_tb;
         // withholding frame boundaries. Complete payloads may supersede one
         // another, but no intermediate/torn slot may leak to the output.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b1;
-        landscape_180_sys = 1'b0;
+        requested_slot_sys = 3'd1;
         repeat (2) @(negedge clk_sys);
-        effective_vertical_sys = 1'b0;
-        landscape_180_sys = 1'b1;
+        requested_slot_sys = 3'd2;
         repeat (2) @(negedge clk_sys);
-        effective_vertical_sys = 1'b1;
-        landscape_180_sys = 1'b1;
+        requested_slot_sys = 3'd1;
 
         slot_before_frame = scaler_slot_video;
         repeat (32) begin
@@ -215,17 +206,34 @@ module apf_scaler_selector_tb;
             end
         end
         wait_for_source_idle();
-        if (!dut.pending_valid_video || dut.pending_slot_video !== 2'd1) begin
+        if (!dut.pending_valid_video || dut.pending_slot_video !== 3'd1) begin
             $fatal(1, "rapid update did not retain the newest complete slot");
         end
         pulse_frame_start();
         check_eol(3'd1);
 
+        // Production changes command_slot at x=396/y=257. The next APF frame
+        // start is x=320/y=1, leaving 397+320=717 video clocks for the bundled
+        // request to reach pending_slot_video. Launch just after a source edge
+        // (worst source phase), then prove even unrelated test clocks consume
+        // far less than that real raster budget.
+        @(posedge clk_sys);
+        #1ps;
+        requested_slot_sys = 3'd2;
+        repeat (717) @(posedge clk_video);
+        #1ps;
+        if (!dut.pending_valid_video || dut.pending_slot_video !== 3'd2) begin
+            $fatal(1, "slot command missed the 717-clock frame-start budget");
+        end
+        boundary_budget_checks = boundary_budget_checks + 1;
+        pulse_frame_start();
+        check_eol(3'd2);
+        wait_for_source_idle();
+
         // An asynchronous reset during an in-flight update discards both the
         // transfer and pending video state, returning to safe slot zero.
         @(negedge clk_sys);
-        effective_vertical_sys = 1'b0;
-        landscape_180_sys = 1'b1;
+        requested_slot_sys = 3'd1;
         @(posedge clk_sys);
         #1ps;
         if (!update_pending_sys) begin
@@ -240,8 +248,7 @@ module apf_scaler_selector_tb;
         reset_n = 1'b1;
         // Restore source default before synchronized reset release so no new
         // post-reset update is legitimately generated.
-        effective_vertical_sys = 1'b0;
-        landscape_180_sys = 1'b0;
+        requested_slot_sys = 3'd0;
         repeat (5) @(posedge clk_sys);
         repeat (5) @(posedge clk_video);
         #1ps;
@@ -250,19 +257,21 @@ module apf_scaler_selector_tb;
         end
         check_eol(3'd0);
 
-        if (frame_count < 4 || update_count < 3) begin
+        if (frame_count < 4 || update_count < 3 || boundary_budget_checks != 1) begin
             $fatal(
                 1,
-                "insufficient scaler coverage frames=%0d updates=%0d",
+                "insufficient scaler coverage frames=%0d updates=%0d boundary_budget=%0d",
                 frame_count,
-                update_count
+                update_count,
+                boundary_budget_checks
             );
         end
 
         $display(
-            "PASS APF scaler selector frames=%0d output_updates=%0d",
+            "PASS APF scaler selector frames=%0d output_updates=%0d boundary_budget=%0d",
             frame_count,
-            update_count
+            update_count,
+            boundary_budget_checks
         );
         $finish;
     end

@@ -48,7 +48,7 @@ set_max_skew \
   -from $settings_source_registers \
   -to $settings_destination_registers
 
-# Scaler selection is a two-bit acknowledged bundled-data CDC.  slot_hold_sys
+# Scaler selection is a two-bit acknowledged bundled-data CDC. slot_hold_sys
 # is frozen before its request toggle crosses to the video clock and remains
 # frozen until pending_slot_video captures it and returns an acknowledgement.
 # Bound the payload independently so placement cannot spread its two bits over

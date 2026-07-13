@@ -12,7 +12,11 @@ module apf_framebank_arbiter (
     input  wire       enable,
     input  wire       producer_frame_done,
     input  wire       consumer_frame_boundary,
+    input  wire       defer_candidate,
+    input  wire       protect_pending,
     output wire [2:0] write_bank,
+    output wire       pending_valid_out,
+    output wire [2:0] pending_bank_out,
     output reg  [2:0] history_newest,
     output reg  [2:0] history_previous,
     output reg  [2:0] history_oldest,
@@ -23,6 +27,8 @@ module apf_framebank_arbiter (
   reg pending_valid;
 
   assign write_bank = enable ? write_bank_state : 3'd0;
+  assign pending_valid_out = enable && pending_valid;
+  assign pending_bank_out = pending_bank;
 
   function automatic [2:0] choose_free_bank;
     input [2:0] exclude0;
@@ -58,6 +64,48 @@ module apf_framebank_arbiter (
       history_previous <= 3'd0;
       history_oldest <= 3'd0;
       history_valid_count <= 2'd0;
+    end else if (protect_pending) begin
+      // A completed bank is waiting for an APF scaler-slot command to take
+      // effect. It must not be superseded or recycled. Producer completions
+      // are deliberately dropped by reusing the unselected writer bank.
+      case ({producer_frame_done, consumer_frame_boundary})
+        2'b01, 2'b11: begin
+          if (pending_valid) begin
+            history_newest <= pending_bank;
+            if (history_valid_count >= 2'd1)
+              history_previous <= history_newest;
+            if (history_valid_count >= 2'd2)
+              history_oldest <= history_previous;
+            if (history_valid_count < 2'd3)
+              history_valid_count <= history_valid_count + 1'd1;
+            pending_valid <= 1'b0;
+          end
+        end
+
+        default: begin
+        end
+      endcase
+    end else if (defer_candidate && consumer_frame_boundary) begin
+      // Treat a coincident completion as producer-only publication: the newest
+      // complete writer becomes pending, but no bank becomes visible until the
+      // orientation guard has emitted its next-frame scaler command.
+      if (producer_frame_done) begin
+        pending_bank <= write_bank_state;
+        pending_valid <= 1'b1;
+        if (pending_valid) begin
+          write_bank_state <= pending_bank;
+        end else begin
+          write_bank_state <= choose_free_bank(
+              write_bank_state,
+              history_newest,
+              history_valid_count >= 2'd1,
+              history_previous,
+              history_valid_count >= 2'd2,
+              history_oldest,
+              history_valid_count >= 2'd3
+          );
+        end
+      end
     end else begin
       case ({producer_frame_done, consumer_frame_boundary})
         2'b10: begin

@@ -107,17 +107,16 @@ so it cannot be reused unchanged for a decision made at y=256. A migration must
 separate the expected-applied slot from the live EOL-command slot and provide a
 CDC-safe update in the long interval before the first EOL.
 
-### Potential existing dynamic-orientation mismatch
+### Production dynamic-orientation repair
 
-This next-frame rule is not unique to the candidate. In the current production
-path, `apf_frame_orientation` follows history promoted at
-`scanout_frame_boundary`; `effective_vertical_sys` can therefore change for the
-newly selected frame. `apf_scaler_selector` then changes its EOL slot command at
-`frame_start_video`. Under the published APF rule, that command applies to the
-following frame, so the newly oriented pixels can potentially be presented for
-one frame under the previous scaler slot.
+This next-frame rule is not unique to the candidate. The former production
+path promoted per-bank orientation at `scanout_frame_boundary` before the APF
+slot commanded in the following raster could take effect. That real ordering
+issue is now repaired independently of this late-frame candidate by
+`apf_orientation_transition_guard`, protected-pending framebank ownership, and
+the explicit scaler command transport.
 
-The executable model locks the problematic ordering:
+The former problematic ordering was:
 
 | Frame | Presented slot | Expected applied slot | EOL command for next | Result |
 |---|---:|---:|---:|---|
@@ -125,12 +124,11 @@ The executable model locks the problematic ordering:
 | 1 | 1 | 0 | 1 | potential mismatch |
 | 2 | 1 | 1 | 1 | matched |
 
-The safe migration instead repeats slot 0 in frame 1 while commanding slot 1,
-then presents the reserved slot-1 frame in frame 2. This should be treated as a
-potential existing correctness issue for dynamic game-driven orientation, not
-as a drawback introduced only by late selection. Physical Pocket behavior
-should still be captured because the documentation defines the contract but
-does not expose internal scaler timing.
+Production now repeats slot 0 in frame 1 while commanding slot 1, then presents
+the reserved slot-1 frame in frame 2. The production guard and its cross-domain
+APF-next-frame proof are documented in `ORIENTATION_TRANSITION.md`. Physical
+Pocket behavior must still be captured, but the digital contract no longer
+depends on an ambiguous live-orientation ordering.
 
 ## Executable prototype evidence
 
@@ -153,11 +151,10 @@ does not expose internal scaler timing.
 
 Do not integrate the candidate until all of the following are complete:
 
-1. Prove a framebank handshake that reserves a scheduled orientation-transition
-   bank and cannot deadlock or recycle visible/protected history.
-2. Replace the scaler selector's single ambiguous slot state with explicit
-   expected-applied and command-for-next states, including CDC constraints and
-   adversarial orientation-transition simulation.
+1. Adapt the production protected-pending handshake to the late gate without
+   allowing a late candidate to recycle visible/protected history.
+2. Reuse the production explicit expected-applied/command state while proving
+   the later decision still reaches the first active-line EOL safely.
 3. Keep presentation settings and temporal-history rotation frame-atomic at the
    late gate without changing game-visible WonderSwan orientation/input state.
 4. Confirm APF VS/HS/DE/EOL waveforms in SignalTap, close Quartus 21.1.1 timing,

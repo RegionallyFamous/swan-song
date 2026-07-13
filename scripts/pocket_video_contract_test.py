@@ -86,8 +86,11 @@ class PocketVideoContractTest(unittest.TestCase):
             video_bus,
         )
         self.assertIn("apf_scaler_selectorscaler_selector(", top)
-        self.assertIn(".landscape_180_sys(use_flip_horizontal_s)", top)
-        self.assertNotIn(".use_flip_horizontal(use_flip_horizontal_s)", top)
+        self.assertIn(".requested_slot_sys(scaler_slot_command_sys)", top)
+        self.assertIn(".configured_orientation(configured_orientation_s)", top)
+        self.assertIn(".use_flip_horizontal(use_flip_horizontal_s)", top)
+        self.assertIn(".scaler_slot_command(scaler_slot_command_sys)", top)
+        self.assertNotIn(".landscape_180_sys(", top)
         self.assertIn("apf_settings_cdc#(", top)
         self.assertIn("settings_command_cdc(", top)
         self.assertIn(".reset_n(pll_core_ready_74a)", top)
@@ -112,6 +115,7 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("settings_destination<=settings_hold_source;", settings_cdc)
 
         self.assertIn("if(frame_start_video&&!request_arrived_video)begin", selector)
+        self.assertIn("inputwire[2:0]requested_slot_sys", selector)
         self.assertIn("pending_slot_video<=slot_hold_sys;", selector)
         self.assertIn(
             "assigneol_word_video={8'd0,scaler_slot_video,10'd0,3'b000};",
@@ -149,7 +153,10 @@ class PocketVideoContractTest(unittest.TestCase):
             top,
         )
         self.assertIn("elseif(scanout_frame_boundary)begin", swan)
-        self.assertIn("{r,g,b}<=temporal_video_rgb;", swan)
+        self.assertIn(
+            "{r,g,b}<=blank_presentation?24'd0:temporal_video_rgb;",
+            swan,
+        )
         self.assertNotIn("px_addr<=32255", swan)
         self.assertNotIn("px_addr<=px_addr-1'd1", swan)
         for obsolete in ("r2_5", "r3_mul24", "r3_div24"):
@@ -186,6 +193,9 @@ class PocketVideoContractTest(unittest.TestCase):
         swan = compact(read("src/fpga/core/wonderswan.sv"))
         arbiter = compact(read("src/fpga/core/apf_framebank_arbiter.sv"))
         orientation = compact(read("src/fpga/core/apf_frame_orientation.sv"))
+        transition = compact(
+            read("src/fpga/core/apf_orientation_transition_guard.sv")
+        )
         cadence = compact(read("src/fpga/core/apf_scanout_cadence.sv"))
         frame_ram = compact(read("src/fpga/core/apf_framebank_ram.sv"))
 
@@ -211,6 +221,8 @@ class PocketVideoContractTest(unittest.TestCase):
         )
         self.assertIn(".producer_frame_done(producer_frame_done)", swan)
         self.assertIn(".consumer_frame_boundary(scanout_frame_boundary)", swan)
+        self.assertIn(".defer_candidate(framebank_defer_candidate)", swan)
+        self.assertIn(".protect_pending(framebank_protect_pending)", swan)
         for bank in range(5):
             self.assertIn(f"apf_framebank_ramframebank_ram{bank}(", swan)
             self.assertIn(
@@ -251,6 +263,11 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn(".producer_orientation(vertical)", swan)
         self.assertIn(".buffered_frame_visible(use_buffered_history)", swan)
         self.assertIn(".history_newest(framebank_newest)", swan)
+        self.assertIn(".candidate_bank(framebank_candidate)", swan)
+        self.assertIn(
+            ".candidate_uses_live_orientation(candidate_uses_live_orientation)",
+            swan,
+        )
         self.assertIn("assignis_vertical=presented_vertical;", swan)
         self.assertNotIn("assignis_vertical=vertical;", swan)
         self.assertIn("reg[4:0]bank_orientation=5'b00000;", orientation)
@@ -258,8 +275,37 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("elseif(consumer_frame_boundary)begin", orientation)
         self.assertIn(
             "assignpresented_orientation=buffered_frame_visible?"
-            "buffered_orientation:direct_orientation;",
+            "stored_orientation(history_newest):direct_orientation;",
             orientation,
+        )
+        self.assertIn(
+            "assigncandidate_orientation=candidate_uses_live_orientation?"
+            "producer_orientation:stored_orientation(candidate_bank);",
+            orientation,
+        )
+
+        # APF applies the last EOL slot command on the next frame. A completed
+        # bank needing another slot is therefore held immutable for one frame,
+        # while direct scanout fails closed until the applied slot catches up.
+        self.assertIn(
+            "apf_orientation_transition_guardorientation_transition(", swan
+        )
+        self.assertIn(".candidate_valid(framebank_candidate_valid)", swan)
+        self.assertIn(".command_slot(scaler_slot_command)", swan)
+        self.assertIn(
+            "assigndefer_candidate=frame_boundary&&buffered_mode&&"
+            "!protect_pending&&candidate_valid&&"
+            "candidate_target_slot!=command_slot;",
+            transition,
+        )
+        self.assertIn("elseif(protect_pending)begin", arbiter)
+        self.assertIn("elseif(defer_candidate&&consumer_frame_boundary)begin", arbiter)
+        self.assertIn("pending_valid<=1'b0;", arbiter)
+        self.assertIn(
+            "assignblank_presentation=frame_blank||"
+            "((!buffered_mode||!current_frame_valid)&&"
+            "producer_target_slot!=expected_applied_slot);",
+            transition,
         )
 
         self.assertIn("for(candidate=0;candidate<5;candidate=candidate+1)begin", arbiter)
@@ -279,6 +325,7 @@ class PocketVideoContractTest(unittest.TestCase):
             "core/apf_framebank_ram.sv",
             "core/apf_framebank_arbiter.sv",
             "core/apf_frame_orientation.sv",
+            "core/apf_orientation_transition_guard.sv",
             "core/apf_scanout_cadence.sv",
             "core/apf_scaler_selector.sv",
             "core/apf_temporal_blend.sv",
@@ -293,6 +340,8 @@ class PocketVideoContractTest(unittest.TestCase):
             "run_apf_framebank_ram_tb.sh",
             "run_apf_framebank_arbiter_tb.sh",
             "run_apf_frame_orientation_tb.sh",
+            "run_apf_orientation_transition_guard_tb.sh",
+            "run_apf_orientation_delivery_e2e_tb.sh",
             "run_apf_scanout_cadence_tb.sh",
             "run_apf_scaler_selector_tb.sh",
             "run_apf_temporal_blend_tb.sh",

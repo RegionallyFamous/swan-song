@@ -1207,6 +1207,8 @@ module core_top (
       clk_sys_36_864
   );
 
+  wire [2:0] scaler_slot_command_sys;
+
   wonderswan wonderswan (
       .clk_sys_36_864 (clk_sys_36_864),
       .clk_mem_110_592(clk_mem_110_592),
@@ -1254,6 +1256,8 @@ module core_top (
 
       .use_triple_buffer(use_triple_buffer_s),
       .configured_flickerblend(configured_flickerblend_s),
+      .configured_orientation(configured_orientation_s),
+      .use_flip_horizontal(use_flip_horizontal_s),
       .configured_color_profile(configured_color_profile_s),
 
       .use_fastforward_sound(use_fastforward_sound_s),
@@ -1306,6 +1310,7 @@ module core_top (
       .video_g(vid_rgb_core[15:8]),
       .video_b(vid_rgb_core[7:0]),
       .is_vertical(is_vertical),
+      .scaler_slot_command(scaler_slot_command_sys),
 
       .audio_l(audio_l),
       .audio_r(audio_r)
@@ -1325,11 +1330,6 @@ module core_top (
   assign video_rgb_clock_90 = clk_vid_3_75_90deg;
   assign video_skip = 0;
 
-  // Display orientation controls only Pocket presentation.  The emulated
-  // console's live orientation continues to own the X/Y keypad matrix.
-  wire effective_vertical_sys =
-      configured_orientation_s == 2'd2 ? 1'b1 :
-      configured_orientation_s == 2'd1 ? 1'b0 : is_vertical;
   wire frame_start_video;
   wire scaler_update_pending_sys;
   wire [2:0] scaler_slot_video;
@@ -1338,8 +1338,7 @@ module core_top (
   apf_scaler_selector scaler_selector (
       .reset_n(reset_n && pll_core_locked),
       .clk_sys(clk_sys_36_864),
-      .effective_vertical_sys(effective_vertical_sys),
-      .landscape_180_sys(use_flip_horizontal_s),
+      .requested_slot_sys(scaler_slot_command_sys),
       .update_pending_sys(scaler_update_pending_sys),
       .clk_video(clk_vid_3_75),
       .frame_start_video(frame_start_video),
