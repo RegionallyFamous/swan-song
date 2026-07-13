@@ -15,6 +15,7 @@ echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
+python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
@@ -248,8 +249,16 @@ require_bg_layers "$SJIS_BG_SUMMARY" screen1
 require_bg_counts "$SJIS_BG_SUMMARY" \
   cells=8307 screen1=8307 screen2=0 bpp2=8307 bpp4=0 \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0
+python3 "$ROOT/sim/verilator/report_glyphs.py" \
+  "$SJIS_OUT/bg-cells.csv" \
+  --csv "$SJIS_OUT/glyph-epochs.csv" \
+  --png "$SJIS_OUT/glyph-contact.png" \
+  --columns 4 --contact-mode unique-exact
 python3 "$ROOT/sim/verilator/verify_sjis_glyph_fixture.py" \
-  "$SJIS_ROM" "$SJIS_OUT/events.csv" "$SJIS_OUT/frame-1.rgb"
+  "$SJIS_ROM" "$SJIS_OUT/events.csv" "$SJIS_OUT/frame-1.rgb" \
+  --glyph-cells "$SJIS_OUT/bg-cells.csv" \
+  --glyph-report "$SJIS_OUT/glyph-epochs.csv" \
+  --glyph-contact "$SJIS_OUT/glyph-contact.png"
 
 check_case() {
   local name="$1" expected="$2" output="$3" frame="${4:-5}"

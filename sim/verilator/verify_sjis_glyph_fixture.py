@@ -4,13 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import binascii
 import csv
 import hashlib
 import io
+import struct
+import zlib
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from correlate_bg_cells import BYTE_SUFFIXES, correlate
+from report_glyphs import (
+    OUTPUT_FIELDS as GLYPH_REPORT_FIELDS,
+    build_report_records,
+    contact_indices,
+    render_contact_sheet,
+)
 from verify_trace import FIELDS_V5
 
 
@@ -443,13 +453,195 @@ def verify_frame(path: Path) -> None:
         raise ValueError(f"visible pixels differ at ({pixel % 224}, {pixel // 224})")
 
 
-def verify(rom: Path, trace: Path, frame: Path) -> None:
+def glyph_bitmap(glyph: Glyph) -> str:
+    return "/".join(
+        "".join("2" if row & (0x80 >> x) else "0" for x in range(8))
+        for row in glyph.rows
+    )
+
+
+def verify_glyph_report(
+    report: Path, contact: Path, expected_records: list[dict[str, str]]
+) -> None:
+    with report.open(newline="", encoding="utf-8") as source:
+        reader = csv.DictReader(source)
+        if reader.fieldnames != GLYPH_REPORT_FIELDS:
+            raise ValueError("glyph report requires the exact reporter header")
+        rows = list(reader)
+
+    if rows != expected_records:
+        if len(rows) != len(expected_records):
+            raise ValueError(
+                "glyph report does not match its atomic-cell input: "
+                f"expected {len(expected_records)} epochs, got {len(rows)}"
+            )
+        mismatch = next(index for index, pair in enumerate(zip(rows, expected_records)) if pair[0] != pair[1])
+        fields = [
+            field
+            for field in GLYPH_REPORT_FIELDS
+            if rows[mismatch][field] != expected_records[mismatch][field]
+        ]
+        raise ValueError(
+            "glyph report does not match its atomic-cell input at epoch "
+            f"{mismatch}: {', '.join(fields)}"
+        )
+
+    confidence_counts = Counter(row["confidence"] for row in rows)
+    if len(rows) != 592 or confidence_counts != {"exact": 558, "incomplete": 34}:
+        raise ValueError(
+            "unexpected glyph report population: "
+            f"epochs={len(rows)} confidence={dict(confidence_counts)}"
+        )
+
+    sourced = [row for row in rows if row["row_source_ranges"]]
+    if len(sourced) != len(GLYPHS):
+        raise ValueError(f"expected six ROM-sourced glyph epochs, got {len(sourced)}")
+    if len({row["bitmap_fingerprint"] for row in sourced}) != len(GLYPHS):
+        raise ValueError("ROM-sourced glyph epochs do not have six distinct bitmaps")
+    selected = contact_indices(rows, "unique-exact")
+    expected_selected = [32, 197, 198, 199, 200, 201, 202]
+    if selected != expected_selected:
+        raise ValueError(
+            "unexpected unique-exact contact epochs: "
+            f"expected={expected_selected} got={selected}"
+        )
+
+    for index, (row, glyph) in enumerate(zip(sourced, GLYPHS)):
+        bitmap = glyph_bitmap(glyph)
+        iram_start = 0x2010 + index * 16
+        source_start = PACKED_OFFSET + index * 16
+        expected = {
+            "layer": "screen1",
+            "tile_index": str(index + 1),
+            "tile_bank_enabled": "1",
+            "map_address": f"0x{0x1A14 + index * 2:04x}",
+            "map_value": f"0x{index + 1:04x}",
+            "map_x": str(10 + index),
+            "map_y": "8",
+            "palette": "0",
+            "bpp": "2",
+            "packed": "0",
+            "hflip": "0",
+            "vflip": "0",
+            "occurrence_count": "2",
+            "rows_observed": "0,1,2,3,4,5,6,7",
+            "missing_rows": "",
+            "complete": "1",
+            "collision": "0",
+            "mixed": "0",
+            "confidence": "exact",
+            "flags": "",
+            "bitmap_rows": bitmap,
+            "bitmap_fingerprint": hashlib.sha256(bitmap.encode("ascii")).hexdigest(),
+            "coverage_statuses": "complete_from_reset",
+            "map_scoreboard_statuses": "match",
+            "row_scoreboard_statuses": "match",
+            "map_writer_summaries": "cpu_exact",
+            "map_writer_initiators": "cpu",
+            "map_writer_instruction_ids": str(MAP_WRITE_IDS[index]),
+            "map_writer_origin_pcs": f"0x{MAP_WRITE_ORIGIN:05x}",
+            "row_writer_summaries": "gdma",
+            "row_writer_initiators": "gdma",
+            "row_writer_origin_pcs": "",
+            "tile_iram_ranges": f"0x{iram_start:04x}-0x{iram_start + 15:04x}",
+            "row_source_summaries": "gdma_rom",
+            "row_source_ranges": (
+                f"cart_rom_linear:0x{source_start:06x}-0x{source_start + 15:06x}"
+            ),
+        }
+        for field, wanted in expected.items():
+            if row[field] != wanted:
+                raise ValueError(
+                    f"{glyph.text} glyph report: {field} expected {wanted!r}, "
+                    f"got {row[field]!r}"
+                )
+        for field in (
+            "first_cycle",
+            "last_cycle",
+            "occurrence_cycles",
+            "map_write_cycle_range",
+            "row_write_cycle_range",
+            "row_source_read_cycle_range",
+        ):
+            if not row[field]:
+                raise ValueError(f"{glyph.text} glyph report: empty {field}")
+
+    png = contact.read_bytes()
+    if len(png) < 45 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("glyph contact sheet is not a PNG")
+    offset = 8
+    chunks: list[tuple[bytes, bytes]] = []
+    while offset < len(png):
+        if offset + 12 > len(png):
+            raise ValueError("glyph contact sheet has a truncated PNG chunk")
+        length = struct.unpack(">I", png[offset : offset + 4])[0]
+        end = offset + 12 + length
+        if end > len(png):
+            raise ValueError("glyph contact sheet has a truncated PNG payload")
+        kind = png[offset + 4 : offset + 8]
+        payload = png[offset + 8 : offset + 8 + length]
+        expected_crc = struct.unpack(">I", png[offset + 8 + length : end])[0]
+        actual_crc = binascii.crc32(kind + payload) & 0xFFFFFFFF
+        if actual_crc != expected_crc:
+            raise ValueError("glyph contact sheet has a bad PNG checksum")
+        chunks.append((kind, payload))
+        offset = end
+        if kind == b"IEND":
+            break
+    if offset != len(png) or not chunks or chunks[-1] != (b"IEND", b""):
+        raise ValueError("glyph contact sheet has an invalid PNG ending")
+    if chunks[0][0] != b"IHDR" or len(chunks[0][1]) != 13:
+        raise ValueError("glyph contact sheet lacks a valid PNG header")
+    dimensions = struct.unpack(">II", chunks[0][1][:8])
+    if dimensions != (736, 136):
+        raise ValueError(
+            "glyph contact sheet is not the four-column unique-exact view: "
+            f"dimensions={dimensions[0]}x{dimensions[1]}"
+        )
+    if chunks[0][1][8:] != bytes((8, 2, 0, 0, 0)):
+        raise ValueError("glyph contact sheet is not deterministic 8-bit RGB")
+    compressed = b"".join(payload for kind, payload in chunks if kind == b"IDAT")
+    try:
+        scanlines = zlib.decompress(compressed)
+    except zlib.error as error:
+        raise ValueError("glyph contact sheet has invalid PNG image data") from error
+    stride = 1 + dimensions[0] * 3
+    if len(scanlines) != dimensions[1] * stride or any(
+        scanlines[row * stride] != 0 for row in range(dimensions[1])
+    ):
+        raise ValueError("glyph contact sheet has unexpected PNG scanlines")
+    expected_png = render_contact_sheet(rows, 4, "unique-exact")
+    if png != expected_png:
+        raise ValueError("glyph contact sheet pixels or labels disagree with the report CSV")
+
+
+def verify(
+    rom: Path,
+    trace: Path,
+    frame: Path,
+    glyph_cells: Path | None = None,
+    glyph_report: Path | None = None,
+    glyph_contact: Path | None = None,
+) -> None:
     verify_rom(rom)
     rows = read_trace(trace)
     verify_gdma(rows)
     verify_map_writes(rows)
     verify_cells(trace)
     verify_frame(frame)
+    glyph_inputs = (glyph_cells, glyph_report, glyph_contact)
+    if any(value is not None for value in glyph_inputs) and any(
+        value is None for value in glyph_inputs
+    ):
+        raise ValueError(
+            "glyph cells, report, and contact sheet must be verified together"
+        )
+    if glyph_cells is not None and glyph_report is not None and glyph_contact is not None:
+        verify_glyph_report(
+            glyph_report,
+            glyph_contact,
+            build_report_records(glyph_cells),
+        )
 
 
 def main() -> None:
@@ -457,14 +649,37 @@ def main() -> None:
     parser.add_argument("rom", type=Path)
     parser.add_argument("trace", type=Path)
     parser.add_argument("frame", type=Path, help="raw 224x144 RGB frame")
+    parser.add_argument(
+        "--glyph-cells",
+        type=Path,
+        help="correlate_bg_cells.py CSV; requires both glyph outputs",
+    )
+    parser.add_argument(
+        "--glyph-report",
+        type=Path,
+        help="report_glyphs.py epoch CSV; requires --glyph-cells and --glyph-contact",
+    )
+    parser.add_argument(
+        "--glyph-contact",
+        type=Path,
+        help="four-column unique-exact PNG; requires --glyph-cells and --glyph-report",
+    )
     args = parser.parse_args()
     try:
-        verify(args.rom, args.trace, args.frame)
+        verify(
+            args.rom,
+            args.trace,
+            args.frame,
+            args.glyph_cells,
+            args.glyph_report,
+            args.glyph_contact,
+        )
     except (OSError, ValueError, KeyError) as error:
         raise SystemExit(f"Shift-JIS glyph fixture: {error}") from error
     print(
         "PASS Shift-JIS glyph fixture "
         "glyphs=6 gdma_words=48 promoted_rows=96 visible_pixels=exact"
+        + (" report_candidates=6 contact_unique_exact=7" if args.glyph_report else "")
     )
 
 

@@ -15,6 +15,11 @@
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
   row, and every final RGB pixel. All 25,111 display reads match the
   reset-complete writer scoreboard.
+- The title-agnostic glyph reporter converts atomic-cell provenance into a
+  complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
+  it retains 592 placement/provenance epochs while surfacing seven distinct
+  exact bitmaps; six bind to the expected maps, writers, IRAM ranges, and ROM
+  source ranges. It never assigns character identity from tile numbers alone.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
   C++ unit test. The regression also validates CPU, display-RAM, and completed
   memory events from the
@@ -163,6 +168,11 @@ and preserves the writers observed on the raw-fetch edge rather than consulting
 IRAM at the later promotion edge. Across the open-ROM suite it requires nonzero
 coverage from both screen layers. This proves the promoted map and contributing tile row, not that any
 specific pixel survived windows, transparency, priority, sprites, or clipping.
+The Shift-JIS workload then runs `report_glyphs.py` over the atomic CSV and
+requires its provenance ledger and four-column `unique-exact` contact sheet to
+recover the six manifest-bound glyph candidates. The reporter's focused tests
+cover 2bpp/4bpp planar and packed decoding, both flips, repeated and rewritten
+epochs, incomplete/mixed/collision states, and byte-identical CSV/PNG output.
 The capture manifest is bound to the trace, ROM, and boot image by sizes and
 FNV-1a digests; dedicated fixtures separately lock their generated inputs with
 SHA-256. Regression also proves a failed same-path rerun removes the preceding

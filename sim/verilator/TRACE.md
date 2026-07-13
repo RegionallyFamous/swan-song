@@ -70,6 +70,11 @@ python3 sim/verilator/correlate_bg_cells.py \
   build/sim/text.csv \
   --output build/sim/text-bg-cells.csv \
   --require-complete-coverage
+python3 sim/verilator/report_glyphs.py \
+  build/sim/text-bg-cells.csv \
+  --csv build/sim/text-glyph-epochs.csv \
+  --png build/sim/text-glyph-contact.png \
+  --contact-mode unique-exact
 ```
 
 Do not apply memory or display filters to the capture used for complete
@@ -83,6 +88,19 @@ report-output filters and rejects any value mismatch, mixed-port collision,
 partial word, or unobserved byte. The older `--fail-on-mismatch` remains
 available for exploratory reports where collision-marked uncertainty is
 acceptable.
+
+`report_glyphs.py` turns the atomic-cell CSV into a title-agnostic visual
+index. Its complete CSV preserves every tile-use epoch, occurrence cycle,
+normalized 8×8 bitmap fingerprint, map slot, writer origin, IRAM byte range,
+and recoverable ROM source range. It decodes 2bpp and 4bpp planar/packed rows
+and normalizes horizontal and vertical flips, but never guesses a character
+identity. `--contact-mode unique-exact` keeps the CSV complete while drawing
+one provenance-rich exact epoch for each distinct bitmap in the PNG; every
+`E###` label points back to the original CSV epoch. Use `exact` or `all` when repeated
+placements or incomplete/collision-marked candidates need visual inspection.
+Because v5 has no frame marker, repeated normalized rows delimit occurrences;
+the report retains exact cycle spans instead of presenting that heuristic as
+frame identity.
 
 The 20-bit physical PC is `(CS << 4) + IP`, modulo 1 MiB. `--trace-pc` accepts
 one or more comma-separated inclusive `START-END` ranges and treats them as a
@@ -318,7 +336,10 @@ layers. The suite generates temporary bank and WSC GDMA/SDMA probes and runs a
 checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated glyph
 verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
 48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted
-glyph row and source offset, and the final 224×144 RGB pixels. This proves the
+glyph row and source offset, and the final 224×144 RGB pixels. It also requires
+the reporter to produce 592 provenance-preserving epochs and a seven-image
+unique-exact contact sheet whose six ROM-sourced entries have the expected
+maps, fingerprints, IRAM spans, writer origins, and ROM offsets. This proves the
 general Japanese-text provenance path while deliberately leaving any
 commercial title's private codepoint mapping unclaimed. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
