@@ -381,6 +381,22 @@ class PocketPerGamePresetTests(unittest.TestCase):
             self.assertEqual(failure.returncode, 2)
             self.assertIn("error:", failure.stderr)
 
+    def test_cli_does_not_claim_to_pre_remap_controls(self) -> None:
+        help_result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        normalized_help = " ".join(help_result.stdout.split())
+        self.assertIn(
+            "per-game creates a per-asset APF Controls definition/namespace",
+            normalized_help,
+        )
+        self.assertIn("it does not pre-remap buttons", normalized_help)
+        self.assertIn("remap them in Pocket OS", normalized_help)
+
 
 if __name__ == "__main__":
     unittest.main()

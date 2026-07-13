@@ -413,7 +413,8 @@ def _parser() -> argparse.ArgumentParser:
         choices=("per-game", "inherit"),
         default="per-game",
         help=(
-            "per-game creates an Input override for Pocket-side remapping; "
+            "per-game creates a per-asset APF Controls definition/namespace; "
+            "it does not pre-remap buttons (remap them in Pocket OS). "
             "inherit creates no Input file"
         ),
     )
