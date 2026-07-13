@@ -367,6 +367,16 @@ commercial title's private codepoint mapping unclaimed. The
 GDMA probe runtime-verifies linear-ROM and IRAM mapping with the ordered
 completed chain `ROM 0x0100 -> IRAM 0x4000` and `ROM 0x0102 -> IRAM 0x4002`,
 including known values and mapped offsets.
+Two self-contained, build-generated, non-checked-in Color probes separately
+select planar `0xc0` and packed `0xe0` 4bpp modes. Each transfers one exact
+32-byte tile from linear ROM to IRAM `0x4020..0x403f`, then displays it at map
+addresses `0x1a14/0x1a16/0x1a18/0x1a1a` with normal, H, V, and HV orientation.
+The strict gate checks the complete manifest, 16 alternating GDMA word pairs, four
+ROM-source lanes for every selected atomic row, reporter bitmap fingerprints,
+and the stable second frame. It also requires the two different physical
+encodings to produce identical normalized bitmaps and RGB output; the first
+captured frame is retained for two-occurrence provenance but is not the final
+pixel oracle because display setup overlaps its leading scanline.
 The SDMA probe runtime-verifies four successive byte addresses in linear ROM,
 their even/odd returned values and offsets, `not_applicable` CPU origin, the
 runtime initiator filter, and the fastest-rate cadence.
@@ -407,6 +417,9 @@ unattributed.
 The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
 the extended-range Color fixture adds 5,176 Screen 1 cells and the Shift-JIS
 fixture adds 8,307. Of the latter, 96 records are the two complete promotions
-of all 48 manifest-bound glyph rows. The focused unit test locks 2bpp/4bpp
+of all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,493
+Screen 1 cells; 64 are the two complete promotions of the four diagnostic
+placements, with both raw words and all four GDMA/ROM byte provenances exact.
+The focused unit test locks 2bpp/4bpp
 selection, simultaneous layers, collisions, superseded prefetches, and
 writer-snapshot timing.

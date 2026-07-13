@@ -15,6 +15,14 @@
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
   row, and every final RGB pixel. All 25,111 display reads match the
   reset-complete writer scoreboard.
+- Paired build-generated, non-checked-in WSC probes exercise both documented
+  Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a distinct 32-byte
+  ROM payload into tile 1, displays normal/H/V/HV placements, and proves 32
+  ordered GDMA events, 64 selected atomic rows with four exact ROM-sourced
+  bytes apiece, four provenance-bearing glyph epochs, and a pixel-exact final
+  frame. Both encodings normalize to identical glyph fingerprints and RGB;
+  their stable `frame-1.rgb` SHA-256 is
+  `7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d`.
 - The title-agnostic glyph reporter converts atomic-cell provenance into a
   complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
   it retains 592 placement/provenance epochs while surfacing seven distinct
@@ -66,7 +74,9 @@
   fetch-time writer snapshots pass focused C++/Python fixtures. The translated
   ROM regression validates 26,224 bootstrap cells across both layers and 5,176
   extended-range Color cells. The Shift-JIS workload adds 8,307 Screen 1 cells,
-  including 96 manifest-bound Japanese glyph-row promotions. All three runs
+  including 96 manifest-bound Japanese glyph-row promotions. The generated
+  planar and packed workloads add 8,493 Screen 1 4bpp cells apiece, including
+  64 exact diagnostic rows per encoding. All five runs
   account explicitly for superseded and end-of-capture prefetches.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
@@ -159,7 +169,8 @@ This unit test proves config parsing, filtering primitives, and serialization.
 capture to check all five CSV schema versions, event-specific fields, monotonic cycles,
 `CS:IP` to physical-PC conversion, and requested PC/address/role containment.
 The same regression generates (but does not check in) minimal open bank-write,
-WSC GDMA/SDMA, paired mapper-memory, and mono/Color boot-overlay probes. The GDMA
+WSC GDMA/SDMA, dual-format 4bpp, paired mapper-memory, and mono/Color
+boot-overlay probes. The GDMA
 probe requires two known ROM words to appear in the ordered completed
 read/write events at their resolved ROM and IRAM offsets. The SDMA probe
 requires four byte-addressed linear-ROM reads, including odd addresses, at the
@@ -170,6 +181,12 @@ instruction origins for probe-owned accesses across the paired trace-space
 coverage.
 The boot probes bind both input images and prove the overlay-to-cartridge
 transition at identical physical addresses.
+The 4bpp probes are repository-authored 80186 code and data with no assembler,
+SDK, carrier ROM, or checked-in binary. Their strict verifier binds the
+generated ROM hashes and footer checksums, complete v5 manifests, all 16 GDMA
+read/write pairs, all four provenance lanes on 64 selected atomic rows, the
+normal and flipped reporter epochs, and the stable 224×144 RGB output. It also
+requires planar and packed captures to render byte-identically.
 It also runs `correlate_provenance.py` against an unfiltered-from-reset
 memory/display capture and requires every fetched word to be exact: no value
 mismatch, mixed-port collision, partial word, or unobserved byte is accepted.

@@ -17,6 +17,7 @@ python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
+python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_boot_overlay_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sdma_probe_test.py"
@@ -229,6 +230,59 @@ for model in mono color; do
     "$BOOT_OUT/boot_overlay_carrier.ws" \
     "$BOOT_OUT/boot_overlay_${model}.bin"
 done
+
+# Exercise both documented WonderSwan Color 4bpp tile encodings with
+# repository-authored, build-generated cartridges that are never checked in.
+# The ROM payloads differ at the byte level but decode to the same asymmetric
+# 15-color tile. Four placements cover normal, horizontal, vertical, and
+# combined flips; the paired verifier
+# binds both exact GDMA chains through atomic rows, glyph reports, and pixels.
+BPP4_OUT="$BUILD/4bpp-probe"
+rm -rf "$BPP4_OUT"
+python3 "$ROOT/sim/verilator/generate_4bpp_probe.py" \
+  --output-dir "$BPP4_OUT/roms" >/dev/null
+for variant in planar packed; do
+  BPP4_VARIANT_OUT="$BPP4_OUT/$variant"
+  "$SIM" \
+    --rom "$BPP4_OUT/roms/wsc_4bpp_${variant}_probe.wsc" \
+    --frames 2 --max-cycles 4000000 --out "$BPP4_VARIANT_OUT/frames" \
+    --event-trace "$BPP4_VARIANT_OUT/events.csv" \
+    --trace-events mem,vram,bg_cell >/dev/null
+  python3 "$ROOT/sim/verilator/verify_trace.py" \
+    "$BPP4_VARIANT_OUT/events.csv" \
+    --allowed mem,vram,bg_cell --require mem,vram,bg_cell \
+    --require-fetch-values --reject-fetch-collisions \
+    --require-mem-initiators cpu,gdma \
+    --require-origin-statuses exact,unattributed,not_applicable
+  python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+    "$BPP4_VARIANT_OUT/events.csv" \
+    --output "$BPP4_VARIANT_OUT/provenance.csv" \
+    --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
+    --expect-count fetches=25669 --expect-count match=25669 \
+    --expect-count collision=0 --expect-count cpu_exact=8493 \
+    --expect-count initial_powerup=17048 --expect-count gdma_rom=128 \
+    --expect-count cpu_rom_movsb=0 \
+    --expect-count cpu_rom_movsb_bytes=0 \
+    --expect-count cpu_rom_movsb_origins=0
+  BPP4_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
+    "$BPP4_VARIANT_OUT/events.csv" \
+    --output "$BPP4_VARIANT_OUT/bg-cells.csv" \
+    --require-complete-coverage)"
+  echo "$BPP4_BG_SUMMARY"
+  require_bg_layers "$BPP4_BG_SUMMARY" screen1
+  require_bg_counts "$BPP4_BG_SUMMARY" \
+    cells=8493 screen1=8493 screen2=0 bpp2=0 bpp4=8493 \
+    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+    cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
+    cpu_rom_movsb_origins=0
+  python3 "$ROOT/sim/verilator/report_glyphs.py" \
+    "$BPP4_VARIANT_OUT/bg-cells.csv" \
+    --csv "$BPP4_VARIANT_OUT/glyph-epochs.csv" \
+    --png "$BPP4_VARIANT_OUT/glyph-contact.png" \
+    --columns 4 --contact-mode unique-exact
+done
+python3 "$ROOT/sim/verilator/verify_4bpp_probe.py" --root "$BPP4_OUT"
+python3 "$ROOT/sim/verilator/verify_4bpp_probe_test.py" --root "$BPP4_OUT"
 
 # Run a native Wonderful-built Shift-JIS renderer over six licensed Misaki
 # glyphs. This binds Japanese character identity to exact ROM offsets, GDMA

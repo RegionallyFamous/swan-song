@@ -91,6 +91,24 @@ documented by [WSdev](https://ws.nesdev.org/wiki/DMA), while keeping the
 inherited raw DMA-bus byte-enable value distinct from logical SDMA sample
 width.
 
+The paired planar/packed 4bpp regressions likewise generate self-contained
+128 KiB Color cartridges under `build/`. Their 80186 programs, pixel patterns,
+palettes, markers, footers, and checksums are repository-authored; they use no
+carrier ROM, SDK, assembler, firmware, font, or third-party asset. Their mode,
+tile, screen-entry, palette, and footer contracts were reviewed in the brief's
+source order: first the current `gpu.vhd`/`gpu_bg.vhd` mode, address, and decode
+paths; then pinned ares
+[screen attributes](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/screen.cpp#L12-L27)
+and [planar/packed fetches](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/memory.cpp#L15-L43);
+then Mednafen 1.32.1+dfsg-3's pinned
+[planar/packed tile decode](https://sources.debian.org/src/mednafen/1.32.1%2Bdfsg-3/src/wswan/tcache.cpp/#L97-L168);
+then WSdev's pinned [SoC mode bits](https://ws.nesdev.org/w/index.php?title=SoC&oldid=641),
+[tile data](https://ws.nesdev.org/w/index.php?title=Display/Tile_Data&oldid=504),
+[screen entries](https://ws.nesdev.org/w/index.php?title=Display/Screens&oldid=506),
+and [palette layout](https://ws.nesdev.org/w/index.php?title=Display/Palette&oldid=514),
+plus the current [ROM-header](https://ws.nesdev.org/wiki/ROM_header) page. No
+external source or WSdev content is copied into the generated images.
+
 The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked
