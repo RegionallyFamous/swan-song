@@ -7,6 +7,7 @@ Pinned on 2026-07-12:
 | Pocket baseline | https://github.com/agg23/openfpga-wonderswan | `073213a2e5992cff23b174d17763cb6354ee862b` | Top-level file contains GPL v2 text; file notices vary |
 | WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | `WonderSwan.sv` grants GPL v2-or-later; top-level file contains GPL v2 text; file notices vary |
 | APF utility reference | https://github.com/agg23/analogue-pocket-utils | `78482d1b363606336f4535aa0adc2e957bc20558` | MIT |
+| Official Chip32 assembler/image reference | https://github.com/open-fpga/bass-chip32 | `f3ad17dfd541e67b527298808ebef131e979ded4` / `v1.0.0` | MIT |
 | Wonderful open test reference | https://github.com/asiekierka/ws-test-suite | `7dfa0e2e869d08386b685d6a56df0bcfaf181b47` | MIT |
 | Wonderful native example reference | https://github.com/WonderfulToolchain/target-wswan-examples | `811b739ab1f0203336a08da8db34365d29869617` | CC0-1.0 example scaffold; linked libraries use zlib terms |
 | Misaki Japanese font source mirror | https://github.com/OpenWitch/AthenaOS | `d37beae7482616313883dcfa4bdb7114d1ef5749` | author's official source/license: https://littlelimit.net/misaki.htm; unlimited use/copy/distribution with or without modification; no warranty |
@@ -59,6 +60,19 @@ maintainer/copyright-holder confirmation of the intended whole-project license,
 restore or normalize notices with their approval, include every required
 license text, and review the APF and Intel-generated-file terms. No inherited
 notice has been changed by this audit.
+
+The Pocket `core.json` declares `chip32.bin`, but the source checkout does not
+carry that generated file. The official
+[Chip32 documentation](https://www.analogue.co/developer/docs/chip32-vm)
+identifies the custom Bass assembler, and the pinned
+[open-fpga/bass-chip32 v1.0.0](https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0)
+produces a 259-byte image from `src/support/chip32.asm`. Its SHA-256 is
+`ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c`,
+exactly matching the loader inside
+[agg23's WonderSwan 1.0.1 release](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1).
+The checked-in hexadecimal image preserves that exact output so packaging is
+offline and host-independent; the build verifies both the assembly and decoded
+image identities before including it.
 
 The checked-in `testroms/` tree is byte-identical to the pinned MiSTer
 `testroms/` directory. Those individual test files do not carry separate

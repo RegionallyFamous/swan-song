@@ -11,6 +11,7 @@
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
 | Structured event trace | V5/v6 runtime verified in Verilator | simulation-gated CPU, bank-register, completion-aligned display word/collision, completed CPU/GDMA/SDMA memory, atomic Screen 1/2 background-cell taps, and conditional atomic sprite-row taps; v5/v6 CSV/JSONL with v1-v6 CSV fixtures; translated open/generated-ROM regression plus focused atomic decode/grouping/writer-snapshot tests pass; `sim/verilator/TRACE.md` |
+| APF package assembly | Offline path verified; final RBF unavailable | `package_core.py` reverses a supplied RBF, materializes the exact 259-byte Chip32 loader declared by `core.json`, rejects changed source/image identities and unsafe/missing references, and emits byte-identical ZIPs for identical inputs; focused tests inspect both required payloads and prove stale-output invalidation; no Quartus bitstream has been packaged |
 | Quartus bitstream | Blocked on host tool availability | requires supported Linux/Windows Quartus 21.1.1 host |
 | Timing closure | Not tested | requires Quartus build |
 | Hardware equivalence | Not tested | requires user-approved Pocket validation |

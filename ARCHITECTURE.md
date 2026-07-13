@@ -98,6 +98,11 @@ save size. Save size is written back to the APF data table at runtime. The
 current Pocket wrapper does not honor the footer RTC flag: `has_rtc` is tied
 high, so the data table always reserves 12 trailing RTC bytes.
 
+`core.json` names that Chip32 program as `chip32.bin`; it is a required package
+dependency even though the source repository carries only its assembly and a
+canonical encoded build image. `package_core.py` materializes the verified
+259-byte binary under that declared name. It does not fetch code during a build.
+
 No BIOS or commercial cartridge image is part of this repository.
 
 ## Controls and rotation

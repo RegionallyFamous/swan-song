@@ -98,7 +98,17 @@
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
   hashes; the generated ROM is not checked in.
+- The APF build-ID generator no longer reads the live build clock or an RNG.
+  A focused Tcl/Python contract proves that it preserves the 256×32 MIF shape,
+  derives the three established words from a clean source commit and an
+  explicit or commit-derived epoch, is timezone-independent, and fails closed
+  on ambiguous source identity. Two identical Quartus RBFs have not yet been
+  produced on a supported host.
 - The reverse-bit and deterministic APF package scripts are host-independent.
+  Packaging materializes the core's required 259-byte `chip32.bin` offline,
+  verifies both its assembly-source and image identities, and rejects missing,
+  changed, or path-escaping core references. The image is byte-identical to the
+  one in agg23's 1.0.1 release.
 - Quartus compilation and timing closure have not been run in this fork; the
   current macOS host cannot run supported Quartus 21.1.1.
 - No build has been confirmed on an Analogue Pocket in this fork.
@@ -287,12 +297,35 @@ To produce only the reversed bitstream (without a ZIP), run:
   build/wonderswan.rev
 ```
 
+The core definition also delegates loading to a required Chip32 program. To
+materialize and verify that program independently of Quartus, run:
+
+```sh
+make chip32
+```
+
+This produces `build/chip32.bin` from the checked-in canonical hexadecimal
+image only after `src/support/chip32.asm` and the decoded 259-byte image match
+their pinned SHA-256 identities. It requires no network access or host
+assembler. The encoded image is the exact output of the official
+[open-fpga/bass-chip32 v1.0.0](https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0)
+for the checked-in assembly and matches
+[agg23's WonderSwan 1.0.1 package](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1):
+`ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c`.
+The package command performs this validation again and writes the result under
+the exact filename declared by `core.json`; it never downloads a tool or
+artifact.
+
 The script copies `dist/`, writes the reversed stream as the filename declared
-by `core.json` (`wonderswan.rev`), rejects `.ws`, `.wsc`, `.rom`, and `.sav`
-files, and writes entries in sorted order with fixed timestamps. The resulting
-ZIP therefore contains the APF `Assets/`, `Cores/`, and `Platforms/` roots and
-is reproducible for identical inputs. Keep `--output` outside `dist/`; the
-script enforces this so an older ZIP cannot be included in a later package.
+by `core.json` (`wonderswan.rev`), adds its declared `chip32.bin`, rejects
+`.ws`, `.wsc`, `.rom`, and `.sav` files, and writes entries in sorted order with
+fixed timestamps. Entries are stored without DEFLATE so differing host zlib
+versions cannot change the archive bytes. The resulting ZIP therefore contains
+the APF `Assets/`, `Cores/`, and `Platforms/` roots and is reproducible for
+identical inputs. Keep
+`--output` outside `dist/`; the script enforces this so an older ZIP cannot be
+included in a later package. A failed same-path rebuild removes the preceding
+ZIP before validating new inputs, so stale output cannot masquerade as success.
 
 For an unpacked SD-card tree, unzip the package at the card root. The user must
 separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in
