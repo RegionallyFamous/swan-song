@@ -516,8 +516,11 @@ begin
       variable newRepeat         : std_logic;
       variable jumpNow           : std_logic;
       variable jumpAddr          : unsigned(15 downto 0);
+      variable instructionBoundary : boolean;
    begin
       if rising_edge(clk) then
+
+         instructionBoundary := false;
          
          DIVstart         <= '0';
          cpu_done         <= '0';
@@ -909,7 +912,7 @@ begin
                         when x"8A" => opcode <= OP_MOVREG; cpustage <= CPUSTAGE_MODRM; opsize <= 1; source1 <= OPSOURCE_MEM;       optarget <= OPTARGET_MODRM_REG; newBuf := dbuf + 1;
                         when x"8B" => opcode <= OP_MOVREG; cpustage <= CPUSTAGE_MODRM; opsize <= 2; source1 <= OPSOURCE_MEM;       optarget <= OPTARGET_MODRM_REG; newBuf := dbuf + 1;
                      
-                        when x"8C" => opcode <= OP_MOVMEM; cpustage <= CPUSTAGE_MODRM; opsize <= 2; source1 <= OPSOURCE_MODRM_REG; segmentaccess <= '1'; optarget <= OPTARGET_MEM; irqBlocked <= '1';
+                        when x"8C" => opcode <= OP_MOVMEM; cpustage <= CPUSTAGE_MODRM; opsize <= 2; source1 <= OPSOURCE_MODRM_REG; segmentaccess <= '1'; optarget <= OPTARGET_MEM;
                      
                         when x"8D" => opcode <= OP_MOVREG; cpustage <= CPUSTAGE_MODRM; opsize <= 2; source1 <= OPSOURCE_MODRM_ADDR; optarget <= OPTARGET_MODRM_REG;
                      
@@ -1055,31 +1058,31 @@ begin
                         when x"EE" => opcode <= OP_OPOUT; newDelay := 3; cpustage <= CPUSTAGE_EXECUTE; opsize <= 1; source1 <= OPSOURCE_REG_dx; source2 <= OPSOURCE_ACC;
                         when x"EF" => opcode <= OP_OPOUT; newDelay := 2; cpustage <= CPUSTAGE_EXECUTE; opsize <= 2; source1 <= OPSOURCE_REG_dx; source2 <= OPSOURCE_ACC;
 
-                        when x"F0" => isPrefix := '1'; irqBlocked <= '1'; usePrefix := '1'; -- lock
+                        when x"F0" => isPrefix := '1'; irqBlocked <= '1'; usePrefix := '1'; cpu_done <= '1'; newBuf := dbuf + 1; cpustage <= CPUSTAGE_IDLE; -- lock
                         
                         --when x"F1" => ?
 
                         when x"F2" => newDelay := 4; RepeatNext <= '1'; isPrefix := '1'; repeatZero <= '0'; irqBlocked <= '1'; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1';
                         when x"F3" => newDelay := 4; RepeatNext <= '1'; isPrefix := '1'; repeatZero <= '1'; irqBlocked <= '1'; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1';
                      
-                        when x"F4" => newDelay := 8; halt <= '1'; cpustage <= CPUSTAGE_IDLE;
+                        when x"F4" => newDelay := 8; halt <= '1'; cpustage <= CPUSTAGE_IDLE; instructionBoundary := true;
                         
                         when x"F5" => opcode <= OP_NOP; newDelay := 3; regs.FlagCar <= not regs.FlagCar; cpustage <= CPUSTAGE_EXECUTE;
 
                         when x"F6" => opcode <= OP_MEMIMM3; source1 <= OPSOURCE_MEM; cpustage <= CPUSTAGE_MODRM; opsize <= 1;
                         when x"F7" => opcode <= OP_MEMIMM3; source1 <= OPSOURCE_MEM; cpustage <= CPUSTAGE_MODRM; opsize <= 2;
 
-                        when x"F8" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagCar <= '0'; 
-                        when x"F9" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagCar <= '1'; 
-                        when x"FA" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagIrq <= '0'; 
-                        when x"FB" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagIrq <= '1'; irqBlocked <= '1';
-                        when x"FC" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagDir <= '0';
-                        when x"FD" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagDir <= '1';
+                        when x"F8" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagCar <= '0'; instructionBoundary := true;
+                        when x"F9" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagCar <= '1'; instructionBoundary := true;
+                        when x"FA" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagIrq <= '0'; instructionBoundary := true;
+                        when x"FB" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagIrq <= '1'; irqBlocked <= '1'; instructionBoundary := true;
+                        when x"FC" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagDir <= '0'; instructionBoundary := true;
+                        when x"FD" => newDelay := 3; cpustage <= CPUSTAGE_IDLE; cpu_finished <= '1'; regs.FlagDir <= '1'; instructionBoundary := true;
                      
                         when x"FE" => opcode <= OP_MEMIMM4; source1 <= OPSOURCE_MEM; cpustage <= CPUSTAGE_MODRM; opsize <= 1;
                         when x"FF" => opcode <= OP_MEMIMM4; source1 <= OPSOURCE_MEM; cpustage <= CPUSTAGE_MODRM; opsize <= 2;
                      
-                        when others => cpustage <= CPUSTAGE_IDLE; cpu_done <= '1';
+                        when others => cpustage <= CPUSTAGE_IDLE; cpu_done <= '1'; instructionBoundary := true;
                   
                      end case;
                      
@@ -1120,7 +1123,7 @@ begin
                      MODRM_reg := unsigned(prefetchBuffer(5 downto 3));
                      MODRM_mod := unsigned(prefetchBuffer(7 downto 6));
                      
-                     if (opcodebyte = x"8E" and MODRM_reg = 3) then irqBlocked <= '1'; end if;
+                     if (opcodebyte = x"8E" and MODRM_reg = 2) then irqBlocked <= '1'; end if;
                      
                      newModDelay := delay;
                      
@@ -2700,6 +2703,7 @@ begin
                            irqrequest <= '1';
                            irqvector  <= source1Val(7 downto 0) & "00";
                            cpustage   <= CPUSTAGE_IDLE;
+                           instructionBoundary := true;
                            
                         when OP_FLAGSFROMACC =>
                            regs.FlagCar <= regs.reg_ax(8);
@@ -2838,10 +2842,7 @@ begin
                         end if;
                         cpustage        <= CPUSTAGE_IDLE;
                         if (repeat = '0' or endRepeat = '1') then
-                           prefixSegmentES <= '0';  
-                           prefixSegmentCS <= '0';  
-                           prefixSegmentSS <= '0';  
-                           prefixSegmentDS <= '0';
+                           instructionBoundary := true;
                         end if;
                      end if;
                   
@@ -2849,6 +2850,14 @@ begin
                      null;
                
                end case;
+
+               if (instructionBoundary) then
+                  PrefixIP        <= (others => '0');
+                  prefixSegmentES <= '0';
+                  prefixSegmentCS <= '0';
+                  prefixSegmentSS <= '0';
+                  prefixSegmentDS <= '0';
+               end if;
                
             end if; 
             
@@ -2961,7 +2970,6 @@ begin
    cpu_export.opcodebyte_last  <= opcodebyte;        
 
 end architecture;
-
 
 
 
