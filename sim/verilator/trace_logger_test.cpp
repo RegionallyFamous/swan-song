@@ -27,6 +27,11 @@ static constexpr const char* kV5Header =
     "tile_row_address,tile_row_bytes,tile_row_value,map_collision,"
     "tile_row_collision\n";
 
+static constexpr const char* kV6HeaderSuffix =
+    ",sprite_table_address,sprite_table_value,sprite_table_collision,"
+    "sprite_line_y,sprite_line_slot,sprite_table_generation,"
+    "sprite_line_epoch\n";
+
 static constexpr const char* kBgJsonNulls =
     ",\"bg_layer\":null,\"map_address\":null,\"map_value\":null,"
     "\"map_x\":null,\"map_y\":null,\"tile_bank_enabled\":null,"
@@ -35,6 +40,18 @@ static constexpr const char* kBgJsonNulls =
     "\"tile_row_address\":null,\"tile_row_bytes\":null,"
     "\"tile_row_value\":null,\"map_collision\":null,"
     "\"tile_row_collision\":null";
+
+static constexpr const char* kSpriteJsonNulls =
+    ",\"sprite_table_address\":null,\"sprite_table_value\":null,"
+    "\"sprite_table_collision\":null,\"sprite_line_y\":null,"
+    "\"sprite_line_slot\":null,\"sprite_table_generation\":null,"
+    "\"sprite_line_epoch\":null";
+
+static std::string v6_header() {
+  std::string header(kV5Header);
+  header.pop_back();
+  return header + kV6HeaderSuffix;
+}
 
 template <typename Function>
 static void expect_failure(Function function) {
@@ -130,6 +147,13 @@ int main() {
          static_cast<uint8_t>(EventType::BgCell));
   assert(swansong::trace::parse_events("all") &
          static_cast<uint8_t>(EventType::BgCell));
+  assert(swansong::trace::parse_events("sprite_row") ==
+         static_cast<uint8_t>(EventType::SpriteRow));
+  assert(swansong::trace::parse_events("all") &
+         static_cast<uint8_t>(EventType::SpriteRow));
+
+  Config default_config;
+  assert(default_config.includes(EventType::SpriteRow));
 
   Config config;
   std::istringstream config_text(
@@ -154,6 +178,7 @@ int main() {
   assert(!config.includes(EventType::Bank));
   assert(config.includes(EventType::Vram));
   assert(config.includes(EventType::BgCell));
+  assert(!config.includes(EventType::SpriteRow));
   assert(config.cpu_pc.size() == 2 && config.cpu_pc[0].first == 0x80000 &&
          config.cpu_pc[1].first == 0xf0000);
   assert(config.vram_address.size() == 2);
@@ -225,6 +250,42 @@ int main() {
          "\"instruction_id\":null,\"origin_pc\":null,"
          "\"origin_status\":null,\"fetch_value\":51966,"
          "\"fetch_collision\":1" + std::string(kBgJsonNulls) + "}\n");
+
+  expect_failure([] {
+    std::ostringstream invalid;
+    Writer writer(invalid, Format::Csv, 4);
+  });
+  expect_failure([] {
+    std::ostringstream invalid;
+    Writer writer(invalid, Format::Csv, 7);
+  });
+  expect_failure([] {
+    std::ostringstream legacy;
+    Writer writer(legacy, Format::Csv);
+    writer.write({1, EventType::SpriteRow, std::nullopt, std::nullopt,
+                  std::nullopt, std::nullopt, std::nullopt, std::nullopt});
+  });
+
+  std::ostringstream v6_csv;
+  Writer v6_csv_writer(v6_csv, Format::Csv, 6);
+  v6_csv_writer.write({7, EventType::Cpu, 0xabcde, 0xabcd, 0x012e,
+                       std::nullopt, std::nullopt, std::nullopt});
+  assert(v6_csv.str() == v6_header() +
+                             "7,cpu,703710,43981,302,,,,,,,,,,,,," +
+                             empty_bg_fields + ",,,,,,,\n");
+
+  std::ostringstream v6_jsonl;
+  Writer v6_jsonl_writer(v6_jsonl, Format::Jsonl, 6);
+  v6_jsonl_writer.write(json_vram);
+  assert(v6_jsonl.str() ==
+         "{\"cycle\":9,\"event\":\"vram\",\"physical_pc\":null,"
+         "\"cs\":null,\"ip\":null,\"address\":17185,\"value\":null,"
+         "\"role\":\"sprite_tile\",\"initiator\":null,\"access\":null,"
+         "\"byte_enable\":null,\"space\":null,\"mapped_offset\":null,"
+         "\"instruction_id\":null,\"origin_pc\":null,"
+         "\"origin_status\":null,\"fetch_value\":51966,"
+         "\"fetch_collision\":1" + std::string(kBgJsonNulls) +
+             kSpriteJsonNulls + "}\n");
 
   std::ostringstream mem_jsonl;
   Writer mem_jsonl_writer(mem_jsonl, Format::Jsonl);
@@ -316,6 +377,73 @@ int main() {
                         "20,bg_cell,,,,,,,,,,,,,,,,,2,6210,60757,1,1,1,853,6,"
                         "1,1,4,1,3,43692,4,2309737967,1,0\n");
   std::filesystem::remove(bg_path);
+
+  const std::filesystem::path sprite_path =
+      std::filesystem::temp_directory_path() / "swansong-sprite-row-test.csv";
+  Config sprite_config;
+  sprite_config.output = sprite_path;
+  sprite_config.events = static_cast<uint8_t>(EventType::SpriteRow);
+  {
+    swansong::trace::Logger logger(sprite_config);
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1002, 0x50400001, false, 6, 66, 3, 10, 2, false,
+                        0x2014, 0x3412, false);
+    }, "sprite_table_address must be 4-byte aligned");
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1000, 0x50400001, false, 6, 66, 32, 10, 2, false,
+                        0x2014, 0x3412, false);
+    }, "sprite_line_slot must be within 0..31");
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1000, 0x50400001, false, 6, 66, 3, 10, 3, false,
+                        0x2014, 0x3412, false);
+    }, "bpp must be 2 or 4");
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1000, 0x50400001, false, 6, 72, 3, 10, 2, false,
+                        0x2014, 0x3412, false);
+    }, "sprite is not vertically active");
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1000, 0x50400001, false, 6, 66, 3, 10, 2, false,
+                        0x2016, 0x3412, false);
+    }, "tile_row_address does not match descriptor/line; expected 0x2014");
+    expect_failure_containing([&logger] {
+      logger.sprite_row(20, 0x1000, 0x50400001, false, 6, 66, 3, 10, 2, false,
+                        0x2014, 0x10000, false);
+    }, "tile_row_value exceeds the 16-bit 2bpp row width");
+
+    logger.sprite_row(21, 0x1000, 0x50400001, false, 7, 66, 3, 11, 2, false,
+                      0x2014, 0x3412, true);
+    logger.sprite_row(22, 0x1004, 0x60408202, true, 8, 68, 4,
+                      0xffffffffu, 4, true,
+                      0x404c, 0x89abcdef, false);
+  }
+  std::ifstream sprite_input(sprite_path);
+  const std::string sprite_text(
+      (std::istreambuf_iterator<char>(sprite_input)),
+      std::istreambuf_iterator<char>());
+  assert(sprite_text ==
+         v6_header() +
+             "21,sprite_row,,,,,,,,,,,,,,,,,,,,,,,1,8,0,0,2,0,2,8212,2,"
+             "13330,,1,4096,1346371585,0,66,3,7,11\n"
+             "22,sprite_row,,,,,,,,,,,,,,,,,,,,,,,2,9,0,1,4,1,3,16460,4,"
+             "2309737967,,0,4100,1614840322,1,68,4,8,4294967295\n");
+  std::filesystem::remove(sprite_path);
+
+  const std::filesystem::path legacy_path =
+      std::filesystem::temp_directory_path() / "swansong-v5-filter-test.csv";
+  Config legacy_config;
+  legacy_config.output = legacy_path;
+  legacy_config.events = static_cast<uint8_t>(EventType::Cpu);
+  {
+    swansong::trace::Logger logger(legacy_config);
+    logger.sprite_row(23, 0x1000, 0x50400001, false, 9, 66, 3, 12, 2, false,
+                      0x2014, 0x3412, false);
+  }
+  std::ifstream legacy_input(legacy_path);
+  const std::string legacy_text(
+      (std::istreambuf_iterator<char>(legacy_input)),
+      std::istreambuf_iterator<char>());
+  assert(legacy_text == kV5Header);
+  std::filesystem::remove(legacy_path);
 
   const std::filesystem::path bank_path =
       std::filesystem::temp_directory_path() / "swansong-bank-origin-test.csv";

@@ -133,7 +133,15 @@ The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked
 `target-wswan-syslibs` zlib notice. It is open test software and includes no
-firmware or commercial game content.
+firmware or commercial game content. The v6 atomic sprite-row contract was
+reviewed first against the current `gpu.vhd`/`sprites.vhd` handoff, then pinned
+ares [OAM synchronization and scanline decode](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/sprite.cpp#L1-L63),
+Mednafen's [sprite composition](https://sources.debian.org/src/mednafen/1.32.1%2Bdfsg-3/src/wswan/gfx.cpp/#L784-L904),
+WSdev's pinned [sprite format](https://ws.nesdev.org/w/index.php?title=Display/Sprites&oldid=507),
+and that fixture's pinned [source](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/color/display/tile_screen_extended_range/main.c#L8-L134).
+Those sources validate attributes, scanline selection, and open stimulus; none
+reports this translated RTL's internal line-buffer acceptance edge, so the
+atomic provenance claim is explicitly simulation-only.
 
 The checked-in `sjis_glyph_provenance.wsc` fixture is a reproducible native
 Wonderful build of project source plus six unmodified 8×8 rows from Misaki

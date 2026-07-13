@@ -10,6 +10,9 @@
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
   above 16 KiB without aliasing; all 15,794 physical display reads match
   provenance (15,608 exact CPU-written words and 186 power-up prefetches).
+  Its 32 atomic sprite-row events bind four cached descriptors to slots 0-3
+  on lines 72-79 and distinguish 32 contributing 2bpp words from the engine's
+  32 noncontributing second reads.
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
@@ -28,8 +31,8 @@
   8×8 panels: low sprite behind opaque Screen 2, the formerly broken
   earlier-low/later-high fallback, high sprite above Screen 2, and ordinary
   sprite-list order without Screen 2. Its strict two-frame gate proves 24
-  descriptor words, 96 sprite-tile reads, 64 exact GDMA words, 18 final CPU
-  writes, zero display collisions, and a stable `frame-1.rgb` SHA-256 of
+  descriptor words, 96 sprite-tile reads, 48 packed 4bpp row promotions, 64
+  exact GDMA words, 18 final CPU writes, zero display collisions, and a stable `frame-1.rgb` SHA-256 of
   `eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3a4b5ef4`.
 - The title-agnostic glyph reporter converts atomic-cell provenance into a
   complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
@@ -77,9 +80,14 @@
   These are translated-RTL contracts: absent-SRAM zero and mono-unmapped
   `0x9090` readback are regression-locked current-core results, not physical
   hardware/open-bus claims.
-- V5 atomic Screen 1/2 background-cell serialization, map/tile decode, 2bpp
+- V5 atomic Screen 1/2 background-cell serialization and conditional v6
+  sprite-row serialization, map/descriptor and tile decode, 2bpp
   selected-word versus 4bpp two-word handling, collision semantics, and
-  fetch-time writer snapshots pass focused C++/Python fixtures. The translated
+  fetch-time writer snapshots pass focused C++/Python fixtures. Each sprite
+  row also binds an exact latched OAM DMA generation, so an identical later
+  refresh cannot steal its writer provenance, plus an explicit line-load epoch
+  so overlapping DMA and repeated 8-bit line numbers cannot blur slot order. V6 preserves
+  the exact v5 prefix and is emitted only when `sprite_row` is requested. The translated
   ROM regression validates 26,224 bootstrap cells across both layers and 5,176
   extended-range Color cells. The Shift-JIS workload adds 8,307 Screen 1 cells,
   including 96 manifest-bound Japanese glyph-row promotions. The generated

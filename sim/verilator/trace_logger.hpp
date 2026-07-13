@@ -23,6 +23,7 @@ enum class EventType : uint8_t {
   Vram = 4,
   Mem = 8,
   BgCell = 16,
+  SpriteRow = 32,
 };
 enum class Format { Auto, Csv, Jsonl };
 enum class VramRole : uint8_t {
@@ -90,7 +91,8 @@ struct Config {
                    static_cast<uint8_t>(EventType::Bank) |
                    static_cast<uint8_t>(EventType::Vram) |
                    static_cast<uint8_t>(EventType::Mem) |
-                   static_cast<uint8_t>(EventType::BgCell);
+                   static_cast<uint8_t>(EventType::BgCell) |
+                   static_cast<uint8_t>(EventType::SpriteRow);
   std::vector<PcRange> cpu_pc;
   std::vector<AddressRange> vram_address;
   uint8_t vram_roles = kAllVramRoles;
@@ -464,7 +466,8 @@ inline uint8_t parse_events(const std::string& text) {
                 static_cast<uint8_t>(EventType::Bank) |
                 static_cast<uint8_t>(EventType::Vram) |
                 static_cast<uint8_t>(EventType::Mem) |
-                static_cast<uint8_t>(EventType::BgCell);
+                static_cast<uint8_t>(EventType::BgCell) |
+                static_cast<uint8_t>(EventType::SpriteRow);
     } else if (token == "cpu") {
       result |= static_cast<uint8_t>(EventType::Cpu);
     } else if (token == "bank") {
@@ -475,6 +478,8 @@ inline uint8_t parse_events(const std::string& text) {
       result |= static_cast<uint8_t>(EventType::Mem);
     } else if (token == "bg_cell") {
       result |= static_cast<uint8_t>(EventType::BgCell);
+    } else if (token == "sprite_row") {
+      result |= static_cast<uint8_t>(EventType::SpriteRow);
     } else {
       throw std::runtime_error("unknown trace event type: " + token);
     }
@@ -580,6 +585,13 @@ struct Event {
   std::optional<uint32_t> tile_row_value = std::nullopt;
   std::optional<uint32_t> map_collision = std::nullopt;
   std::optional<uint32_t> tile_row_collision = std::nullopt;
+  std::optional<uint32_t> sprite_table_address = std::nullopt;
+  std::optional<uint32_t> sprite_table_value = std::nullopt;
+  std::optional<uint32_t> sprite_table_collision = std::nullopt;
+  std::optional<uint32_t> sprite_line_y = std::nullopt;
+  std::optional<uint32_t> sprite_line_slot = std::nullopt;
+  std::optional<uint32_t> sprite_table_generation = std::nullopt;
+  std::optional<uint32_t> sprite_line_epoch = std::nullopt;
 };
 
 inline const char* event_name(EventType type) {
@@ -589,6 +601,7 @@ inline const char* event_name(EventType type) {
     case EventType::Vram: return "vram";
     case EventType::Mem: return "mem";
     case EventType::BgCell: return "bg_cell";
+    case EventType::SpriteRow: return "sprite_row";
   }
   return "unknown";
 }
@@ -617,7 +630,11 @@ inline const char* origin_status_name(OriginStatus value) {
 
 class Writer {
  public:
-  Writer(std::ostream& output, Format format) : output_(output), format_(format) {
+  Writer(std::ostream& output, Format format, unsigned schema = 5)
+      : output_(output), format_(format), schema_(schema) {
+    if (schema_ != 5 && schema_ != 6) {
+      throw std::runtime_error("structured trace writer schema must be 5 or 6");
+    }
     if (format_ == Format::Csv) {
       output_ << "cycle,event,physical_pc,cs,ip,address,value,role,"
                   "initiator,access,byte_enable,space,mapped_offset,"
@@ -625,11 +642,20 @@ class Writer {
                   "fetch_collision,bg_layer,map_address,map_value,map_x,map_y,"
                   "tile_bank_enabled,tile_index,palette,hflip,vflip,bpp,packed,"
                   "tile_row,tile_row_address,tile_row_bytes,tile_row_value,"
-                  "map_collision,tile_row_collision\n";
+                  "map_collision,tile_row_collision";
+      if (schema_ >= 6) {
+        output_ << ",sprite_table_address,sprite_table_value,"
+                   "sprite_table_collision,sprite_line_y,sprite_line_slot,"
+                   "sprite_table_generation,sprite_line_epoch";
+      }
+      output_ << '\n';
     }
   }
 
   void write(const Event& event) {
+    if (event.type == EventType::SpriteRow && schema_ < 6) {
+      throw std::runtime_error("sprite_row requires structured trace schema v6");
+    }
     if (format_ == Format::Csv) write_csv(event);
     else write_jsonl(event);
     if (!output_) throw std::runtime_error("failed to write structured trace");
@@ -717,6 +743,22 @@ class Writer {
     csv_optional(output_, event.map_collision);
     output_ << ',';
     csv_optional(output_, event.tile_row_collision);
+    if (schema_ >= 6) {
+      output_ << ',';
+      csv_optional(output_, event.sprite_table_address);
+      output_ << ',';
+      csv_optional(output_, event.sprite_table_value);
+      output_ << ',';
+      csv_optional(output_, event.sprite_table_collision);
+      output_ << ',';
+      csv_optional(output_, event.sprite_line_y);
+      output_ << ',';
+      csv_optional(output_, event.sprite_line_slot);
+      output_ << ',';
+      csv_optional(output_, event.sprite_table_generation);
+      output_ << ',';
+      csv_optional(output_, event.sprite_line_epoch);
+    }
     output_ << '\n';
   }
 
@@ -768,11 +810,22 @@ class Writer {
     json_optional(output_, "tile_row_value", event.tile_row_value);
     json_optional(output_, "map_collision", event.map_collision);
     json_optional(output_, "tile_row_collision", event.tile_row_collision);
+    if (schema_ >= 6) {
+      json_optional(output_, "sprite_table_address", event.sprite_table_address);
+      json_optional(output_, "sprite_table_value", event.sprite_table_value);
+      json_optional(output_, "sprite_table_collision", event.sprite_table_collision);
+      json_optional(output_, "sprite_line_y", event.sprite_line_y);
+      json_optional(output_, "sprite_line_slot", event.sprite_line_slot);
+      json_optional(output_, "sprite_table_generation",
+                    event.sprite_table_generation);
+      json_optional(output_, "sprite_line_epoch", event.sprite_line_epoch);
+    }
     output_ << "}\n";
   }
 
   std::ostream& output_;
   Format format_;
+  unsigned schema_;
 };
 
 class Logger {
@@ -784,7 +837,9 @@ class Logger {
     }
     output_.open(config_.output, std::ios::out | std::ios::trunc);
     if (!output_) throw std::runtime_error("cannot write " + config_.output.string());
-    writer_ = std::make_unique<Writer>(output_, resolved_format(config_));
+    writer_ = std::make_unique<Writer>(
+        output_, resolved_format(config_),
+        config_.includes(EventType::SpriteRow) ? 6u : 5u);
   }
 
   void cpu(uint64_t cycle, uint32_t physical_pc, uint16_t cs, uint16_t ip) {
@@ -946,6 +1001,82 @@ class Logger {
                     tile_row_value,
                     map_collision ? 1u : 0u,
                     tile_row_collision ? 1u : 0u});
+  }
+
+  void sprite_row(uint64_t cycle, uint16_t table_address,
+                  uint32_t table_value, bool table_collision,
+                  uint32_t table_generation,
+                  uint8_t line_y, uint8_t line_slot, uint32_t line_epoch,
+                  uint8_t bpp,
+                  bool packed, uint16_t row_address, uint32_t row_value,
+                  bool row_collision) {
+    const auto fail = [&](const std::string& invariant) -> void {
+      std::ostringstream message;
+      message << "invalid sprite-row trace event: " << invariant
+              << " [cycle=" << cycle
+              << " table_address=0x" << std::hex << table_address
+              << " table_value=0x" << table_value << std::dec
+              << " table_generation=" << table_generation
+              << " line_y=" << static_cast<unsigned>(line_y)
+              << " line_slot=" << static_cast<unsigned>(line_slot)
+              << " line_epoch=" << line_epoch
+              << " bpp=" << static_cast<unsigned>(bpp)
+              << " packed=" << packed
+              << " row_address=0x" << std::hex << row_address
+              << " row_value=0x" << row_value << std::dec
+              << " table_collision=" << table_collision
+              << " row_collision=" << row_collision << ']';
+      throw std::runtime_error(message.str());
+    };
+    if (table_address & 3) fail("sprite_table_address must be 4-byte aligned");
+    if (line_slot > 31) fail("sprite_line_slot must be within 0..31");
+    if (bpp != 2 && bpp != 4) fail("bpp must be 2 or 4");
+
+    const uint16_t tile_index = table_value & 0x01ffu;
+    const uint8_t palette = 8u | ((table_value >> 9) & 7u);
+    const bool hflip = ((table_value >> 14) & 1u) != 0;
+    const bool vflip = ((table_value >> 15) & 1u) != 0;
+    const uint8_t sprite_y = (table_value >> 16) & 0xffu;
+    const uint8_t delta = static_cast<uint8_t>(line_y - sprite_y);
+    if (delta >= 8) fail("sprite is not vertically active on sprite_line_y");
+    const uint8_t tile_row = vflip ? static_cast<uint8_t>(7 - delta) : delta;
+    const uint8_t row_bytes = bpp == 2 ? 2 : 4;
+    const uint32_t expected_address =
+        (bpp == 2 ? 0x2000u : 0x4000u) +
+        static_cast<uint32_t>(tile_index) * row_bytes * 8u +
+        static_cast<uint32_t>(tile_row) * row_bytes;
+    if (row_address != expected_address) {
+      std::ostringstream expected;
+      expected << "tile_row_address does not match descriptor/line; expected 0x"
+               << std::hex << expected_address;
+      fail(expected.str());
+    }
+    if (bpp == 2 && row_value > 0xffffu) {
+      fail("tile_row_value exceeds the 16-bit 2bpp row width");
+    }
+    if (!config_.includes(EventType::SpriteRow)) return;
+
+    Event event{cycle, EventType::SpriteRow, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt};
+    event.tile_index = tile_index;
+    event.palette = palette;
+    event.hflip = hflip ? 1u : 0u;
+    event.vflip = vflip ? 1u : 0u;
+    event.bpp = bpp;
+    event.packed = packed ? 1u : 0u;
+    event.tile_row = tile_row;
+    event.tile_row_address = row_address;
+    event.tile_row_bytes = row_bytes;
+    event.tile_row_value = row_value;
+    event.tile_row_collision = row_collision ? 1u : 0u;
+    event.sprite_table_address = table_address;
+    event.sprite_table_value = table_value;
+    event.sprite_table_collision = table_collision ? 1u : 0u;
+    event.sprite_line_y = line_y;
+    event.sprite_line_slot = line_slot;
+    event.sprite_table_generation = table_generation;
+    event.sprite_line_epoch = line_epoch;
+    writer_->write(event);
   }
 
   void mem(uint64_t cycle, MemInitiator initiator, MemAccess access,

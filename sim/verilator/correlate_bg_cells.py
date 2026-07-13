@@ -29,7 +29,7 @@ from correlate_provenance import (
     trace_fnv1a64,
 )
 from verify_trace import BG_FIELDS as BG_CELL_FIELDS
-from verify_trace import FIELDS_V5
+from verify_trace import FIELDS_V5, FIELDS_V6
 
 
 BYTE_SUFFIXES = (
@@ -130,7 +130,7 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
     )
     complete = (
         manifest.get("schema") == "swan-song-trace-manifest-v1"
-        and manifest.get("trace_schema") == 5
+        and manifest.get("trace_schema") in {5, 6}
         and binding_matches
         and manifest.get("capture_start") == "reset_release"
         and manifest.get("capture_completed") is True
@@ -156,9 +156,9 @@ def read_manifest(trace: Path) -> tuple[str, list[ByteVersion | None]]:
 
 def iter_rows(source: TextIO) -> Iterable[TraceRow]:
     reader = csv.DictReader(source)
-    if reader.fieldnames != FIELDS_V5:
+    if reader.fieldnames not in (FIELDS_V5, FIELDS_V6):
         raise ValueError(
-            "background-cell correlation requires exact v5 header, "
+            "background-cell correlation requires exact v5/v6 header, "
             f"got {reader.fieldnames!r}"
         )
     previous_cycle = -1

@@ -13,7 +13,7 @@ from pathlib import Path
 from verify_color_sprite_priority_probe import (
     BLUE,
     CPU_FINAL_WORDS,
-    FIELDS_V5,
+    FIELDS_V6,
     GREEN,
     PAYLOAD,
     PAYLOAD_ADDRESS,
@@ -30,6 +30,7 @@ from verify_color_sprite_priority_probe import (
     verify_manifest,
     verify_rom,
     verify_root,
+    verify_sprite_row_sequence,
     verify_vram,
 )
 
@@ -67,7 +68,7 @@ def synthetic_vram() -> list[VramFetch]:
 
 
 def mem_row(**values: object) -> dict[str, str]:
-    row = {field: "" for field in FIELDS_V5}
+    row = {field: "" for field in FIELDS_V6}
     row.update({field: str(value) for field, value in values.items()})
     return row
 
@@ -161,6 +162,25 @@ def synthetic_cpu_writes() -> list[tuple[int, dict[str, str]]]:
 
 
 def unit_mutations() -> None:
+    sprite_rows = [
+        (line_y, slot) for line_y in range(64, 72) for slot in range(6)
+    ]
+    assert verify_sprite_row_sequence(sprite_rows) == 48
+    must_fail(
+        verify_sprite_row_sequence,
+        sprite_rows[:-1],
+        contains="exact sprite-row line/slot sequence mismatch",
+    )
+    reordered_sprite_rows = list(sprite_rows)
+    reordered_sprite_rows[0], reordered_sprite_rows[1] = (
+        reordered_sprite_rows[1], reordered_sprite_rows[0]
+    )
+    must_fail(
+        verify_sprite_row_sequence,
+        reordered_sprite_rows,
+        contains="exact sprite-row line/slot sequence mismatch",
+    )
+
     vram = synthetic_vram()
     counts = verify_vram(vram)
     assert counts["sprite_table_words"] == 24

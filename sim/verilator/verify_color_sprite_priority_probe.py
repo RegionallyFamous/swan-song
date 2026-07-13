@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from verify_trace import FIELDS_V5
+from verify_trace import FIELDS_V6
 
 
 ROM_NAME = "wsc_color_sprite_priority_probe.wsc"
@@ -33,9 +33,9 @@ STABLE_FRAME_SHA256 = "eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3
 
 # Filled from the first reviewed fixed-RTL capture.  They deliberately live in
 # this independent verifier instead of the generator or the manifest.
-TRACE_SIZE = 8_916_165
-TRACE_FNV1A64 = "81e1cbd005f0a265"
-TRACE_SHA256 = "c0b4359afea557a6b4c43cf63a0f3f3efd5dcda1ce3fc9c4e72e1f288c9cd5e8"
+TRACE_SIZE = 9_636_623
+TRACE_FNV1A64 = "a6a44d72d4bf27c8"
+TRACE_SHA256 = "e297b5ad598647fc7f4594522600d9ebb8f7b89529d23071b5a6010e0e1923af"
 CAPTURE_CYCLES = 930689
 BIOS_FNV1A64 = "bde71f09ac34c168"
 EXPECTED_EVENTS = {
@@ -44,7 +44,11 @@ EXPECTED_EVENTS = {
     "vram": True,
     "mem": True,
     "bg_cell": False,
+    "sprite_row": True,
 }
+EXPECTED_SPRITE_ROWS = tuple(
+    (line_y, slot) for line_y in range(64, 72) for slot in range(6)
+)
 
 TABLE_GROUP = (
     (0x1000, 0x0001),
@@ -89,6 +93,7 @@ class VramFetch:
 class TraceEvidence:
     vram: list[VramFetch]
     mem: list[tuple[int, dict[str, str]]]
+    sprite_rows: list[tuple[int, int]]
     last_cycle: int
 
 
@@ -108,6 +113,15 @@ def decimal(row: dict[str, str], field: str, context: str) -> int:
         return int(value, 10)
     except ValueError as error:
         raise ValueError(f"{context}: invalid {field}: {value!r}") from error
+
+
+def verify_sprite_row_sequence(rows: list[tuple[int, int]]) -> int:
+    if tuple(rows) != EXPECTED_SPRITE_ROWS:
+        raise ValueError(
+            "exact sprite-row line/slot sequence mismatch: "
+            f"{rows!r} != {list(EXPECTED_SPRITE_ROWS)!r}"
+        )
+    return len(rows)
 
 
 def verify_rom(path: Path) -> bytes:
@@ -142,7 +156,7 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
 
     expected = {
         "schema": "swan-song-trace-manifest-v1",
-        "trace_schema": 5,
+        "trace_schema": 6,
         "trace_size_bytes": TRACE_SIZE,
         "trace_fnv1a64": TRACE_FNV1A64,
         "capture_start": "reset_release",
@@ -161,6 +175,7 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "complete_memory_history": True,
         "complete_display_history": True,
         "complete_bg_cell_history": False,
+        "complete_sprite_row_history": True,
     }
     if set(manifest) != {*expected, "trace_file"}:
         raise ValueError("trace manifest field set mismatch")
@@ -187,11 +202,12 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
 def read_trace(path: Path) -> TraceEvidence:
     vram: list[VramFetch] = []
     mem: list[tuple[int, dict[str, str]]] = []
+    sprite_rows: list[tuple[int, int]] = []
     previous_cycle = -1
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
-        if reader.fieldnames != FIELDS_V5:
-            raise ValueError(f"probe requires exact v5 trace header: {reader.fieldnames!r}")
+        if reader.fieldnames != FIELDS_V6:
+            raise ValueError(f"probe requires exact v6 trace header: {reader.fieldnames!r}")
         for line, row in enumerate(reader, start=2):
             context = f"trace line {line}"
             cycle = decimal(row, "cycle", context)
@@ -205,7 +221,7 @@ def read_trace(path: Path) -> TraceEvidence:
                     "fetch_collision",
                 }
                 unexpected = [
-                    field for field in FIELDS_V5
+                    field for field in FIELDS_V6
                     if field not in populated and row[field]
                 ]
                 if unexpected:
@@ -221,11 +237,22 @@ def read_trace(path: Path) -> TraceEvidence:
                 )
             elif event == "mem":
                 mem.append((line, row))
+            elif event == "sprite_row":
+                # The exact trace identity above and correlate_sprite_rows.py
+                # bind the atomic descriptor/row payload. This probe retains
+                # ownership of its exact admitted line/slot lattice.
+                sprite_rows.append(
+                    (
+                        decimal(row, "sprite_line_y", context),
+                        decimal(row, "sprite_line_slot", context),
+                    )
+                )
             else:
                 raise ValueError(f"{context}: unexpected event {event!r}")
     if not vram or not mem:
         raise ValueError("trace does not contain both complete vram and mem histories")
-    return TraceEvidence(vram, mem, previous_cycle)
+    verify_sprite_row_sequence(sprite_rows)
+    return TraceEvidence(vram, mem, sprite_rows, previous_cycle)
 
 
 def expected_sprite_tiles() -> tuple[tuple[int, int], ...]:
@@ -423,6 +450,7 @@ def verify_root(root: Path) -> dict[str, int]:
     verify_manifest(trace_path, rom)
     evidence = read_trace(trace_path)
     counts = verify_vram(evidence.vram)
+    counts["sprite_rows"] = len(evidence.sprite_rows)
     counts["gdma_words"] = verify_gdma(evidence.mem)
     counts["cpu_final_words"] = verify_cpu_final_words(evidence.mem)
     verify_frame(root / "frames" / "frame-1.rgb")

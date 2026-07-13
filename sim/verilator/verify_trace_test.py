@@ -22,10 +22,25 @@ V5_FIELDS = [
     "map_collision", "tile_row_collision",
 ]
 
+SPRITE_FIELDS = [
+    "sprite_table_address", "sprite_table_value", "sprite_table_collision",
+    "sprite_line_y", "sprite_line_slot", "sprite_table_generation",
+    "sprite_line_epoch",
+]
+
+V6_FIELDS = [*V5_FIELDS, *SPRITE_FIELDS]
+
 
 def write_v5(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as output:
         writer = csv.DictWriter(output, fieldnames=V5_FIELDS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_v6(path: Path, rows: list[dict[str, object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(output, fieldnames=V6_FIELDS, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -270,7 +285,126 @@ def main() -> None:
         write_v5(non_bg_fields, [cpu_with_bg])
         run(non_bg_fields, "--allowed", "cpu", succeeds=False)
 
-    print("PASS structured trace verifier v1/v2/v3/v4/v5 compatibility")
+        sprite2: dict[str, object] = {
+            "cycle": 8,
+            "event": "sprite_row",
+            "tile_index": 1,
+            "palette": 8,
+            "hflip": 0,
+            "vflip": 0,
+            "bpp": 2,
+            "packed": 0,
+            "tile_row": 2,
+            "tile_row_address": 0x2014,
+            "tile_row_bytes": 2,
+            "tile_row_value": 0x3412,
+            "tile_row_collision": 1,
+            "sprite_table_address": 0x1000,
+            "sprite_table_value": 0x50400001,
+            "sprite_table_collision": 0,
+            "sprite_line_y": 66,
+            "sprite_line_slot": 3,
+            "sprite_table_generation": 7,
+            "sprite_line_epoch": 11,
+        }
+        sprite4: dict[str, object] = {
+            "cycle": 9,
+            "event": "sprite_row",
+            "tile_index": 2,
+            "palette": 9,
+            "hflip": 0,
+            "vflip": 1,
+            "bpp": 4,
+            "packed": 1,
+            "tile_row": 3,
+            "tile_row_address": 0x404C,
+            "tile_row_bytes": 4,
+            "tile_row_value": 0x89ABCDEF,
+            "tile_row_collision": 0,
+            "sprite_table_address": 0x1004,
+            "sprite_table_value": 0x60408202,
+            "sprite_table_collision": 1,
+            "sprite_line_y": 68,
+            "sprite_line_slot": 4,
+            "sprite_table_generation": 0xFFFFFFFF,
+            "sprite_line_epoch": 0xFFFFFFFF,
+        }
+        v6 = root / "v6.csv"
+        write_v6(v6, [sprite2, sprite4])
+        assert v6.read_text(encoding="utf-8").splitlines()[0] == ",".join(V6_FIELDS)
+        run(v6, "--allowed", "sprite_row", "--require", "sprite_row")
+
+        v6_mixed = root / "v6-mixed.csv"
+        v6_cpu = {
+            "cycle": 5,
+            "event": "cpu",
+            "physical_pc": 0x12345,
+            "cs": 0x1234,
+            "ip": 5,
+        }
+        write_v6(v6_mixed, [v6_cpu, bg1, sprite2])
+        run(
+            v6_mixed,
+            "--allowed",
+            "cpu,bg_cell,sprite_row",
+            "--require",
+            "cpu,bg_cell,sprite_row",
+        )
+        run(v6, "--allowed", "bg_cell", succeeds=False)
+
+        legacy_sprite = {
+            field: value for field, value in sprite2.items() if field not in SPRITE_FIELDS
+        }
+        v5_sprite = root / "v5-sprite-row.csv"
+        write_v5(v5_sprite, [legacy_sprite])
+        run(v5_sprite, "--allowed", "sprite_row", succeeds=False)
+        run(v5, "--require", "sprite_row", succeeds=False)
+
+        for field in SPRITE_FIELDS:
+            missing = root / f"v6-sprite-missing-{field}.csv"
+            row = dict(sprite2)
+            row[field] = ""
+            write_v6(missing, [row])
+            run(missing, "--allowed", "sprite_row", succeeds=False)
+
+        invalid_sprite_cases: dict[str, tuple[str, object]] = {
+            "table-alignment": ("sprite_table_address", 0x1002),
+            "table-value-width": ("sprite_table_value", 0x100000000),
+            "table-collision": ("sprite_table_collision", 2),
+            "table-generation-width": ("sprite_table_generation", 0x100000000),
+            "line-epoch-width": ("sprite_line_epoch", 0x100000000),
+            "line-y": ("sprite_line_y", 256),
+            "line-slot": ("sprite_line_slot", 32),
+            "tile-index": ("tile_index", 2),
+            "palette": ("palette", 9),
+            "hflip": ("hflip", 1),
+            "vflip": ("vflip", 1),
+            "bpp": ("bpp", 3),
+            "packed": ("packed", 2),
+            "tile-row": ("tile_row", 3),
+            "row-bytes": ("tile_row_bytes", 4),
+            "row-address": ("tile_row_address", 0x2016),
+            "row-value-width": ("tile_row_value", 0x10000),
+            "row-collision": ("tile_row_collision", 2),
+            "inactive-line": ("sprite_line_y", 72),
+            "background-field": ("bg_layer", 1),
+            "memory-field": ("initiator", "cpu"),
+        }
+        for name, (field, value) in invalid_sprite_cases.items():
+            invalid = root / f"v6-invalid-sprite-{name}.csv"
+            row = dict(sprite2)
+            row[field] = value
+            write_v6(invalid, [row])
+            run(invalid, "--allowed", "sprite_row", succeeds=False)
+
+        for event_name, valid_row in (("cpu", v6_cpu), ("bg_cell", bg1)):
+            leaked = root / f"v6-{event_name}-sprite-field.csv"
+            row = dict(valid_row)
+            row["sprite_line_epoch"] = 11
+            write_v6(leaked, [row])
+            run(leaked, "--allowed", event_name, succeeds=False)
+
+    print("PASS structured trace verifier v1/v2/v3/v4/v5/v6 compatibility")
 
 
 if __name__ == "__main__":

@@ -45,7 +45,17 @@ BG_FIELDS = [
     "tile_row_collision",
 ]
 FIELDS_V5 = [*FIELDS_V4, *BG_FIELDS]
-EVENTS = {"cpu", "bank", "vram", "mem", "bg_cell"}
+SPRITE_FIELDS = [
+    "sprite_table_address",
+    "sprite_table_value",
+    "sprite_table_collision",
+    "sprite_line_y",
+    "sprite_line_slot",
+    "sprite_table_generation",
+    "sprite_line_epoch",
+]
+FIELDS_V6 = [*FIELDS_V5, *SPRITE_FIELDS]
+EVENTS = {"cpu", "bank", "vram", "mem", "bg_cell", "sprite_row"}
 VRAM_ROLES = {
     "screen1_map",
     "screen1_tile",
@@ -254,6 +264,8 @@ def verify(
             schema = 4
         elif reader.fieldnames == FIELDS_V5:
             schema = 5
+        elif reader.fieldnames == FIELDS_V6:
+            schema = 6
         else:
             raise ValueError(f"unexpected CSV header: {reader.fieldnames!r}")
         if schema == 1 and (vram_role_filter is not None or required_vram_roles):
@@ -284,6 +296,8 @@ def verify(
                 row.update({field: "" for field in FETCH_FIELDS})
             if schema < 5:
                 row.update({field: "" for field in BG_FIELDS})
+            if schema < 6:
+                row.update({field: "" for field in SPRITE_FIELDS})
             event = row["event"]
             if event not in allowed:
                 raise ValueError(f"line {line}: event {event!r} is not allowed")
@@ -298,7 +312,10 @@ def verify(
                 ip = number(row["ip"], "ip", line, 0xFFFF)
                 empty(
                     row,
-                    ("address", "value", "role", *MEM_FIELDS, *FETCH_FIELDS, *BG_FIELDS),
+                    (
+                        "address", "value", "role", *MEM_FIELDS, *FETCH_FIELDS,
+                        *BG_FIELDS, *SPRITE_FIELDS,
+                    ),
                     line,
                 )
                 expected_pc = ((cs << 4) + ip) & 0xFFFFF
@@ -318,6 +335,7 @@ def verify(
                     bank_empty_fields.extend(MEM_FIELDS)
                 bank_empty_fields.extend(FETCH_FIELDS)
                 bank_empty_fields.extend(BG_FIELDS)
+                bank_empty_fields.extend(SPRITE_FIELDS)
                 empty(row, tuple(bank_empty_fields), line)
                 address = number(row["address"], "address", line, 0xFF)
                 number(row["value"], "value", line, 0xFF)
@@ -340,7 +358,10 @@ def verify(
             elif event == "vram":
                 empty(
                     row,
-                    ("physical_pc", "cs", "ip", "value", *MEM_FIELDS, *BG_FIELDS),
+                    (
+                        "physical_pc", "cs", "ip", "value", *MEM_FIELDS,
+                        *BG_FIELDS, *SPRITE_FIELDS,
+                    ),
                     line,
                 )
                 address = number(row["address"], "address", line, 0xFFFF)
@@ -371,7 +392,10 @@ def verify(
                     raise ValueError(f"line {line}: memory event requires v3 schema")
                 empty(
                     row,
-                    ("physical_pc", "cs", "ip", "role", *FETCH_FIELDS, *BG_FIELDS),
+                    (
+                        "physical_pc", "cs", "ip", "role", *FETCH_FIELDS,
+                        *BG_FIELDS, *SPRITE_FIELDS,
+                    ),
                     line,
                 )
                 address = number(row["address"], "address", line, 0xFFFFF)
@@ -467,6 +491,7 @@ def verify(
                         "role",
                         *MEM_FIELDS,
                         *FETCH_FIELDS,
+                        *SPRITE_FIELDS,
                     ),
                     line,
                 )
@@ -543,6 +568,109 @@ def verify(
                     raise ValueError(
                         f"line {line}: tile_row_address {tile_row_address:#x} does not "
                         f"match decoded tile row ({expected_row_address:#x})"
+                    )
+            elif event == "sprite_row":
+                if schema < 6:
+                    raise ValueError(f"line {line}: sprite-row event requires v6 schema")
+                empty(
+                    row,
+                    (
+                        "physical_pc", "cs", "ip", "address", "value", "role",
+                        *MEM_FIELDS, *FETCH_FIELDS, "bg_layer", "map_address",
+                        "map_value", "map_x", "map_y", "tile_bank_enabled",
+                        "map_collision",
+                    ),
+                    line,
+                )
+                table_address = number(
+                    row["sprite_table_address"], "sprite_table_address", line, 0xFFFF
+                )
+                if table_address & 3:
+                    raise ValueError(
+                        f"line {line}: sprite table address is not 4-byte aligned"
+                    )
+                table_value = number(
+                    row["sprite_table_value"], "sprite_table_value", line, 0xFFFFFFFF
+                )
+                number(
+                    row["sprite_table_collision"],
+                    "sprite_table_collision",
+                    line,
+                    1,
+                )
+                line_y = number(row["sprite_line_y"], "sprite_line_y", line, 0xFF)
+                number(row["sprite_line_slot"], "sprite_line_slot", line, 31)
+                number(
+                    row["sprite_table_generation"],
+                    "sprite_table_generation",
+                    line,
+                    0xFFFFFFFF,
+                )
+                number(
+                    row["sprite_line_epoch"],
+                    "sprite_line_epoch",
+                    line,
+                    0xFFFFFFFF,
+                )
+                tile_index = number(row["tile_index"], "tile_index", line, 0x1FF)
+                palette = number(row["palette"], "palette", line, 15)
+                hflip = number(row["hflip"], "hflip", line, 1)
+                vflip = number(row["vflip"], "vflip", line, 1)
+                bpp = number(row["bpp"], "bpp", line, 4)
+                if bpp not in {2, 4}:
+                    raise ValueError(f"line {line}: bpp must be 2 or 4")
+                number(row["packed"], "packed", line, 1)
+                tile_row = number(row["tile_row"], "tile_row", line, 7)
+                row_address = number(
+                    row["tile_row_address"], "tile_row_address", line, 0xFFFF
+                )
+                row_bytes = number(row["tile_row_bytes"], "tile_row_bytes", line, 4)
+                expected_bytes = 2 if bpp == 2 else 4
+                if row_bytes != expected_bytes:
+                    raise ValueError(
+                        f"line {line}: tile_row_bytes {row_bytes} does not match "
+                        f"{bpp}bpp ({expected_bytes})"
+                    )
+                row_value = number(
+                    row["tile_row_value"], "tile_row_value", line, 0xFFFFFFFF
+                )
+                if row_value >= 1 << (8 * row_bytes):
+                    raise ValueError(
+                        f"line {line}: tile_row_value exceeds {row_bytes}-byte width"
+                    )
+                number(row["tile_row_collision"], "tile_row_collision", line, 1)
+
+                expected_decode = (
+                    table_value & 0x1FF,
+                    8 | ((table_value >> 9) & 7),
+                    (table_value >> 14) & 1,
+                    (table_value >> 15) & 1,
+                )
+                if (tile_index, palette, hflip, vflip) != expected_decode:
+                    raise ValueError(
+                        f"line {line}: sprite tile/palette/flip fields do not match descriptor"
+                    )
+                sprite_y = (table_value >> 16) & 0xFF
+                delta = (line_y - sprite_y) & 0xFF
+                if delta >= 8:
+                    raise ValueError(
+                        f"line {line}: sprite is not vertically active on sprite_line_y"
+                    )
+                expected_row = 7 - delta if vflip else delta
+                if tile_row != expected_row:
+                    raise ValueError(
+                        f"line {line}: tile_row {tile_row} does not match descriptor/line "
+                        f"({expected_row})"
+                    )
+                expected_address = (
+                    (0x2000 if bpp == 2 else 0x4000)
+                    + tile_index * expected_bytes * 8
+                    + tile_row * expected_bytes
+                )
+                if row_address != expected_address:
+                    raise ValueError(
+                        f"line {line}: tile_row_address {row_address:#x} does not match "
+                        f"descriptor/line ({expected_address:#x})"
                     )
             counts[event] += 1
 

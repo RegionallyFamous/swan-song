@@ -60,7 +60,7 @@ background cell promoted into a pixel-producing buffer:
   --rom /path/to/game.wsc \
   --frames 10 \
   --event-trace build/sim/text.csv \
-  --trace-events mem,vram,bg_cell
+  --trace-events mem,vram,bg_cell,sprite_row
 python3 sim/verilator/correlate_provenance.py \
   build/sim/text.csv \
   --output build/sim/text-provenance.csv \
@@ -69,6 +69,10 @@ python3 sim/verilator/correlate_provenance.py \
 python3 sim/verilator/correlate_bg_cells.py \
   build/sim/text.csv \
   --output build/sim/text-bg-cells.csv \
+  --require-complete-coverage
+python3 sim/verilator/correlate_sprite_rows.py \
+  build/sim/text.csv \
+  --output build/sim/text-sprite-rows.csv \
   --require-complete-coverage
 python3 sim/verilator/report_glyphs.py \
   build/sim/text-bg-cells.csv \
@@ -111,9 +115,9 @@ makes a mixed trace useful even when instruction logging is tightly scoped.
 ranges. `--trace-vram-role` accepts `screen1_map`, `screen1_tile`,
 `screen2_map`, `screen2_tile`, `sprite_table`, `sprite_tile`, or `all`.
 Multiple address ranges form a union; address and role filters combine with
-AND. Both filters affect only `vram` events, so CPU and bank events remain in a
-mixed trace. They do not filter `bg_cell`; capture all three of `mem`, `vram`,
-and `bg_cell` for complete atomic-cell provenance.
+AND. Both filters affect only `vram` events, so other events remain in a mixed
+trace. They do not filter `bg_cell` or `sprite_row`; capture `mem`, `vram`, and
+the relevant atomic event for complete provenance.
 
 Memory filters are `--trace-mem-initiator`, `--trace-mem-access`,
 `--trace-mem-address`, `--trace-mem-space`, `--trace-mem-offset`,
@@ -135,9 +139,9 @@ inclusive range unions as their command-line counterparts.
 
 ## Events and schema
 
-New traces use the atomic-background-aware v5 fields below. Numbers are unsigned decimal
-values; inapplicable CSV fields are empty and inapplicable JSONL fields are
-`null`.
+New traces use v5 unless `sprite_row` is requested, in which case the writer
+uses the v6 extension below. Numbers are unsigned decimal values; inapplicable
+CSV fields are empty and inapplicable JSONL fields are `null`.
 
 `vram` is retained as concise CLI/event shorthand. WonderSwan has unified
 internal RAM rather than a physically separate VRAM; these events are aligned
@@ -146,7 +150,7 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | Field | Meaning |
 | --- | --- |
 | `cycle` | 36.864 MHz system cycle since reset was released |
-| `event` | `cpu`, `bank`, `vram`, `mem`, or `bg_cell` |
+| `event` | `cpu`, `bank`, `vram`, `mem`, `bg_cell`, or `sprite_row` |
 | `physical_pc` | 20-bit CPU physical PC sampled at instruction completion |
 | `cs`, `ip` | logical CPU location sampled at instruction completion |
 | `address` | C0-C3 I/O register for `bank`; aligned internal-RAM byte address for `vram`; raw 20-bit bus byte address for `mem` |
@@ -165,12 +169,17 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 | `bg_layer` | 1 for Screen 1 or 2 for Screen 2 on `bg_cell` |
 | `map_address`, `map_value` | completed screen-map word address and value promoted for the cell |
 | `map_x`, `map_y` | 0-31 map coordinates decoded from `map_address`; these are map-space coordinates, not final screen pixels |
-| `tile_bank_enabled`, `tile_index` | extended tile-bank mode and resulting 10-bit tile index decoded from the map word |
-| `palette`, `hflip`, `vflip` | palette and flip attributes decoded from the map word |
+| `tile_bank_enabled`, `tile_index` | extended tile-bank mode and resulting 10-bit background index, or 9-bit sprite index decoded from its descriptor |
+| `palette`, `hflip`, `vflip` | palette and flip attributes decoded from the map word; sprite palettes are reported as effective indices 8-15 |
 | `bpp`, `packed` | 2/4-bit depth and planar/packed mode used for this row |
 | `tile_row` | 0-7 row after vertical-flip selection |
 | `tile_row_address`, `tile_row_bytes`, `tile_row_value` | exact contributing tile row: one 16-bit word for 2bpp or both words, low word first, for 4bpp |
 | `map_collision`, `tile_row_collision` | mixed-port uncertainty on the promoted map word or contributing row |
+| `sprite_table_address`, `sprite_table_value` | exact aligned source address and cached 32-bit descriptor accepted by `sprite_row` |
+| `sprite_table_collision` | OR of the two descriptor-word mixed-port collision flags |
+| `sprite_line_y`, `sprite_line_slot` | target scanline and 0-31 admitted line-buffer position |
+| `sprite_table_generation` | zero-based completed OAM descriptor-DMA group latched with the descriptor; binds one exact raw table generation even when a later refresh has identical address/value data |
+| `sprite_line_epoch` | zero-based line-loader occurrence; increments even for empty sprite lines so repeated 8-bit line numbers and overlapping descriptor DMA cannot blur slot ordering |
 
 `cpu` is sampled on the instruction-complete pulse. `bank` reports one event
 for each accepted CPU commit to cartridge bank registers C0-C3. Each v5 bank
@@ -266,14 +275,35 @@ by the row address can contribute, while in 4bpp both words contribute. The
 event records that distinction instead of treating every raw tile read as
 visible data. The 16-byte 2bpp and 32-byte 4bpp tile layouts, and therefore the
 2-byte versus 4-byte row formulas, follow WSdev's
-[tile-data specification](https://ws.nesdev.org/wiki/Display/Tile_Data).
+[tile-data specification](https://ws.nesdev.org/w/index.php?title=Display/Tile_Data&oldid=504).
 
 This is a cell-consumption boundary, not a final-pixel assertion. A promoted
 cell may still be outside a window, transparent, disabled, covered by the other
 background or a sprite, or fetched for scroll prefill. The event also says
-nothing by itself about glyph or character identity. `bg_cell` excludes the
-sprite pipeline; sprite-table and sprite-tile activity remains available only
-through the raw `vram` roles.
+nothing by itself about glyph or character identity.
+
+`sprite_row` provides the corresponding pre-pixel boundary for sprites. It
+pulses on the edge where `sprites.vhd` accepts a vertically active descriptor
+and completed tile row into one of its 32 next-line slots. The event carries
+the exact cached descriptor source address/value/generation, line-load epoch,
+target line, slot, decoded tile/palette/flips, mode, and contributing row. In
+2bpp only the first physical
+word contributes even though the current engine schedules a second read; in
+4bpp both words contribute. Raw `sprite_table` and `sprite_tile` events retain
+both physical reads.
+
+Like `bg_cell`, `sprite_row` is not a final-pixel assertion. It precedes X
+visibility, windowing, transparency, Screen 2 priority, palette RGB lookup,
+and composition. Its attribute and scanline contract follows pinned ares
+[OAM synchronization, scanline selection, and sprite decode](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/sprite.cpp#L1-L63),
+Mednafen 1.32.1+dfsg-3's [sprite attribute/composition path](https://sources.debian.org/src/mednafen/1.32.1%2Bdfsg-3/src/wswan/gfx.cpp/#L784-L904)
+and [2bpp/4bpp tile decode](https://sources.debian.org/src/mednafen/1.32.1%2Bdfsg-3/src/wswan/tcache.cpp/#L97-L168),
+WSdev's pinned [sprite format](https://ws.nesdev.org/w/index.php?title=Display/Sprites&oldid=507),
+and the pinned MIT ws-test-suite [extended-range fixture](https://github.com/asiekierka/ws-test-suite/blob/7dfa0e2e869d08386b685d6a56df0bcfaf181b47/src/color/display/tile_screen_extended_range/main.c#L8-L134).
+No directly applicable real-hardware report establishes this internal atomic
+boundary, so acceptance is deliberately limited to translated RTL.
+Mednafen is not used as evidence for the 32-sprite scanline limit; that limit
+is locked separately by current RTL and the pinned open list-limit test.
 
 This split follows the [WSdev display and unified-memory
 model](https://ws.nesdev.org/w/index.php?title=Display&oldid=555) and pinned
@@ -288,14 +318,20 @@ missing role or provenance data fail explicitly. V3 appends the eight memory
 fields without changing the first eight columns. V4 appends `fetch_value` and
 `fetch_collision`. V5 appends the 18 atomic background-cell fields without
 changing the v4 prefix and requires exact instruction origin fields on bank
-events. Legacy v1-v4 bank rows retain empty provenance fields and remain
-accepted. JSONL contains the same v5 properties, although the standalone
+events. V6 preserves the complete v5 prefix and appends
+`sprite_table_address`, `sprite_table_value`, `sprite_table_collision`,
+`sprite_line_y`, `sprite_line_slot`, `sprite_table_generation`, and
+`sprite_line_epoch`; the existing tile-row fields carry the decoded sprite row.
+Output is conditional: a capture that does not request
+`sprite_row` remains byte-for-byte v5, while one that requests it is v6.
+Legacy v1-v4 bank rows retain empty provenance fields and remain accepted.
+JSONL contains the matching conditional property set, although the standalone
 verifier currently validates CSV only.
 
 Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame
-target, included unfiltered `mem` and `vram` history, included `bg_cell` when
-requested, avoided save-state input, and can therefore use the defined zero
+target, included unfiltered `mem` and `vram` history, included `bg_cell` or
+`sprite_row` when requested, avoided save-state input, and can therefore use the defined zero
 power-up state of IRAM. ROM and boot-image byte sizes and FNV-1a digests bind
 the stimulus identity, while the trace byte length and digest bind the
 certificate to the exact output file. These digests detect accidental or stale
@@ -303,9 +339,11 @@ artifact substitution; they are deterministic bindings, not cryptographic
 authenticity claims. Starting a new capture at the same path invalidates the
 old manifest before truncating the trace. The word-level correlator labels
 coverage `complete_from_reset` only when the memory/display conditions hold.
-The atomic correlator additionally requires `events.bg_cell=true` and
-`complete_bg_cell_history=true`; otherwise it refuses
-`--require-complete-coverage` and never treats an absent write as zero.
+The background atomic correlator additionally requires `events.bg_cell=true`
+and `complete_bg_cell_history=true`. The sprite atomic correlator analogously
+requires `events.sprite_row=true` and `complete_sprite_row_history=true`;
+otherwise either tool refuses `--require-complete-coverage` and never treats an
+absent write as zero.
 
 `correlate_provenance.py` maintains IRAM per byte, respects partial and odd
 writes, preserves exact CPU origins, pairs GDMA reads/writes only in protocol
@@ -336,6 +374,21 @@ contributing-row provenance. A map or contributing-row mismatch/collision
 fails. In 2bpp, uncertainty on the physically fetched but non-contributing
 aligned neighbor remains visible in the raw fields without tainting the cell.
 
+`correlate_sprite_rows.py` independently pairs aligned raw OAM words into
+descriptor snapshots, pairs each two-read sprite-tile group, and requires every
+atomic promotion to reference its exact latched descriptor generation and the
+exact raw row group. This avoids assigning a later identical-value OAM refresh
+or its writer to an older cached descriptor. Writer and optional ROM-source provenance are
+snapshotted on each raw-fetch edge. It treats the second 2bpp physical read as
+noncontributing, while requiring both 4bpp words, and validates descriptor
+decode, modular Y activity, vertical flip, row address/value, the one-cycle
+raw-read-to-admission edge, strictly advancing line epochs, contiguous slots
+within each epoch, and collision semantics. The explicit epoch remains correct
+when a descriptor DMA group interleaves row admissions or a later frame reuses
+the same 8-bit target line.
+Its CSV proves that a descriptor and row reached a
+line-buffer slot; it does not extend that claim through the compositor.
+
 The structured trace is simulation-only and does not imply Pocket hardware
 behavior. A model translated without the debug tap ports still builds and runs,
 but requesting `--event-trace` fails explicitly instead of producing an empty
@@ -350,11 +403,13 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 ./build/trace_logger_test
 ```
 
-`make regression` runs that unit test plus explicit v1/v2/v3/v4/v5 verifier
-fixtures and focused byte-lane/atomic-cell correlator tests. Its translated
+`make regression` runs that unit test plus explicit v1/v2/v3/v4/v5/v6 verifier
+fixtures and focused byte-lane/background-cell/sprite-row correlator tests. Its
+translated
 open-ROM captures require all six display-role encodings, exact CPU memory
-origins, `bg_cell` events, and nonzero atomic-cell coverage from both screen
-layers. The suite generates temporary bank and WSC GDMA/SDMA probes and runs a
+origins, `bg_cell`/`sprite_row` events, and nonzero atomic coverage from both
+screen layers plus the sprite line buffer. The suite generates temporary bank
+and WSC GDMA/SDMA probes and runs a
 checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated glyph
 verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
 48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted

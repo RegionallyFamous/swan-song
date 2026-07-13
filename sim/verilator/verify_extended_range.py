@@ -8,7 +8,7 @@ import csv
 import hashlib
 from pathlib import Path
 
-from verify_trace import FIELDS_V4, FIELDS_V5
+from verify_trace import FIELDS_V4, FIELDS_V5, FIELDS_V6
 
 
 ROM_SHA256 = "72bf0fca0b6e7d3a61cb8c93c7675b4c1ac4e744b39f64ecf63ee3095aaf4346"
@@ -16,6 +16,18 @@ WIDTH = 224
 HEIGHT = 144
 GREEN = bytes((0, 13 * 17, 0))
 RED = bytes((12 * 17, 0, 0))
+EXPECTED_SPRITE_ROWS = tuple(
+    (line_y, slot) for line_y in range(72, 80) for slot in range(4)
+)
+
+
+def verify_sprite_row_sequence(rows: list[tuple[int, int]]) -> int:
+    if tuple(rows) != EXPECTED_SPRITE_ROWS:
+        raise ValueError(
+            "exact sprite-row line/slot sequence mismatch: "
+            f"{rows!r} != {list(EXPECTED_SPRITE_ROWS)!r}"
+        )
+    return len(rows)
 
 
 def verify_rom(path: Path) -> None:
@@ -31,11 +43,24 @@ def verify_trace(path: Path) -> dict[str, int]:
     screen_maps: set[tuple[int, int]] = set()
     screen_tiles: set[tuple[int, int]] = set()
     sprite_addresses: set[int] = set()
+    sprite_rows: list[tuple[int, int]] = []
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
-        if reader.fieldnames not in (FIELDS_V4, FIELDS_V5):
-            raise ValueError(f"expected exact v4/v5 trace header, got {reader.fieldnames!r}")
+        if reader.fieldnames not in (FIELDS_V4, FIELDS_V5, FIELDS_V6):
+            raise ValueError(
+                f"expected exact v4/v5/v6 trace header, got {reader.fieldnames!r}"
+            )
         for line, row in enumerate(reader, start=2):
+            if row["event"] == "sprite_row":
+                try:
+                    sprite_rows.append(
+                        (int(row["sprite_line_y"]), int(row["sprite_line_slot"]))
+                    )
+                except (KeyError, ValueError) as error:
+                    raise ValueError(
+                        f"line {line}: invalid sprite-row line/slot"
+                    ) from error
+                continue
             if row["event"] != "vram":
                 continue
             try:
@@ -67,10 +92,12 @@ def verify_trace(path: Path) -> dict[str, int]:
             "observed incorrect 16-KiB sprite-table alias(es): "
             + ", ".join(f"{address:#06x}" for address in sorted(aliased))
         )
+    sprite_row_count = verify_sprite_row_sequence(sprite_rows)
     return {
         "map_words": len(screen_maps),
         "tile_words": len(screen_tiles),
         "sprite_words": len(sprite_addresses),
+        "sprite_rows": sprite_row_count,
     }
 
 

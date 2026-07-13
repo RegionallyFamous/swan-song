@@ -130,6 +130,14 @@ entity SwanTop is
       debug_bg1_cell_row_addr    : out std_logic_vector(15 downto 0) := (others => '0');
       debug_bg1_cell_row_value   : out std_logic_vector(31 downto 0) := (others => '0');
       debug_bg1_cell_meta        : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_sprite_row_valid       : out std_logic := '0';
+      debug_sprite_row_table_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_sprite_row_table_value : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_table_generation : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_line_epoch  : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_addr        : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_sprite_row_value       : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_meta        : out std_logic_vector(16 downto 0) := (others => '0');
       debug_mem_valid            : out std_logic := '0';
       debug_mem_write            : out std_logic := '0';
       debug_mem_initiator        : out std_logic_vector(1 downto 0) := (others => '0');
@@ -295,6 +303,14 @@ architecture arch of SwanTop is
    signal GPU_bg1_cell_row_addr  : std_logic_vector(15 downto 0);
    signal GPU_bg1_cell_row_value : std_logic_vector(31 downto 0);
    signal GPU_bg1_cell_meta      : std_logic_vector(23 downto 0);
+   signal GPU_sprite_row_valid       : std_logic;
+   signal GPU_sprite_row_table_addr  : std_logic_vector(15 downto 0);
+   signal GPU_sprite_row_table_value : std_logic_vector(31 downto 0);
+   signal GPU_sprite_row_table_generation : std_logic_vector(31 downto 0);
+   signal GPU_sprite_row_line_epoch  : std_logic_vector(31 downto 0);
+   signal GPU_sprite_row_addr        : std_logic_vector(15 downto 0);
+   signal GPU_sprite_row_value       : std_logic_vector(31 downto 0);
+   signal GPU_sprite_row_meta        : std_logic_vector(16 downto 0);
 
    signal vram_stage1_valid      : std_logic := '0';
    signal vram_stage1_address    : std_logic_vector(15 downto 0) := (others => '0');
@@ -971,6 +987,14 @@ begin
       debug_bg1_cell_row_addr  => GPU_bg1_cell_row_addr,
       debug_bg1_cell_row_value => GPU_bg1_cell_row_value,
       debug_bg1_cell_meta      => GPU_bg1_cell_meta,
+      debug_sprite_row_valid       => GPU_sprite_row_valid,
+      debug_sprite_row_table_addr  => GPU_sprite_row_table_addr,
+      debug_sprite_row_table_value => GPU_sprite_row_table_value,
+      debug_sprite_row_table_generation => GPU_sprite_row_table_generation,
+      debug_sprite_row_line_epoch  => GPU_sprite_row_line_epoch,
+      debug_sprite_row_addr        => GPU_sprite_row_addr,
+      debug_sprite_row_value       => GPU_sprite_row_value,
+      debug_sprite_row_meta        => GPU_sprite_row_meta,
                
 -- synthesis translate_off
       export_vtime           => export_8,
@@ -1172,6 +1196,14 @@ begin
       debug_bg1_cell_row_addr  <= GPU_bg1_cell_row_addr;
       debug_bg1_cell_row_value <= GPU_bg1_cell_row_value;
       debug_bg1_cell_meta      <= GPU_bg1_cell_meta;
+      debug_sprite_row_valid       <= GPU_sprite_row_valid;
+      debug_sprite_row_table_addr  <= GPU_sprite_row_table_addr;
+      debug_sprite_row_table_value <= GPU_sprite_row_table_value;
+      debug_sprite_row_table_generation <= GPU_sprite_row_table_generation;
+      debug_sprite_row_line_epoch  <= GPU_sprite_row_line_epoch;
+      debug_sprite_row_addr        <= GPU_sprite_row_addr;
+      debug_sprite_row_value       <= GPU_sprite_row_value;
+      debug_sprite_row_meta        <= GPU_sprite_row_meta;
       debug_mem_valid          <= mem_stage2_valid;
       debug_mem_write          <= mem_stage2_write;
       debug_mem_initiator      <= mem_stage2_initiator;
@@ -1215,6 +1247,14 @@ begin
       debug_bg1_cell_row_addr  <= (others => '0');
       debug_bg1_cell_row_value <= (others => '0');
       debug_bg1_cell_meta      <= (others => '0');
+      debug_sprite_row_valid       <= '0';
+      debug_sprite_row_table_addr  <= (others => '0');
+      debug_sprite_row_table_value <= (others => '0');
+      debug_sprite_row_table_generation <= (others => '0');
+      debug_sprite_row_line_epoch  <= (others => '0');
+      debug_sprite_row_addr        <= (others => '0');
+      debug_sprite_row_value       <= (others => '0');
+      debug_sprite_row_meta        <= (others => '0');
       debug_mem_valid          <= '0';
       debug_mem_write          <= '0';
       debug_mem_initiator      <= (others => '0');

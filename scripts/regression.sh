@@ -15,6 +15,7 @@ echo "PASS structured trace parser and writer"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
+python3 "$ROOT/sim/verilator/correlate_sprite_rows_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
@@ -298,15 +299,28 @@ python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe.py" \
   --rom "$COLOR_SPRITE_OUT/roms/wsc_color_sprite_priority_probe.wsc" \
   --frames 2 --max-cycles 1500000 --out "$COLOR_SPRITE_OUT/frames" \
   --event-trace "$COLOR_SPRITE_OUT/events.csv" \
-  --trace-events mem,vram >/dev/null
+  --trace-events mem,vram,sprite_row >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$COLOR_SPRITE_OUT/events.csv" \
-  --allowed mem,vram --require mem,vram \
+  --allowed mem,vram,sprite_row --require mem,vram,sprite_row \
   --require-fetch-values --reject-fetch-collisions \
   --require-mem-initiators cpu,gdma \
   --require-origin-statuses exact,unattributed,not_applicable
 python3 "$ROOT/sim/verilator/verify_color_sprite_priority_probe.py" \
   --root "$COLOR_SPRITE_OUT"
+python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
+  "$COLOR_SPRITE_OUT/events.csv" \
+  --output "$COLOR_SPRITE_OUT/sprite-rows.csv" \
+  --require-complete-coverage \
+  --expect-count sprite_rows=48 --expect-count bpp2=0 \
+  --expect-count bpp4=48 --expect-count planar=0 \
+  --expect-count packed=48 --expect-count raw_table_groups=12 \
+  --expect-count raw_table_unused=6 --expect-count raw_tile_groups=48 \
+  --expect-count raw_tile_unpromoted=0 \
+  --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
+  --expect-count descriptor_collision=0 --expect-count row_collision=0 \
+  --expect-count descriptor_cpu_exact=48 --expect-count row_cpu_exact=0 \
+  --expect-count row_gdma=48 --expect-count row_source_gdma_rom=48
 python3 "$ROOT/sim/verilator/verify_color_sprite_priority_probe_test.py" \
   --root "$COLOR_SPRITE_OUT"
 
@@ -397,9 +411,11 @@ EXT_ROM="$ROOT/testroms/ws-test-suite/tile_screen_extended_range/tile_screen_ext
 EXT_OUT="$BUILD/tile-screen-extended-range"
 rm -rf "$EXT_OUT"
 "$SIM" --rom "$EXT_ROM" --frames 2 --max-cycles 4000000 --out "$EXT_OUT" \
-  --event-trace "$EXT_OUT/events.csv" --trace-events mem,vram,bg_cell >/dev/null
+  --event-trace "$EXT_OUT/events.csv" \
+  --trace-events mem,vram,bg_cell,sprite_row >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
-  "$EXT_OUT/events.csv" --allowed mem,vram,bg_cell --require mem,vram,bg_cell \
+  "$EXT_OUT/events.csv" --allowed mem,vram,bg_cell,sprite_row \
+  --require mem,vram,bg_cell,sprite_row \
   --require-fetch-values --reject-fetch-collisions \
   --require-mem-initiators cpu --require-origin-statuses exact
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
@@ -421,6 +437,18 @@ require_bg_counts "$EXT_BG_SUMMARY" \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
   cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
   cpu_rom_movsb_origins=0
+python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
+  "$EXT_OUT/events.csv" --output "$EXT_OUT/sprite-rows.csv" \
+  --require-complete-coverage \
+  --expect-count sprite_rows=32 --expect-count bpp2=32 \
+  --expect-count bpp4=0 --expect-count planar=32 \
+  --expect-count packed=0 --expect-count raw_table_groups=8 \
+  --expect-count raw_table_unused=4 --expect-count raw_tile_groups=32 \
+  --expect-count raw_tile_unpromoted=0 \
+  --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
+  --expect-count descriptor_collision=0 --expect-count row_collision=0 \
+  --expect-count descriptor_cpu_exact=32 --expect-count row_cpu_exact=32 \
+  --expect-count row_gdma=0 --expect-count row_source_gdma_rom=0
 python3 "$ROOT/sim/verilator/verify_extended_range.py" \
   "$EXT_ROM" "$EXT_OUT/events.csv" "$EXT_OUT/frame-1.rgb"
 check_case tile-screen-extended-range \

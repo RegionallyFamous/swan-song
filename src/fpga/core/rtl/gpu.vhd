@@ -71,7 +71,15 @@ entity gpu is
       debug_bg1_cell_map_value : out std_logic_vector(15 downto 0) := (others => '0');
       debug_bg1_cell_row_addr  : out std_logic_vector(15 downto 0) := (others => '0');
       debug_bg1_cell_row_value : out std_logic_vector(31 downto 0) := (others => '0');
-      debug_bg1_cell_meta      : out std_logic_vector(23 downto 0) := (others => '0')
+      debug_bg1_cell_meta      : out std_logic_vector(23 downto 0) := (others => '0');
+      debug_sprite_row_valid       : out std_logic := '0';
+      debug_sprite_row_table_addr  : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_sprite_row_table_value : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_table_generation : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_line_epoch  : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_addr        : out std_logic_vector(15 downto 0) := (others => '0');
+      debug_sprite_row_value       : out std_logic_vector(31 downto 0) := (others => '0');
+      debug_sprite_row_meta        : out std_logic_vector(16 downto 0) := (others => '0')
    );
 end entity;
 
@@ -170,11 +178,21 @@ architecture arch of gpu is
    signal spriteDMACnt        : integer range 0 to 127;
    signal spriteDMAAddr       : std_logic_vector(15 downto 0) := (others => '0');
    signal spriteDMAData       : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteDMADataAddr   : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteDMADataCollision : std_logic := '0';
+   signal spriteDMADataDebugValid : std_logic := '0';
+   signal spriteDMADebugGeneration : unsigned(31 downto 0) := (others => '0');
    signal spriteDMAWait       : integer range 0 to 2;
    
    signal spriteCount         : integer range 0 to 128;
    type tspriteRAM is array(0 to 127) of std_logic_vector(31 downto 0);
    signal spriteRAM : tspriteRAM;
+   type tspriteRAMAddr is array(0 to 127) of std_logic_vector(15 downto 0);
+   signal spriteRAMAddr : tspriteRAMAddr;
+   signal spriteRAMCollision : std_logic_vector(127 downto 0) := (others => '0');
+   signal spriteRAMDebugValid : std_logic_vector(127 downto 0) := (others => '0');
+   type tspriteRAMGeneration is array(0 to 127) of std_logic_vector(31 downto 0);
+   signal spriteRAMGeneration : tspriteRAMGeneration;
    
    -- sprite line fetching
    type tSpriteLineState is
@@ -191,9 +209,32 @@ architecture arch of gpu is
    signal spritesOnLine       : integer range 0 to 31;
    signal spriteLineData      : std_logic_vector(31 downto 0);
    signal spriteColorData     : std_logic_vector(31 downto 0);
+   signal spriteLineTableAddr      : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteLineTableCollision : std_logic := '0';
+   signal spriteLineTableValid     : std_logic := '0';
+   signal spriteLineTableGeneration : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteLineLoadEpoch      : unsigned(31 downto 0) := (others => '0');
+   signal spriteLineLoadEpochSeen  : std_logic := '0';
+   signal spriteLineEpoch          : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteFetchLineY    : std_logic_vector(7 downto 0) := (others => '0');
+   signal spriteFetchDepth2   : std_logic := '1';
+   signal spriteFetchPacked   : std_logic := '0';
+   signal spriteFetch0Addr    : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteFetch0Value   : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteFetch0Collision : std_logic := '0';
+   signal spriteRowPendingTableAddr  : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteRowPendingTableValue : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRowPendingTableGeneration : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRowPendingLineEpoch : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRowPendingAddr       : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteRowPendingValue      : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRowPendingMeta       : std_logic_vector(16 downto 0) := (others => '0');
+   signal spriteRowPendingValid      : std_logic := '0';
    
    signal spritesClearNext    : std_logic := '0';
+   signal spritesClearNextSafe : std_logic := '0';
    signal spritesLoadNext     : std_logic := '0';
+   signal spritesLoadNextSafe : std_logic := '0';
    signal spritesLoadIndex    : integer range 0 to 31;
    signal spritesLoadData     : std_logic_vector(31 downto 0);
    
@@ -575,12 +616,84 @@ begin
       variable tileY3 : unsigned(2 downto 0);
    begin
       if rising_edge(clk) then
-      
+         spritesClearNext       <= '0';
+         spritesLoadNext        <= '0';
+         debug_sprite_row_valid <= '0';
+
+         if (reset = '1') then
+            -- Cancel only the sprite DMA/line-loader work that can cross a
+            -- reset boundary. The sprite cache itself remains ordinary
+            -- functional storage and is repopulated by the next frame DMA.
+            -- Broader gpu ce/savestate behavior is intentionally unchanged.
+            spriteDMAon       <= '0';
+            spriteDMAWait     <= 0;
+            spriteDMACnt      <= 0;
+            spriteDMAAddr     <= (others => '0');
+            spriteDMAData     <= (others => '0');
+            spriteCount       <= 0;
+            spriteLineState   <= IDLE;
+            spriteLineCounter <= 0;
+            spritesOnLine     <= 0;
+            spriteLineData    <= (others => '0');
+            spriteColorData   <= (others => '0');
+            RAM_Address_SPR   <= (others => '0');
+            spritesLoadIndex  <= 0;
+            spritesLoadData   <= (others => '0');
+
+            if (is_simu = '1') then
+               -- Provenance before reset cannot be paired with post-reset raw
+               -- VRAM groups, whose generation sequence restarts at zero.
+               spriteDMADataAddr              <= (others => '0');
+               spriteDMADataCollision         <= '0';
+               spriteDMADataDebugValid        <= '0';
+               spriteDMADebugGeneration       <= (others => '0');
+               spriteRAMDebugValid            <= (others => '0');
+               spriteLineTableAddr            <= (others => '0');
+               spriteLineTableCollision       <= '0';
+               spriteLineTableValid           <= '0';
+               spriteLineTableGeneration      <= (others => '0');
+               spriteLineLoadEpoch            <= (others => '0');
+               spriteLineLoadEpochSeen        <= '0';
+               spriteLineEpoch                <= (others => '0');
+               spriteFetchLineY               <= (others => '0');
+               spriteFetchDepth2              <= '1';
+               spriteFetchPacked              <= '0';
+               spriteFetch0Addr               <= (others => '0');
+               spriteFetch0Value              <= (others => '0');
+               spriteFetch0Collision          <= '0';
+               spriteRowPendingTableAddr      <= (others => '0');
+               spriteRowPendingTableValue     <= (others => '0');
+               spriteRowPendingTableGeneration <= (others => '0');
+               spriteRowPendingLineEpoch      <= (others => '0');
+               spriteRowPendingAddr           <= (others => '0');
+               spriteRowPendingValue          <= (others => '0');
+               spriteRowPendingMeta           <= (others => '0');
+               spriteRowPendingValid          <= '0';
+               debug_sprite_row_table_addr    <= (others => '0');
+               debug_sprite_row_table_value   <= (others => '0');
+               debug_sprite_row_table_generation <= (others => '0');
+               debug_sprite_row_line_epoch    <= (others => '0');
+               debug_sprite_row_addr          <= (others => '0');
+               debug_sprite_row_value         <= (others => '0');
+               debug_sprite_row_meta          <= (others => '0');
+            end if;
+         else
+         if (is_simu = '1' and xCount /= 32) then
+            -- xCount is held between ce pulses. Re-arm only after leaving 32
+            -- so a zero-sprite occurrence is counted exactly once.
+            spriteLineLoadEpochSeen <= '0';
+         end if;
+
          -- DMA
          if (newLine = '1' and unsigned(LINE_CUR) = 142) then
             spriteDMAon   <= '1';
             spriteDMAWait <= 2;
             spriteDMACnt  <= 0;
+            if (is_simu = '1') then
+               -- A new table transfer cannot inherit a half descriptor from
+               -- an interrupted or reset-time transfer.
+               spriteDMADataDebugValid <= '0';
+            end if;
             
             if (unsigned(SPR_COUNT) > 128) then
                spriteCount  <= 128;
@@ -604,6 +717,14 @@ begin
             spriteDMAAddr <= std_logic_vector(unsigned(spriteDMAAddr) + 2);
             if (spriteDMAAddr(1) = '1') then
                spriteRAM(spriteDMACnt) <= RAM_dataread & spriteDMAData;
+               if (is_simu = '1') then
+                  spriteRAMAddr(spriteDMACnt)       <= spriteDMADataAddr;
+                  spriteRAMCollision(spriteDMACnt)  <= spriteDMADataCollision or RAM_response_collision;
+                  spriteRAMDebugValid(spriteDMACnt) <= spriteDMADataDebugValid;
+                  spriteRAMGeneration(spriteDMACnt) <= std_logic_vector(spriteDMADebugGeneration);
+                  spriteDMADebugGeneration          <= spriteDMADebugGeneration + 1;
+                  spriteDMADataDebugValid           <= '0';
+               end if;
                if (spriteDMACnt + 1 < spriteCount) then
                   spriteDMACnt <= spriteDMACnt + 1;
                else
@@ -611,12 +732,31 @@ begin
                end if;
             else
                spriteDMAData <= RAM_dataread;
+               if (is_simu = '1') then
+                  spriteDMADataAddr      <= RAM_response_addr;
+                  spriteDMADataCollision <= RAM_response_collision;
+                  spriteDMADataDebugValid <= '1';
+               end if;
             end if;
          end if;
          
          -- line loading
-         spritesClearNext  <= '0';
-         spritesLoadNext   <= '0';
+         if (is_simu = '1') then
+            if (spritesLoadNext = '1' and spriteRowPendingValid = '1') then
+               -- sprites.vhd observes the previous-cycle loadNext here. Emit
+               -- the record captured with FETCHCOLOR1 on the same acceptance
+               -- edge, not one edge early while the consumer still sees zero.
+               debug_sprite_row_valid       <= '1';
+               debug_sprite_row_table_addr  <= spriteRowPendingTableAddr;
+               debug_sprite_row_table_value <= spriteRowPendingTableValue;
+               debug_sprite_row_table_generation <= spriteRowPendingTableGeneration;
+               debug_sprite_row_line_epoch  <= spriteRowPendingLineEpoch;
+               debug_sprite_row_addr        <= spriteRowPendingAddr;
+               debug_sprite_row_value       <= spriteRowPendingValue;
+               debug_sprite_row_meta        <= spriteRowPendingMeta;
+               spriteRowPendingValid        <= '0';
+            end if;
+         end if;
 
          case (spriteLineState) is
          
@@ -625,6 +765,15 @@ begin
                   spriteLineCounter <= 0;
                   spritesOnLine     <= 0;
                   spritesClearNext  <= '1';
+                  if (is_simu = '1' and spriteLineLoadEpochSeen = '0') then
+                     -- The first accepted line-load occurrence uses epoch 0.
+                     -- Latch the current value for every row in this
+                     -- occurrence, then advance for the next line. This also
+                     -- advances when spriteCount is zero.
+                     spriteLineEpoch         <= std_logic_vector(spriteLineLoadEpoch);
+                     spriteLineLoadEpoch     <= spriteLineLoadEpoch + 1;
+                     spriteLineLoadEpochSeen <= '1';
+                  end if;
                   if (spriteCount > 0) then
                      spriteLineState   <= FETCHSPRITE;
                   end if;
@@ -633,6 +782,15 @@ begin
             when FETCHSPRITE =>
                spriteLineState <= CHECKACTIVE;
                spriteLineData  <= spriteRAM(spriteLineCounter);
+               if (is_simu = '1') then
+                  -- Snapshot provenance on the same edge as the functional
+                  -- descriptor. A concurrent DMA update after this edge must
+                  -- not pair a newer source address with the older data.
+                  spriteLineTableAddr      <= spriteRAMAddr(spriteLineCounter);
+                  spriteLineTableCollision <= spriteRAMCollision(spriteLineCounter);
+                  spriteLineTableValid     <= spriteRAMDebugValid(spriteLineCounter);
+                  spriteLineTableGeneration <= spriteRAMGeneration(spriteLineCounter);
+               end if;
                
             when CHECKACTIVE =>
                if ((unsigned(lineYNext) - unsigned(spriteLineData(23 downto 16))) < 8) then
@@ -648,6 +806,14 @@ begin
                      if (depth2 = '0' and DISP_MODE(5) = '0') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if; 
                      if (depth2 = '1' and DISP_MODE(5) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#2000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0'));       end if;
                      if (depth2 = '0' and DISP_MODE(5) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if; 
+                     if (is_simu = '1') then
+                        -- These values define the row address above. Keep that
+                        -- fetch-time contract even if the scanline or display
+                        -- mode changes before the two reads finish.
+                        spriteFetchLineY  <= lineYNext;
+                        spriteFetchDepth2 <= depth2;
+                        spriteFetchPacked <= DISP_MODE(5);
+                     end if;
                      spriteLineState <= FETCHCOLOR0;
                   end if;
                else
@@ -663,6 +829,11 @@ begin
                if (RAM_valid_SPR = '1') then 
                   RAM_Address_SPR(1)           <= '1';
                   spriteColorData(15 downto 0) <= RAM_dataread;              
+                  if (is_simu = '1') then
+                     spriteFetch0Addr      <= RAM_response_addr;
+                     spriteFetch0Value     <= RAM_dataread;
+                     spriteFetch0Collision <= RAM_response_collision;
+                  end if;
                   spriteLineState              <= FETCHCOLOR1;
                end if;
                
@@ -672,6 +843,34 @@ begin
                   spritesLoadNext               <= '1';
                   spritesLoadIndex              <= spritesOnLine;
                   spritesLoadData               <= spriteLineData;
+                  if (is_simu = '1') then
+                     -- Capture the record now and emit it on the next edge,
+                     -- when sprites.vhd sees loadNext. Keep both physical
+                     -- reads: in 2bpp the second scheduled read is
+                     -- non-contributing, while in 4bpp both words form the
+                     -- promoted row. This describes the translated RTL
+                     -- boundary rather than asserting unseen hardware timing.
+                     -- Attribute decoding follows the pinned ares/WSdev
+                     -- contract documented in sim/verilator/TRACE.md.
+                     spriteRowPendingTableAddr  <= spriteLineTableAddr;
+                     spriteRowPendingTableValue <= spriteLineData;
+                     spriteRowPendingTableGeneration <= spriteLineTableGeneration;
+                     spriteRowPendingLineEpoch <= spriteLineEpoch;
+                     spriteRowPendingAddr       <= spriteFetch0Addr;
+                     if (spriteFetchDepth2 = '1') then
+                        spriteRowPendingValue <= x"0000" & spriteFetch0Value;
+                     else
+                        spriteRowPendingValue <= RAM_dataread & spriteFetch0Value;
+                     end if;
+                     spriteRowPendingMeta <=
+                        (spriteFetch0Collision or
+                           (RAM_response_collision and (not spriteFetchDepth2))) &
+                        spriteLineTableCollision & spriteFetchPacked &
+                        (not spriteFetchDepth2) &
+                        std_logic_vector(to_unsigned(spritesOnLine, 5)) &
+                        spriteFetchLineY;
+                     spriteRowPendingValid <= spriteLineTableValid;
+                  end if;
                   if (spriteLineCounter + 1 < spriteCount) then
                      spriteLineState   <= FETCHSPRITE;
                      spriteLineCounter <= spriteLineCounter + 1;
@@ -686,7 +885,7 @@ begin
                end if;
                
          end case;
-         
+         end if;
       
       end if;
    end process;
@@ -775,6 +974,11 @@ begin
       debug_cell_meta      => debug_bg1_cell_meta
    );
    
+   -- clearNext is deliberately asserted throughout reset so sprites.vhd drops
+   -- stale active flags without resetting its large settings arrays.
+   spritesClearNextSafe <= spritesClearNext or reset;
+   spritesLoadNextSafe  <= spritesLoadNext  when reset = '0' else '0';
+
    isprites : entity work.sprites
    port map
    (
@@ -794,8 +998,10 @@ begin
       WinX1          => spr2WinX1,
       WinY1          => spr2WinY1,       
 
-      clearNext      => spritesClearNext,
-      loadNext       => spritesLoadNext,
+      -- These signals are consumed outside sprites.vhd's ce branch: reset
+      -- forces a clear and suppresses all loads while cancelling the FSM.
+      clearNext      => spritesClearNextSafe,
+      loadNext       => spritesLoadNextSafe,
       loadIndex      => spritesLoadIndex,
       loadData       => spritesLoadData, 
       loadColor      => spriteColorData, 
