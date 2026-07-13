@@ -32,17 +32,18 @@ input   wire    [31:0]  bridge_wr_data,
 input   wire            status_boot_done,           // assert when PLLs lock and logic is ready
 input   wire            status_setup_done,          // assert when core is happy with what's been loaded into it
 input   wire            status_running,             // assert when pocket's taken core out of reset and is running
+output  reg             ready_to_run_complete,      // target 0140 was acknowledged by Pocket
 
 output  reg             dataslot_requestread,
 output  reg     [15:0]  dataslot_requestread_id,
 input   wire            dataslot_requestread_ack,
-input   wire            dataslot_requestread_ok,
+input   wire    [1:0]   dataslot_requestread_result,
 
 output  reg             dataslot_requestwrite,
 output  reg     [15:0]  dataslot_requestwrite_id,
-output  reg     [31:0]  dataslot_requestwrite_size,
+output  reg     [47:0]  dataslot_requestwrite_size,
 input   wire            dataslot_requestwrite_ack,
-input   wire            dataslot_requestwrite_ok,
+input   wire    [1:0]   dataslot_requestwrite_result,
 
 output  reg             dataslot_update,
 output  reg     [15:0]  dataslot_update_id,
@@ -202,6 +203,7 @@ initial begin
     target_dataslot_ack <= 0;
     target_dataslot_done <= 0;
     target_dataslot_err <= 0;
+    ready_to_run_complete <= 0;
 end
     
 always @(posedge clk) begin
@@ -214,6 +216,12 @@ always @(posedge clk) begin
     
     if(status_setup_done & ~status_setup_done_1) begin
         status_setup_done_queue <= 1;
+        ready_to_run_complete <= 0;
+    end
+    if(!status_setup_done) begin
+        // A new title drops startup_complete before it can rise again. Never
+        // let that lifecycle consume the previous title's 0140 acknowledgement.
+        ready_to_run_complete <= 0;
     end
     if(target_dataslot_read & ~target_dataslot_read_1) begin
         target_dataslot_read_queue <= 1;
@@ -329,12 +337,12 @@ always @(posedge clk) begin
             host_resultcode <= 1; // default: booting
             if(status_boot_done) begin
                 host_resultcode <= 2; // setup
-                // core_top keeps setup_done asserted after PLL setup, including
-                // while the core is running. Running therefore has priority
-                // over idle when both lifecycle inputs are high.
+                // Running has priority. Pocket-visible Idle begins only after
+                // target 0140 has been acknowledged; internal setup completion
+                // merely queues that target command.
                 if(status_running) begin
                     host_resultcode <= 4; // running
-                end else if(status_setup_done) begin
+                end else if(ready_to_run_complete) begin
                     host_resultcode <= 3; // idle
                 end
             end
@@ -347,8 +355,13 @@ always @(posedge clk) begin
         end
         16'h0011: begin
             // Reset Exit
-            reset_n <= 1;
-            hstate <= ST_DONE_OK;
+            // APF normally sends this only after the core's 0140 Ready to Run
+            // target command has completed.  Fail closed if a host sends it
+            // early: keep the command busy and the machine held in reset.
+            if(ready_to_run_complete) begin
+                reset_n <= 1;
+                hstate <= ST_DONE_OK;
+            end
         end
         16'h0080: begin
             // Data slot request read
@@ -356,8 +369,7 @@ always @(posedge clk) begin
             dataslot_requestread <= 1;
             dataslot_requestread_id <= host_20[15:0];
             if(dataslot_requestread_ack) begin
-                host_resultcode <= 0;
-                if(!dataslot_requestread_ok) host_resultcode <= 2;
+                host_resultcode <= {14'd0, dataslot_requestread_result};
                 hstate <= ST_DONE_CODE;
             end
         end
@@ -366,10 +378,11 @@ always @(posedge clk) begin
             dataslot_allcomplete <= 0;
             dataslot_requestwrite <= 1;
             dataslot_requestwrite_id <= host_20[15:0];
-            dataslot_requestwrite_size <= host_24;
+            // APF defines the slot size as a 48-bit byte count.  The upper
+            // 16 bits share parameter 0 with the 16-bit slot identifier.
+            dataslot_requestwrite_size <= {host_20[31:16], host_24};
             if(dataslot_requestwrite_ack) begin
-                host_resultcode <= 0;
-                if(!dataslot_requestwrite_ok) host_resultcode <= 2;
+                host_resultcode <= {14'd0, dataslot_requestwrite_result};
                 hstate <= ST_DONE_CODE;
             end
         end
@@ -558,6 +571,7 @@ always @(posedge clk) begin
     TARG_ST_WAITRESULT_RTR: begin
         if(target_0[31:16] == 16'h6F6B) begin
             // done
+            ready_to_run_complete <= status_setup_done;
             tstate <= TARG_ST_IDLE;
         end
     

@@ -144,10 +144,26 @@
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
   hashes; the generated ROM is not checked in.
-- Focused APF boundary benches now lock the official boot/status progression,
-  one-shot ready-to-run command, reset enter/exit, delayed data-slot results,
-  slot update/all-complete behavior, and the three-word one-cycle RTC event.
-  The host-notify bench also locks Pocket's unconditional `00B1` cartridge
+- The integrated APF startup path now locks the official lifecycle in RTL:
+  Setup remains active through `008F`, delivered receipt of the one-time
+  `0090` event, save metadata/table publication, and loader/initializer
+  readiness. The sequencer issues target `0140` once, the command handler keeps
+  Pocket-visible status in Setup until Pocket acknowledges it, and `0011` is
+  required before Running. Early `0011` stays busy and holds the console in
+  reset, while a new title invalidates any preceding title's `0140`
+  acknowledgement. Focused APF boundary benches lock that progression, Reset
+  Enter/Exit, slot update/all-complete behavior, and the three-word one-cycle
+  RTC event.
+- `0082` consumes the complete documented 48-bit expected length and the
+  integrated data-slot guard returns the official per-request results: `0`
+  ready, `1` not allowed ever, or `2` check later. Slot 0 accepts only
+  power-of-two ROMs from 64 KiB through the implemented 16 MiB mapper limit;
+  slots 9 and 10 accept exactly 4 KiB and 8 KiB firmware respectively; slot 11
+  accepts only absent, cartridge-canonical, or supported legacy EEPROM-save
+  lengths once footer metadata is ready. Focused benches cover direction,
+  unknown IDs, boundary sizes, retry-to-ready transitions, and malformed
+  lengths.
+- The host-notify bench also locks Pocket's unconditional `00B1` cartridge
   notification as an explicit no-op. `pocket_control_cdc_contract_test.py`
   mutation-locks independent memory/system reset and download copies, including
   async-assert/synchronous-release save-clear staging into the system domain.
@@ -166,12 +182,17 @@
   `03`, `04`, and `05` use 32/128/256/512 KiB, while EEPROM types `10`, `20`,
   and `50` use 128/2,048/1,024 bytes. The 12-byte RTC trailer is now conditional
   on the cartridge footer bit, and `data.json` caps the dynamic slot at 524,300
-  bytes. A focused RTL lifecycle bench proves that an absent external EEPROM is
-  initialized to `0xffff` for exactly its selected word capacity, a loaded save
-  is not cleared, and later Reset Enter/Exit cycles do not re-arm initialization.
+  bytes. Header-derived type/RTC/size metadata crosses to `clk_74a` atomically;
+  after `008F`, the core publishes slot index 3 / ID 11 with the exact payload
+  plus optional trailer, and keeps that metadata alive across Reset Enter for
+  shutdown flush. A focused RTL lifecycle bench proves that an absent external
+  EEPROM is initialized to `0xffff` for exactly its selected word capacity, a
+  loaded save is not cleared, and later Reset Enter/Exit cycles do not re-arm
+  initialization.
   Offline legacy conversion and padded-EEPROM load compatibility are covered
-  separately below. Runtime fail-closed length validation, full wrapper unload,
-  and physical Pocket quit/reload/sleep flushing remain release gates.
+  separately below. Full-wrapper unload and physical Pocket
+  quit/reload/power-off flushing remain release gates; Sleep + Wake/Memories are
+  not claimed or enabled.
 - The APF build-ID generator no longer reads the live build clock or an RNG.
   A focused Tcl/Python contract proves that it preserves the 256×32 MIF shape,
   derives the three established words from a clean source commit and an
@@ -202,6 +223,63 @@ Run the regression suite:
 ```sh
 make regression
 ```
+
+### Pocket lifecycle and data-slot policy
+
+This tree follows Analogue's current [core boot
+process](https://www.analogue.co/developer/docs/core-boot-process) and
+[host/target command](https://www.analogue.co/developer/docs/host-target-commands)
+contracts. The relevant source-level order is:
+
+```text
+Setup -> 008F -> delivered 0090 + metadata/table/init ready
+      -> target 0140 acknowledged by Pocket -> Idle -> 0011 -> Running
+```
+
+`0082` is decoded as one 48-bit byte count: the upper 16 bits in parameter 0
+and lower 32 bits in parameter 1. Read and write requests independently return
+`0` (ready), `1` (not allowed ever), or `2` (check later).
+
+| ID | Purpose | Accepted host operation and size |
+| --- | --- | --- |
+| 0 | Cartridge | Write only; power of two, 64 KiB through 16 MiB |
+| 9 | Mono BIOS | Write only; exactly 4,096 bytes |
+| 10 | Color BIOS | Write only; exactly 8,192 bytes |
+| 11 | Save | Read becomes ready only after `reset_n=0`, synchronized execution has stopped, and a fixed 31-`clk_74a` drain guard has elapsed, with startup metadata/table/init still valid; write accepts absent (zero), canonical for the current cartridge, or legacy 2,060-byte RTC EEPROM type `10`/`50` |
+
+Before cartridge metadata is available, a plausible slot-11 write returns `2`
+instead of guessing. Once metadata is ready, type-inconsistent, short,
+oversized, and legacy type-`01` lengths return `1`. Canonical save sizes are:
+
+| Footer type | Payload | With RTC trailer |
+| --- | ---: | ---: |
+| none | 0 | 12 bytes only when the footer declares RTC |
+| SRAM `01`/`02` | 32 KiB | 32,780 bytes |
+| SRAM `03` | 128 KiB | 131,084 bytes |
+| SRAM `04` | 256 KiB | 262,156 bytes |
+| SRAM `05` | 512 KiB | 524,300 bytes |
+| EEPROM `10` | 128 bytes | 140 bytes |
+| EEPROM `20` | 2,048 bytes | 2,060 bytes |
+| EEPROM `50` | 1,024 bytes | 1,036 bytes |
+
+The runtime data-slot table is updated only after the metadata has crossed
+clock domains coherently and all boot-time slot access is complete. Analogue
+reads that table during nonvolatile flush, as specified by
+[`data.json`](https://www.analogue.co/developer/docs/core-definition-files/data-json).
+The declarations and physical bridge boundary are governed by
+[`core.json`](https://www.analogue.co/developer/docs/core-definition-files/core-json)
+and [bus communication](https://www.analogue.co/developer/docs/bus-communication).
+
+ROM support is intentionally narrower than the most permissive hardware
+interpretation. [WSdev's ROM-header table](https://ws.nesdev.org/wiki/ROM_header)
+documents known values through 16 MiB, while its [mapper
+documentation](https://ws.nesdev.org/wiki/Mapper) shows six 1 MiB linear-bank
+bits for the later Bandai 2003 mapper, implying 64 MiB of theoretical address
+capacity. This core implements a 24-bit ROM address and therefore rejects
+anything above 16 MiB. The [Wonderful WonderSwan target
+documentation](https://wonderful.asie.pl/docs/target/wswan/) is the modern
+toolchain reference used by the open generated-ROM validation; it does not
+raise the core's implemented limit.
 
 ### Migrating legacy type-01 Pocket saves
 

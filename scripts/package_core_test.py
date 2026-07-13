@@ -86,6 +86,18 @@ class PackageCoreTest(unittest.TestCase):
             )
             bitstream_name = core_definition["core"]["cores"][0]["filename"]
             chip32_name = core_definition["core"]["framework"]["chip32_vm"]
+            data_definition = json.loads(
+                archive.read((CORE_DIRECTORY / "data.json").as_posix())
+            )
+            slots_by_id = {
+                int(slot["id"]): slot
+                for slot in data_definition["data"]["data_slots"]
+            }
+            cartridge_slot = slots_by_id[0]
+            self.assertEqual(cartridge_slot["size_maximum"], 16 * 1024 * 1024)
+            # APF_VER_1 documents size_exact and size_maximum, but has no
+            # size_minimum field. Minimum ROM validation remains core-owned.
+            self.assertNotIn("size_minimum", cartridge_slot)
             self.assertIn((CORE_DIRECTORY / bitstream_name).as_posix(), names)
             self.assertIn((CORE_DIRECTORY / chip32_name).as_posix(), names)
             self.assertEqual(

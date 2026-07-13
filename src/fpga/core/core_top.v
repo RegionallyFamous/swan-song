@@ -407,20 +407,58 @@ module core_top (
       .reset_n_sync(pll_core_ready_mem)
   );
   wire status_boot_done = pll_core_ready_74a;
-  wire status_setup_done = pll_core_ready_74a;  // rising edge triggers a target command
-  wire status_running = reset_n;  // we are running as soon as reset_n goes high
+  wire status_setup_done;
+  wire status_running;
+  wire ready_to_run_complete;
 
   wire dataslot_requestread;
   wire [15:0] dataslot_requestread_id;
-  wire dataslot_requestread_ack = 1;
-  wire dataslot_requestread_ok = 1;
+  wire dataslot_requestread_ack;
+  wire [1:0] dataslot_requestread_result;
 
   wire dataslot_requestwrite;
   wire [15:0] dataslot_requestwrite_id;
-  wire dataslot_requestwrite_ack = 1;
-  wire dataslot_requestwrite_ok = 1;
+  wire [47:0] dataslot_requestwrite_size;
+  wire dataslot_requestwrite_ack;
+  wire [1:0] dataslot_requestwrite_result;
 
   wire dataslot_allcomplete;
+  wire dataslot_update;
+  wire [15:0] dataslot_update_id;
+  wire [31:0] dataslot_update_size;
+
+  // Official APF request results are three-valued: ready (0), permanently
+  // disallowed (1), and retry later (2). Evaluate every 0080/0082 against the
+  // concrete WonderSwan slot policy instead of acknowledging unconditionally.
+  wire dataslot_guard_ack;
+  wire [1:0] dataslot_guard_result;
+  wire dataslot_guard_busy;
+  wire [15:0] dataslot_policy_id;
+  reg dataslot_policy_known;
+  reg dataslot_policy_allow_read;
+  reg dataslot_policy_allow_write;
+  reg dataslot_policy_bounds_ready;
+  reg [1:0] dataslot_policy_size_mode;
+  reg [47:0] dataslot_policy_exact_size;
+  reg [47:0] dataslot_policy_min_size;
+  reg [47:0] dataslot_policy_max_size;
+  reg dataslot_policy_capture_length;
+  wire captured_save_length_valid;
+  wire [15:0] captured_save_id;
+  wire [47:0] captured_save_length;
+  wire captured_save_length_updated;
+
+  wire dataslot_request_valid = dataslot_requestread || dataslot_requestwrite;
+  wire [15:0] dataslot_request_id = dataslot_requestwrite ?
+                                    dataslot_requestwrite_id :
+                                    dataslot_requestread_id;
+  wire [47:0] dataslot_request_size = dataslot_requestwrite ?
+                                      dataslot_requestwrite_size : 48'd0;
+
+  assign dataslot_requestread_ack = dataslot_guard_ack && dataslot_requestread;
+  assign dataslot_requestread_result = dataslot_guard_result;
+  assign dataslot_requestwrite_ack = dataslot_guard_ack && dataslot_requestwrite;
+  assign dataslot_requestwrite_result = dataslot_guard_result;
 
   wire [31:0] rtc_epoch_seconds;
   wire [31:0] rtc_date_bcd;
@@ -430,6 +468,49 @@ module core_top (
   wire rtc_valid_sys;
   wire rtc_cdc_busy;
   wire rtc_cdc_rejected;
+
+  wire [19:0] save_size_bytes;
+  wire has_rtc;
+  wire save_metadata_commit;
+  wire save_initialization_resolved_mem;
+  wire execution_ready_sys;
+
+  wire [19:0] save_size_bytes_74a;
+  wire has_rtc_74a;
+  wire save_metadata_valid_74a;
+  wire save_metadata_cdc_busy;
+  wire save_metadata_cdc_busy_74a;
+  wire save_metadata_cdc_rejected;
+  reg save_metadata_commit_pending_mem = 1'b0;
+  reg [19:0] save_size_bytes_snapshot_mem = 20'd0;
+  reg has_rtc_snapshot_mem = 1'b0;
+  reg save_metadata_ready_74a = 1'b0;
+  reg save_metadata_publish_pending = 1'b0;
+  reg save_metadata_table_published = 1'b0;
+
+  wire dataslot_allcomplete_mem;
+  wire save_initialization_resolved_74a;
+  wire execution_ready_74a;
+  reg [4:0] shutdown_quiesce_count = 5'd0;
+  wire save_backend_quiesced = &shutdown_quiesce_count;
+
+  reg rtc_transfer_seen_busy = 1'b0;
+  reg rtc_transfer_delivered = 1'b0;
+  reg rtc_transfer_failed = 1'b0;
+
+  wire startup_ready_to_run_pulse;
+  wire startup_complete;
+  wire startup_data_slots_seen;
+  wire startup_rtc_seen;
+  wire [2:0] startup_status_code;
+  wire startup_status_booting;
+  wire startup_status_setup;
+  wire startup_status_idle;
+  wire startup_status_running;
+  wire core_run_enable;
+
+  assign status_setup_done = startup_complete;
+  assign status_running = startup_status_running && execution_ready_74a;
 
   // The command handler remains regression-tested, but the end-to-end state
   // controller is not yet safe to advertise to Pocket for Memories/sleep.
@@ -486,16 +567,22 @@ module core_top (
       .status_boot_done (status_boot_done),
       .status_setup_done(status_setup_done),
       .status_running   (status_running),
+      .ready_to_run_complete(ready_to_run_complete),
 
       .dataslot_requestread    (dataslot_requestread),
       .dataslot_requestread_id (dataslot_requestread_id),
       .dataslot_requestread_ack(dataslot_requestread_ack),
-      .dataslot_requestread_ok (dataslot_requestread_ok),
+      .dataslot_requestread_result(dataslot_requestread_result),
 
       .dataslot_requestwrite    (dataslot_requestwrite),
       .dataslot_requestwrite_id (dataslot_requestwrite_id),
+      .dataslot_requestwrite_size(dataslot_requestwrite_size),
       .dataslot_requestwrite_ack(dataslot_requestwrite_ack),
-      .dataslot_requestwrite_ok (dataslot_requestwrite_ok),
+      .dataslot_requestwrite_result(dataslot_requestwrite_result),
+
+      .dataslot_update(dataslot_update),
+      .dataslot_update_id(dataslot_update_id),
+      .dataslot_update_size(dataslot_update_size),
 
       .dataslot_allcomplete(dataslot_allcomplete),
 
@@ -546,6 +633,259 @@ module core_top (
       .clk_sys(clk_sys_36_864),
       .rtc_epoch_dst(rtc_epoch_seconds_sys),
       .rtc_valid_dst(rtc_valid_sys)
+  );
+
+  // Hold footer-derived metadata locally until the previous bundled transfer
+  // is acknowledged. This also turns a rapid title reload into a queued retry
+  // instead of silently losing the new snapshot.
+  wire save_metadata_commit_source = save_metadata_commit_pending_mem &&
+                                     !save_metadata_cdc_busy;
+  always @(posedge clk_mem_110_592 or negedge pll_core_ready_mem) begin
+    if (!pll_core_ready_mem) begin
+      save_metadata_commit_pending_mem <= 1'b0;
+      save_size_bytes_snapshot_mem <= 20'd0;
+      has_rtc_snapshot_mem <= 1'b0;
+    end else if (save_metadata_commit) begin
+      save_size_bytes_snapshot_mem <= save_size_bytes;
+      has_rtc_snapshot_mem <= has_rtc;
+      save_metadata_commit_pending_mem <= 1'b1;
+    end else if (save_metadata_commit_source) begin
+      save_metadata_commit_pending_mem <= 1'b0;
+    end
+  end
+
+  apf_save_metadata_cdc save_metadata_command_cdc (
+      .reset_n(pll_core_locked),
+      .clk_source(clk_mem_110_592),
+      .save_size_bytes_source(save_size_bytes_snapshot_mem),
+      .has_rtc_source(has_rtc_snapshot_mem),
+      .commit_source(save_metadata_commit_source),
+      .busy_source(save_metadata_cdc_busy),
+      .rejected_source(save_metadata_cdc_rejected),
+      .clk_74a(clk_74a),
+      .save_size_bytes_74a(save_size_bytes_74a),
+      .has_rtc_74a(has_rtc_74a),
+      .metadata_valid_74a(save_metadata_valid_74a)
+  );
+
+  synch_3 metadata_busy_to_bridge (
+      save_metadata_cdc_busy,
+      save_metadata_cdc_busy_74a,
+      clk_74a
+  );
+
+  // 008F is both the end of APF slot traffic and the safe boundary for
+  // absent-save initialization. Synchronize its persistent level to clk_mem.
+  synch_3 dataslot_complete_to_memory (
+      dataslot_allcomplete,
+      dataslot_allcomplete_mem,
+      clk_mem_110_592
+  );
+
+  synch_3 save_initialization_to_bridge (
+      save_initialization_resolved_mem,
+      save_initialization_resolved_74a,
+      clk_74a
+  );
+
+  synch_3 execution_ready_to_bridge (
+      execution_ready_sys,
+      execution_ready_74a,
+      clk_74a
+  );
+
+  // 0010 is acknowledged in the command clock before the synchronized console
+  // reset and a final persistence write can fully drain. Return result 2 to an
+  // immediate 0080 until the real execution-ready level is low and more than
+  // twenty memory-clock opportunities have elapsed.
+  always @(posedge clk_74a or negedge pll_core_ready_74a) begin
+    if (!pll_core_ready_74a) begin
+      shutdown_quiesce_count <= 5'd0;
+    end else if (reset_n || execution_ready_74a) begin
+      shutdown_quiesce_count <= 5'd0;
+    end else if (!save_backend_quiesced) begin
+      shutdown_quiesce_count <= shutdown_quiesce_count + 5'd1;
+    end
+  end
+
+  // Do not treat receipt of 0090 as completion: wait until its acknowledged
+  // bundled-data CDC has delivered the epoch into the console clock domain.
+  always @(posedge clk_74a or negedge pll_core_ready_74a) begin
+    if (!pll_core_ready_74a) begin
+      rtc_transfer_seen_busy <= 1'b0;
+      rtc_transfer_delivered <= 1'b0;
+      rtc_transfer_failed <= 1'b0;
+    end else if (cart_download) begin
+      rtc_transfer_seen_busy <= 1'b0;
+      rtc_transfer_delivered <= 1'b0;
+      rtc_transfer_failed <= 1'b0;
+    end else begin
+      if (rtc_valid) begin
+        rtc_transfer_seen_busy <= 1'b0;
+        rtc_transfer_delivered <= 1'b0;
+        rtc_transfer_failed <= 1'b0;
+      end
+      if (rtc_cdc_busy)
+        rtc_transfer_seen_busy <= 1'b1;
+      if (rtc_transfer_seen_busy && !rtc_cdc_busy)
+        rtc_transfer_delivered <= 1'b1;
+      if (rtc_cdc_rejected) begin
+        rtc_transfer_failed <= 1'b1;
+        rtc_transfer_delivered <= 1'b0;
+      end
+    end
+  end
+
+  // Publish the runtime save length only after Pocket has finished its setup
+  // table writes. The metadata remains live across Reset Enter so shutdown can
+  // request an 0080 nonvolatile flush.
+  always @(posedge clk_74a or negedge pll_core_ready_74a) begin
+    if (!pll_core_ready_74a) begin
+      save_metadata_ready_74a <= 1'b0;
+      save_metadata_publish_pending <= 1'b0;
+      save_metadata_table_published <= 1'b0;
+      datatable_addr <= 10'd0;
+      datatable_data <= 32'd0;
+      datatable_wren <= 1'b0;
+    end else begin
+      datatable_wren <= 1'b0;
+
+      if (cart_download) begin
+        save_metadata_ready_74a <= 1'b0;
+        save_metadata_publish_pending <= 1'b0;
+        save_metadata_table_published <= 1'b0;
+      end else begin
+        if (save_metadata_valid_74a) begin
+          save_metadata_ready_74a <= 1'b1;
+          save_metadata_publish_pending <= 1'b1;
+          save_metadata_table_published <= 1'b0;
+        end
+
+        if (save_metadata_publish_pending && dataslot_allcomplete) begin
+          // Slot index 3 is ID 11 in data.json; word 1 is its runtime length.
+          datatable_addr <= 10'd7;
+          datatable_data <= {12'd0, save_size_bytes_74a} +
+                            (has_rtc_74a ? 32'd12 : 32'd0);
+          datatable_wren <= 1'b1;
+          save_metadata_publish_pending <= 1'b0;
+          save_metadata_table_published <= 1'b1;
+        end
+      end
+    end
+  end
+
+  apf_startup_sequencer pocket_startup (
+      .clk(clk_74a),
+      .reset_n_async(pll_core_locked),
+      .host_reset_n_async(reset_n),
+      .title_load_start(cart_download),
+      .data_slots_all_complete(dataslot_allcomplete),
+      .rtc_notification_observed(rtc_transfer_delivered),
+      .loaders_ready(save_metadata_ready_74a &&
+                     save_metadata_table_published &&
+                     !save_metadata_cdc_busy_74a &&
+                     rtc_transfer_delivered && !rtc_transfer_failed),
+      .initializers_ready(save_initialization_resolved_74a),
+      .ready_to_run_pulse(startup_ready_to_run_pulse),
+      .startup_complete(startup_complete),
+      .data_slots_seen(startup_data_slots_seen),
+      .rtc_seen(startup_rtc_seen),
+      .status_code(startup_status_code),
+      .status_booting(startup_status_booting),
+      .status_setup(startup_status_setup),
+      .status_idle(startup_status_idle),
+      .status_running(startup_status_running),
+      .core_run_enable(core_run_enable)
+  );
+
+  wire cartridge_size_supported =
+      (dataslot_requestwrite_size >= 48'd65536) &&
+      (dataslot_requestwrite_size <= 48'd16777216) &&
+      ((dataslot_requestwrite_size & (dataslot_requestwrite_size - 48'd1)) == 48'd0);
+  wire [47:0] canonical_save_size =
+      {28'd0, save_size_bytes_74a} + (has_rtc_74a ? 48'd12 : 48'd0);
+  wire legacy_small_eeprom_save =
+      has_rtc_74a &&
+      ((save_size_bytes_74a == 20'd128) ||
+       (save_size_bytes_74a == 20'd1024)) &&
+      (dataslot_requestwrite_size == 48'd2060);
+  wire save_write_size_supported =
+      (dataslot_requestwrite_size == 48'd0) ||
+      (dataslot_requestwrite_size == canonical_save_size) ||
+      legacy_small_eeprom_save;
+
+  always @(*) begin
+    dataslot_policy_known = 1'b1;
+    dataslot_policy_allow_read = 1'b0;
+    dataslot_policy_allow_write = 1'b0;
+    dataslot_policy_bounds_ready = 1'b1;
+    dataslot_policy_size_mode = 2'd0;
+    dataslot_policy_exact_size = 48'd0;
+    dataslot_policy_min_size = 48'd0;
+    dataslot_policy_max_size = 48'd0;
+    dataslot_policy_capture_length = 1'b0;
+
+    case (dataslot_policy_id)
+      16'd0: begin
+        // The implemented mapper is 24-bit: accept power-of-two ROM images
+        // from 64 KiB through 16 MiB, host-to-core only.
+        dataslot_policy_allow_write = cartridge_size_supported;
+      end
+      16'd9: begin
+        dataslot_policy_allow_write = 1'b1;
+        dataslot_policy_size_mode = 2'd1;
+        dataslot_policy_exact_size = 48'd4096;
+      end
+      16'd10: begin
+        dataslot_policy_allow_write = 1'b1;
+        dataslot_policy_size_mode = 2'd1;
+        dataslot_policy_exact_size = 48'd8192;
+      end
+      16'd11: begin
+        dataslot_policy_allow_read = 1'b1;
+        // Until the footer snapshot arrives, the same request can succeed
+        // later. Once known, malformed/type-inconsistent lengths are result 1.
+        dataslot_policy_allow_write = !save_metadata_ready_74a ||
+                                      save_write_size_supported;
+        dataslot_policy_bounds_ready = save_metadata_ready_74a;
+        dataslot_policy_capture_length = 1'b1;
+      end
+      default: begin
+        dataslot_policy_known = 1'b0;
+      end
+    endcase
+  end
+
+  apf_dataslot_guard pocket_dataslot_guard (
+      .clk(clk_74a),
+      .reset_n(pll_core_ready_74a),
+      .request_valid(dataslot_request_valid),
+      .request_write(dataslot_requestwrite),
+      .request_id(dataslot_request_id),
+      .request_size(dataslot_request_size),
+      .request_ack(dataslot_guard_ack),
+      .request_result(dataslot_guard_result),
+      .request_busy(dataslot_guard_busy),
+      .policy_slot_id(dataslot_policy_id),
+      .policy_slot_known(dataslot_policy_known),
+      .policy_allow_read(dataslot_policy_allow_read),
+      .policy_allow_write(dataslot_policy_allow_write),
+      .policy_bounds_ready(dataslot_policy_bounds_ready),
+      .policy_size_mode(dataslot_policy_size_mode),
+      .policy_exact_size(dataslot_policy_exact_size),
+      .policy_min_size(dataslot_policy_min_size),
+      .policy_max_size(dataslot_policy_max_size),
+      .policy_capture_length(dataslot_policy_capture_length),
+      .read_loader_ready(startup_complete && !reset_n &&
+                         !execution_ready_74a && save_backend_quiesced &&
+                         save_metadata_table_published &&
+                         save_initialization_resolved_74a),
+      .write_loader_ready(pll_core_ready_74a),
+      .captured_length_clear(cart_download),
+      .captured_save_length_valid(captured_save_length_valid),
+      .captured_save_id(captured_save_id),
+      .captured_save_length(captured_save_length),
+      .captured_save_length_updated(captured_save_length_updated)
   );
 
   // Save states
@@ -727,25 +1067,6 @@ module core_top (
   wire [1:0] bios_download = {color_bios_download, bw_bios_download};
   wire [1:0] ext_cart_download = is_color_cart ? {cart_download, 1'b0} : {1'b0, cart_download};
 
-  wire [19:0] save_size_bytes;
-  wire has_rtc;
-
-  always @(posedge clk_74a or negedge pll_core_ready_74a) begin
-    if (!pll_core_ready_74a) begin
-      datatable_addr <= 0;
-      datatable_data <= 0;
-      datatable_wren <= 0;
-    end else begin
-      // Write sram size
-      datatable_wren <= 1;
-      // Publish the exact nonvolatile payload plus the optional six-word RTC
-      // trailer. The slot remains runtime-sized because cartridge types vary.
-      datatable_data <= save_size_bytes + (has_rtc ? 12 : 0);
-      // Data slot index 3, not id 3
-      datatable_addr <= 2 * 3 + 1;
-    end
-  end
-
   // Settings
   reg [31:0] reset_delay = 0;
   wire external_reset = reset_delay > 0;
@@ -903,6 +1224,10 @@ module core_top (
       // Saves
       .save_size_bytes(save_size_bytes),
       .has_rtc(has_rtc),
+      .load_complete(dataslot_allcomplete_mem),
+      .save_metadata_commit(save_metadata_commit),
+      .save_initialization_resolved(save_initialization_resolved_mem),
+      .execution_ready(execution_ready_sys),
       .sd_buff_wr(sd_buff_wr),
       .sd_buff_rd(sd_buff_rd),
       .sd_buff_addr(sd_buff_addr),

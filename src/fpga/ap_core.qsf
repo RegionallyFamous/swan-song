@@ -777,6 +777,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/rtl/ddram.sv
 set_global_assignment -name VHDL_FILE core/rtl/cpu.vhd
 set_global_assignment -name VHDL_FILE core/rtl/bus_savestates.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE core/pocket_save_init.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_dataslot_guard.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_save_metadata_cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_startup_sequencer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/wonderswan.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rtc_save_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sync_fifo.sv

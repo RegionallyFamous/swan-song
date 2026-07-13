@@ -46,17 +46,18 @@ module apf_boot_lifecycle_tb;
     reg status_setup_done = 1'b0;
     reg status_running = 1'b0;
     wire reset_n;
+    wire ready_to_run_complete;
 
     wire        dataslot_requestread;
     wire [15:0] dataslot_requestread_id;
     reg         dataslot_requestread_ack = 1'b0;
-    reg         dataslot_requestread_ok = 1'b0;
+    reg  [1:0]  dataslot_requestread_result = 2'd0;
 
     wire        dataslot_requestwrite;
     wire [15:0] dataslot_requestwrite_id;
-    wire [31:0] dataslot_requestwrite_size;
+    wire [47:0] dataslot_requestwrite_size;
     reg         dataslot_requestwrite_ack = 1'b0;
-    reg         dataslot_requestwrite_ok = 1'b0;
+    reg  [1:0]  dataslot_requestwrite_result = 2'd0;
 
     wire        dataslot_update;
     wire [15:0] dataslot_update_id;
@@ -112,17 +113,18 @@ module apf_boot_lifecycle_tb;
         .status_boot_done(status_boot_done),
         .status_setup_done(status_setup_done),
         .status_running(status_running),
+        .ready_to_run_complete(ready_to_run_complete),
 
         .dataslot_requestread(dataslot_requestread),
         .dataslot_requestread_id(dataslot_requestread_id),
         .dataslot_requestread_ack(dataslot_requestread_ack),
-        .dataslot_requestread_ok(dataslot_requestread_ok),
+        .dataslot_requestread_result(dataslot_requestread_result),
 
         .dataslot_requestwrite(dataslot_requestwrite),
         .dataslot_requestwrite_id(dataslot_requestwrite_id),
         .dataslot_requestwrite_size(dataslot_requestwrite_size),
         .dataslot_requestwrite_ack(dataslot_requestwrite_ack),
-        .dataslot_requestwrite_ok(dataslot_requestwrite_ok),
+        .dataslot_requestwrite_result(dataslot_requestwrite_result),
 
         .dataslot_update(dataslot_update),
         .dataslot_update_id(dataslot_update_id),
@@ -237,7 +239,7 @@ module apf_boot_lifecycle_tb;
 
     task automatic wait_write_request(
         input [15:0] expected_id,
-        input [31:0] expected_size
+        input [47:0] expected_size
     );
         integer cycle;
         begin : wait_block
@@ -247,7 +249,7 @@ module apf_boot_lifecycle_tb;
                     if (dataslot_requestwrite_id !== expected_id ||
                         dataslot_requestwrite_size !== expected_size)
                         $fatal(1,
-                               "0082 request id/size=%04x/%08x expected=%04x/%08x",
+                               "0082 request id/size=%04x/%012x expected=%04x/%012x",
                                dataslot_requestwrite_id, dataslot_requestwrite_size,
                                expected_id, expected_size);
                     disable wait_block;
@@ -303,7 +305,18 @@ module apf_boot_lifecycle_tb;
 
         @(negedge clk);
         status_setup_done = 1'b1;
+        expect_command_result(16'h0000, 16'h0002);
+        // Even after internal setup completes, Reset Exit must remain busy and
+        // reset asserted until Pocket acknowledges target command 0140.
+        start_host_command(16'h0011);
+        repeat (4) @(posedge clk);
+        expect_host_busy(16'h0011);
+        if (reset_n !== 1'b0)
+            $fatal(1, "0011 bypassed target 0140 acknowledgement");
         service_ready_to_run();
+        wait_host_done(readback);
+        if (readback !== 32'h4F4B_0000 || reset_n !== 1'b1)
+            $fatal(1, "0011 did not complete after target 0140: %08x", readback);
         expect_command_result(16'h0000, 16'h0003);
 
         // core_top keeps setup_done at PLL lock while running follows reset_n.
@@ -312,16 +325,24 @@ module apf_boot_lifecycle_tb;
         status_running = 1'b1;
         expect_command_result(16'h0000, 16'h0004);
 
-        // The same running result is required if an integration later makes
-        // the lifecycle-state inputs mutually exclusive.
-        @(negedge clk);
-        status_setup_done = 1'b0;
+        // Running has priority while persistent startup_complete remains high.
         expect_command_result(16'h0000, 16'h0004);
 
         // A held setup level must not emit a second 0140 without another edge.
         repeat (8) @(posedge clk);
         if (dut.tstate !== 4'd0)
             $fatal(1, "target 0140 retriggered without a setup edge");
+
+        // A new title's falling startup_complete must invalidate the previous
+        // target acknowledgement before the next rising edge reissues 0140.
+        @(negedge clk);
+        status_setup_done = 1'b0;
+        repeat (2) @(posedge clk);
+        if (ready_to_run_complete !== 1'b0)
+            $fatal(1, "new setup retained stale target 0140 acknowledgement");
+        @(negedge clk);
+        status_setup_done = 1'b1;
+        service_ready_to_run();
 
         expect_command_result(16'h0010, 16'h0000);
         if (reset_n !== 1'b0)
@@ -337,14 +358,14 @@ module apf_boot_lifecycle_tb;
         repeat (7) @(posedge clk);
         expect_host_busy(16'h0080);
         @(negedge clk);
-        dataslot_requestread_ok = 1'b1;
+        dataslot_requestread_result = 2'd0;
         dataslot_requestread_ack = 1'b1;
         wait_host_done(readback);
         if (readback !== 32'h4F4B_0000)
             $fatal(1, "0080 success result mismatch: %08x", readback);
         @(negedge clk);
         dataslot_requestread_ack = 1'b0;
-        dataslot_requestread_ok = 1'b0;
+        dataslot_requestread_result = 2'd0;
         repeat (3) @(posedge clk);
 
         host_write(HOST_PARAM0, 32'h0000_5678);
@@ -353,30 +374,46 @@ module apf_boot_lifecycle_tb;
         repeat (5) @(posedge clk);
         expect_host_busy(16'h0080);
         @(negedge clk);
+        dataslot_requestread_result = 2'd2;
         dataslot_requestread_ack = 1'b1;
         wait_host_done(readback);
         if (readback !== 32'h4F4B_0002)
             $fatal(1, "0080 check-later result mismatch: %08x", readback);
         @(negedge clk);
         dataslot_requestread_ack = 1'b0;
+        dataslot_requestread_result = 2'd0;
+        repeat (3) @(posedge clk);
+
+        host_write(HOST_PARAM0, 32'h0000_BEEF);
+        start_host_command(16'h0080);
+        wait_read_request(16'hBEEF);
+        @(negedge clk);
+        dataslot_requestread_result = 2'd1;
+        dataslot_requestread_ack = 1'b1;
+        wait_host_done(readback);
+        if (readback !== 32'h4F4B_0001)
+            $fatal(1, "0080 not-allowed result mismatch: %08x", readback);
+        @(negedge clk);
+        dataslot_requestread_ack = 1'b0;
+        dataslot_requestread_result = 2'd0;
         repeat (3) @(posedge clk);
 
         // 0082: delayed success and retry/check-later, including exact size.
-        host_write(HOST_PARAM0, 32'h0000_9ABC);
+        host_write(HOST_PARAM0, 32'h1234_9ABC);
         host_write(HOST_PARAM1, 32'h0012_3456);
         start_host_command(16'h0082);
-        wait_write_request(16'h9ABC, 32'h0012_3456);
+        wait_write_request(16'h9ABC, 48'h1234_0012_3456);
         repeat (6) @(posedge clk);
         expect_host_busy(16'h0082);
         @(negedge clk);
-        dataslot_requestwrite_ok = 1'b1;
+        dataslot_requestwrite_result = 2'd0;
         dataslot_requestwrite_ack = 1'b1;
         wait_host_done(readback);
         if (readback !== 32'h4F4B_0000)
             $fatal(1, "0082 success result mismatch: %08x", readback);
         @(negedge clk);
         dataslot_requestwrite_ack = 1'b0;
-        dataslot_requestwrite_ok = 1'b0;
+        dataslot_requestwrite_result = 2'd0;
         repeat (3) @(posedge clk);
 
         host_write(HOST_PARAM0, 32'h0000_DEF0);
@@ -386,12 +423,14 @@ module apf_boot_lifecycle_tb;
         repeat (4) @(posedge clk);
         expect_host_busy(16'h0082);
         @(negedge clk);
+        dataslot_requestwrite_result = 2'd2;
         dataslot_requestwrite_ack = 1'b1;
         wait_host_done(readback);
         if (readback !== 32'h4F4B_0002)
             $fatal(1, "0082 check-later result mismatch: %08x", readback);
         @(negedge clk);
         dataslot_requestwrite_ack = 1'b0;
+        dataslot_requestwrite_result = 2'd0;
         repeat (3) @(posedge clk);
 
         // 008A creates one update event carrying the current ID/size.
@@ -415,12 +454,12 @@ module apf_boot_lifecycle_tb;
         if (dataslot_allcomplete !== 1'b0)
             $fatal(1, "0080 did not clear dataslot_allcomplete");
         @(negedge clk);
-        dataslot_requestread_ok = 1'b1;
+        dataslot_requestread_result = 2'd0;
         dataslot_requestread_ack = 1'b1;
         wait_host_done(readback);
         @(negedge clk);
         dataslot_requestread_ack = 1'b0;
-        dataslot_requestread_ok = 1'b0;
+        dataslot_requestread_result = 2'd0;
         repeat (3) @(posedge clk);
 
         // 0090 carries epoch, date, and time.  rtc_valid is required here as a

@@ -101,14 +101,20 @@ def verify_contract(
     }
     if save != expected_save:
         raise ValueError(f"APF Save slot mismatch: {save!r}")
-    if not re.search(r"datatable_addr\s*<=\s*2\s*\*\s*3\s*\+\s*1\s*;", core_top):
+    if not re.search(r"datatable_addr\s*<=\s*10'd7\s*;", core_top):
         raise ValueError("APF runtime size does not target Save slot index 3")
     if not re.search(
-        r"datatable_data\s*<=\s*save_size_bytes\s*\+\s*"
-        r"\(has_rtc\s*\?\s*12\s*:\s*0\)\s*;",
+        r"datatable_data\s*<=\s*\{12'd0\s*,\s*save_size_bytes_74a\}\s*\+\s*"
+        r"\(has_rtc_74a\s*\?\s*32'd12\s*:\s*32'd0\)\s*;",
         core_top,
     ):
         raise ValueError("APF runtime Save-slot size formula mismatch")
+    if not re.search(
+        r"if\s*\(save_metadata_publish_pending\s*&&\s*"
+        r"dataslot_allcomplete\)\s*begin",
+        core_top,
+    ):
+        raise ValueError("APF runtime Save-slot size is not 008F-qualified")
 
 
 def must_fail(arguments: list[object], expected: str) -> None:
@@ -162,7 +168,11 @@ def main() -> None:
     wrong_slot["data"]["data_slots"][3]["parameters"] = "0x80"
     must_fail([*valid[:4], wrong_slot], "APF Save slot mismatch")
 
-    wrong_formula = core_top.replace("save_size_bytes +", "save_size_bytes * 2 +", 1)
+    wrong_formula = core_top.replace(
+        "{12'd0, save_size_bytes_74a} +",
+        "{12'd0, save_size_bytes_74a} * 2 +",
+        1,
+    )
     must_fail(
         [memorymux, savestates, wonderswan, wrong_formula, data_definition],
         "size formula mismatch",

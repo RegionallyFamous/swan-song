@@ -263,7 +263,8 @@ def check_core_top(source: str) -> list[str]:
     else:
         expression = compact_expression(table_expressions[0])
         formula = re.fullmatch(
-            rf"save_size_bytes\+\(has_rtc\?(?P<rtc>{SV_LITERAL}):"
+            rf"\{{(?P<upper>{SV_LITERAL}),save_size_bytes_74a\}}\+"
+            rf"\(has_rtc_74a\?(?P<rtc>{SV_LITERAL}):"
             rf"(?P<none>{SV_LITERAL})\)",
             expression,
         )
@@ -274,11 +275,12 @@ def check_core_top(source: str) -> list[str]:
             )
         else:
             try:
+                upper = sv_int(formula.group("upper"))
                 rtc_bytes = sv_int(formula.group("rtc"))
                 no_rtc_bytes = sv_int(formula.group("none"))
             except ValueError:
-                rtc_bytes = no_rtc_bytes = -1
-            if rtc_bytes != 12 or no_rtc_bytes != 0:
+                upper = rtc_bytes = no_rtc_bytes = -1
+            if upper != 0 or rtc_bytes != 12 or no_rtc_bytes != 0:
                 errors.append(
                     "core_top RTC table contribution must be 12 bytes when has_rtc "
                     "is set and 0 otherwise"
@@ -288,7 +290,11 @@ def check_core_top(source: str) -> list[str]:
         compact_expression(expression)
         for expression in re.findall(r"\bdatatable_addr\s*<=\s*([^;]+);", active)
     ]
-    if "2*3+1" not in table_addresses:
+    if not any(
+        address == "2*3+1" or
+        (re.fullmatch(SV_LITERAL, address) and sv_int(address) == 7)
+        for address in table_addresses
+    ):
         errors.append("core_top dynamic size must target Save data-slot index 3")
 
     return errors
@@ -588,8 +594,8 @@ def run_mutations() -> int:
                 "rtc-trailer-too-large",
                 source_mutation(
                     CORE_TOP,
-                    r"(save_size_bytes\s*\+\s*\(\s*has_rtc\s*\?\s*)12"
-                    r"(\s*:\s*0\s*\))",
+                    r"(save_size_bytes_74a\s*\}\s*\+\s*\(\s*"
+                    r"has_rtc_74a\s*\?\s*32'd)12(\s*:\s*32'd0\s*\))",
                     r"\g<1>16\g<2>",
                 ),
                 "RTC table contribution must be 12 bytes",
@@ -598,8 +604,8 @@ def run_mutations() -> int:
                 "rtc-trailer-unconditional",
                 source_mutation(
                     CORE_TOP,
-                    r"(save_size_bytes\s*\+\s*\(\s*has_rtc\s*\?\s*12\s*:\s*)0"
-                    r"(\s*\))",
+                    r"(save_size_bytes_74a\s*\}\s*\+\s*\(\s*"
+                    r"has_rtc_74a\s*\?\s*32'd12\s*:\s*32'd)0(\s*\))",
                     r"\g<1>12\g<2>",
                 ),
                 "and 0 otherwise",

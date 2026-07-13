@@ -6,11 +6,24 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "dist/Cores/agg23.WonderSwan"
+
+SOURCE_PATHS = {
+    "bridge": "src/fpga/core/core_bridge_cmd.v",
+    "core_top": "src/fpga/core/core_top.v",
+    "guard": "src/fpga/core/apf_dataslot_guard.sv",
+    "metadata": "src/fpga/core/apf_save_metadata_cdc.sv",
+    "startup": "src/fpga/core/apf_startup_sequencer.sv",
+    "save_init": "src/fpga/core/pocket_save_init.sv",
+    "wonderswan": "src/fpga/core/wonderswan.sv",
+    "qsf": "src/fpga/ap_core.qsf",
+    "regression": "scripts/regression.sh",
+}
 
 
 def load(name: str) -> dict:
@@ -19,6 +32,407 @@ def load(name: str) -> dict:
 
 def number(value: int | str) -> int:
     return int(value, 0) if isinstance(value, str) else value
+
+
+def source_bundle() -> dict[str, str]:
+    return {
+        name: (ROOT / relative).read_text(encoding="utf-8")
+        for name, relative in SOURCE_PATHS.items()
+    }
+
+
+def strip_hdl_comments(source: str) -> str:
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"//[^\n]*", "", source)
+
+
+def compact_hdl(source: str) -> str:
+    return re.sub(r"\s+", "", strip_hdl_comments(source))
+
+
+def first_class_source_errors(sources: dict[str, str]) -> list[str]:
+    """Verify the isolated APF blocks and command boundary as one contract."""
+
+    errors: list[str] = []
+    bridge = strip_hdl_comments(sources["bridge"])
+    bridge_compact = compact_hdl(sources["bridge"])
+    core_top = strip_hdl_comments(sources["core_top"])
+    core_top_compact = compact_hdl(sources["core_top"])
+    guard = strip_hdl_comments(sources["guard"])
+    guard_compact = compact_hdl(sources["guard"])
+    metadata = strip_hdl_comments(sources["metadata"])
+    metadata_compact = compact_hdl(sources["metadata"])
+    startup = strip_hdl_comments(sources["startup"])
+    startup_compact = compact_hdl(sources["startup"])
+    save_init = strip_hdl_comments(sources["save_init"])
+    save_compact = compact_hdl(sources["save_init"])
+    wonderswan = strip_hdl_comments(sources["wonderswan"])
+    wonderswan_compact = compact_hdl(sources["wonderswan"])
+
+    # Host command 0082 carries a 48-bit byte count: parameter 0 upper half is
+    # size[47:32], parameter 1 is size[31:0], and parameter 0 lower half is ID.
+    if not re.search(
+        r"output\s+reg\s*\[\s*47\s*:\s*0\s*\]\s*"
+        r"dataslot_requestwrite_size\b",
+        bridge,
+    ):
+        errors.append("0082 request must have a 48-bit 0082 declaration")
+    if "dataslot_requestwrite_size<={host_20[31:16],host_24};" not in bridge_compact:
+        errors.append("0082 request must use exact 48-bit 0082 assembly")
+    if "dataslot_requestwrite_id<=host_20[15:0];" not in bridge_compact:
+        errors.append("0082 slot ID must remain in parameter-0 low 16 bits")
+
+    # 0080/0082 have three documented results. A boolean OK loses the distinct
+    # permanent-rejection and retry-later states, so both sides remain 2-bit.
+    for signal, label in (
+        ("dataslot_requestread_result", "read"),
+        ("dataslot_requestwrite_result", "write"),
+    ):
+        if not re.search(
+            rf"input\s+wire\s*\[\s*1\s*:\s*0\s*\]\s*{signal}\b",
+            bridge,
+        ):
+            errors.append(f"{label} result code must be explicit 2-bit")
+        if f"host_resultcode<={{14'd0,{signal}}};" not in bridge_compact:
+            errors.append(f"bridge must zero-extend {label} result code")
+
+    # Reset Exit cannot start execution until the startup sequencer has emitted
+    # Ready to Run and published its persistent startup_complete level.
+    startup_requirements = (
+        "wireall_startup_requirements="
+        "(data_slots_seen||data_slots_all_complete)&&"
+        "(rtc_seen||rtc_notification_observed)&&"
+        "loaders_ready&&initializers_ready;"
+    )
+    if startup_requirements not in startup_compact:
+        errors.append("startup gating must require 008F, 0090, loaders, and initializers")
+    if startup_compact.count("ready_to_run_pulse<=1'b1;") != 1:
+        errors.append("startup gating must issue exactly one Ready-to-Run source pulse")
+    if (
+        "ready_to_run_pulse<=1'b1;startup_complete<=1'b1;state<=STATE_IDLE;"
+        not in startup_compact
+    ):
+        errors.append("Ready-to-Run must atomically publish completion and enter Idle")
+    if (
+        "if(ready_to_run_complete)beginreset_n<=1;hstate<=ST_DONE_OK;end"
+        not in bridge_compact
+    ):
+        errors.append("Reset Exit must be gated by completed startup")
+    if (
+        "if(!status_setup_done)beginready_to_run_complete<=0;end"
+        not in bridge_compact
+        or "ready_to_run_complete<=status_setup_done;" not in bridge_compact
+    ):
+        errors.append("target 0140 acknowledgement must not cross title lifecycles")
+    if "assigncore_run_enable=status_running;" not in startup_compact:
+        errors.append("execution enable must follow truthful Running status")
+
+    # Footer metadata is a bundled 21-bit snapshot, held until an acknowledged
+    # toggle returns. Overlap is rejected and each clock has independent reset
+    # release, preventing a torn size/RTC table entry.
+    if not re.search(
+        r"reg\s*\[\s*20\s*:\s*0\s*\]\s*metadata_hold\b", metadata
+    ):
+        errors.append("metadata CDC must hold one bundled 21-bit snapshot")
+    for expression, error in (
+        (
+            "assignbusy_source=request_toggle!=acknowledge_sync;",
+            "metadata CDC busy must span request through acknowledgement",
+        ),
+        (
+            "metadata_hold<={has_rtc_source,save_size_bytes_source};",
+            "metadata CDC must capture size and RTC atomically",
+        ),
+        (
+            "{has_rtc_74a,save_size_bytes_74a}<=metadata_hold;",
+            "metadata CDC must publish size and RTC atomically",
+        ),
+        (
+            "if(commit_source&&!commit_previous)beginif(!busy_source)begin",
+            "metadata CDC must accept only a fresh commit edge while idle",
+        ),
+        (
+            "rejected_source<=1'b1;",
+            "metadata CDC must explicitly reject an overlapping commit",
+        ),
+    ):
+        if expression not in metadata_compact:
+            errors.append(error)
+    if (
+        "always@(posedgeclk_sourceornegedgereset_n)" not in metadata_compact
+        or "always@(posedgeclk_74aornegedgereset_n)" not in metadata_compact
+    ):
+        errors.append("metadata CDC reset must asynchronously assert in both domains")
+
+    # The slot guard snapshots one request, evaluates actual policy/readiness,
+    # returns one of the three explicit codes, and waits for request release.
+    if not re.search(
+        r"input\s+wire\s*\[\s*47\s*:\s*0\s*\]\s*request_size\b", guard
+    ):
+        errors.append("data-slot guard must preserve the 48-bit request size")
+    if not re.search(
+        r"output\s+reg\s*\[\s*1\s*:\s*0\s*\]\s*request_result\b", guard
+    ):
+        errors.append("data-slot guard result must be explicit 2-bit")
+    for expression, error in (
+        ("localparam[1:0]RESULT_READY=2'd0;", "guard result 0 must mean ready"),
+        (
+            "localparam[1:0]RESULT_NOT_ALLOWED=2'd1;",
+            "guard result 1 must mean never allowed",
+        ),
+        (
+            "localparam[1:0]RESULT_CHECK_LATER=2'd2;",
+            "guard result 2 must mean check later",
+        ),
+        (
+            "if(!policy_slot_known||!direction_allowed)begin",
+            "data-slot guard must reject unknown slots and directions",
+        ),
+        (
+            "elseif(!selected_loader_ready)beginrequest_result<=RESULT_CHECK_LATER;",
+            "data-slot guard must retry while the selected loader is unavailable",
+        ),
+        (
+            "captured_save_length<=latched_size;",
+            "data-slot guard must retain the offered 48-bit save length",
+        ),
+        (
+            "if(!request_valid)state<=STATE_IDLE;",
+            "data-slot guard must wait for request release before re-arming",
+        ),
+    ):
+        if expression not in guard_compact:
+            errors.append(error)
+    if guard_compact.count("request_ack<=1'b1;") != 1:
+        errors.append("data-slot guard must have one acknowledgement source")
+
+    # Save initialization is decided at load completion, before Ready to Run.
+    # Host reset is intentionally not a trigger. Resolution is persistent until
+    # the next per-title cart_download lifecycle.
+    if not re.search(r"input\s+wire\s+load_complete\b", save_init):
+        errors.append("save initializer must receive pre-Ready-to-Run load_complete")
+    if not re.search(r"output\s+reg\s+initialization_resolved\b", save_init):
+        errors.append("save initializer must expose persistent initialization_resolved")
+    for expression, error in (
+        (
+            "wire[19:0]save_word_count=save_size_bytes>>1;",
+            "save initializer must clear the exact selected word capacity",
+        ),
+        (
+            "if(load_complete&&init_pending)begin",
+            "save initializer must start only from load_complete",
+        ),
+        (
+            "if(save_loaded||save_payload_write||save_word_count==0||"
+            "!(save_is_sram||save_is_eeprom))begin",
+            "loaded or nonpersistent saves must resolve without clearing",
+        ),
+    ):
+        if expression not in save_compact:
+            errors.append(error)
+    if "prev_reset_n" in save_init:
+        errors.append("host Reset Exit must not trigger save initialization")
+    if save_compact.count("initialization_resolved<=1'b0;") != 1:
+        errors.append("cart download must clear save initialization resolution once")
+    if save_compact.count("initialization_resolved<=1'b1;") != 3:
+        errors.append("loaded, SRAM, and EEPROM completion must each resolve initialization")
+
+    # Mutation-lock the real wrapper wiring as well as the isolated blocks. Both
+    # host request directions must reach one guard without narrowing the 48-bit
+    # size or collapsing the three-valued result on the way back to the bridge.
+    integration_requirements = (
+        (
+            core_top_compact,
+            "wire[47:0]dataslot_requestwrite_size;",
+            "core_top must preserve the bridge's full 48-bit 0082 size",
+        ),
+        (
+            core_top_compact,
+            "wiredataslot_request_valid=dataslot_requestread||dataslot_requestwrite;",
+            "core_top guard must receive both 0080 and 0082 requests",
+        ),
+        (
+            core_top_compact,
+            "wire[47:0]dataslot_request_size=dataslot_requestwrite?"
+            "dataslot_requestwrite_size:48'd0;",
+            "core_top must pass the full 0082 size into the guard",
+        ),
+        (
+            core_top_compact,
+            "assigndataslot_requestread_ack=dataslot_guard_ack&&dataslot_requestread;",
+            "core_top must return the guard acknowledgement to 0080",
+        ),
+        (
+            core_top_compact,
+            "assigndataslot_requestwrite_ack=dataslot_guard_ack&&dataslot_requestwrite;",
+            "core_top must return the guard acknowledgement to 0082",
+        ),
+        (
+            core_top_compact,
+            "assigndataslot_requestread_result=dataslot_guard_result;",
+            "core_top must return the full guard result to 0080",
+        ),
+        (
+            core_top_compact,
+            "assigndataslot_requestwrite_result=dataslot_guard_result;",
+            "core_top must return the full guard result to 0082",
+        ),
+        (
+            core_top_compact,
+            ".request_valid(dataslot_request_valid),.request_write(dataslot_requestwrite),"
+            ".request_id(dataslot_request_id),.request_size(dataslot_request_size),"
+            ".request_ack(dataslot_guard_ack),.request_result(dataslot_guard_result),",
+            "core_top must wire the complete host request through the data-slot guard",
+        ),
+        (
+            wonderswan_compact,
+            "save_metadata_commit<=cart_download_mem_previous&&!cart_download;",
+            "WonderSwan must commit footer metadata at cartridge completion",
+        ),
+        (
+            core_top_compact,
+            ".save_metadata_commit(save_metadata_commit),",
+            "core_top must receive the WonderSwan footer commit",
+        ),
+        (
+            core_top_compact,
+            "wiresave_metadata_commit_source=save_metadata_commit_pending_mem&&"
+            "!save_metadata_cdc_busy;",
+            "footer metadata commit must wait until the metadata CDC is available",
+        ),
+        (
+            core_top_compact,
+            "save_size_bytes_snapshot_mem<=save_size_bytes;"
+            "has_rtc_snapshot_mem<=has_rtc;"
+            "save_metadata_commit_pending_mem<=1'b1;",
+            "footer metadata must be snapshotted while its CDC commit is queued",
+        ),
+        (
+            core_top_compact,
+            "elseif(save_metadata_commit_source)begin"
+            "save_metadata_commit_pending_mem<=1'b0;",
+            "footer metadata queue must retire only after starting its CDC transfer",
+        ),
+        (
+            core_top_compact,
+            "apf_save_metadata_cdcsave_metadata_command_cdc("
+            ".reset_n(pll_core_locked),",
+            "metadata CDC reset must remain independent of host Reset Enter",
+        ),
+        (
+            core_top_compact,
+            "apf_save_metadata_cdcsave_metadata_command_cdc("
+            ".reset_n(pll_core_locked),.clk_source(clk_mem_110_592),"
+            ".save_size_bytes_source(save_size_bytes_snapshot_mem),"
+            ".has_rtc_source(has_rtc_snapshot_mem),"
+            ".commit_source(save_metadata_commit_source),",
+            "metadata CDC must consume the queued footer snapshot",
+        ),
+        (
+            core_top_compact,
+            "if(save_metadata_publish_pending&&dataslot_allcomplete)begin",
+            "save-size table publication must wait for 008F",
+        ),
+        (
+            core_top_compact,
+            "synch_3dataslot_complete_to_memory(dataslot_allcomplete,"
+            "dataslot_allcomplete_mem,clk_mem_110_592);",
+            "008F must be synchronized into the save-initializer clock domain",
+        ),
+        (
+            core_top_compact,
+            ".load_complete(dataslot_allcomplete_mem),",
+            "WonderSwan must receive synchronized 008F as load completion",
+        ),
+        (
+            wonderswan_compact,
+            ".load_complete(load_complete),",
+            "WonderSwan must pass synchronized load completion to the save initializer",
+        ),
+        (
+            core_top_compact,
+            "synch_3save_initialization_to_bridge(save_initialization_resolved_mem,"
+            "save_initialization_resolved_74a,clk_74a);",
+            "save-initialization resolution must be synchronized to the startup domain",
+        ),
+        (
+            core_top_compact,
+            ".rtc_notification_observed(rtc_transfer_delivered),",
+            "startup must observe delivered RTC data, not merely command receipt",
+        ),
+        (
+            core_top_compact,
+            ".initializers_ready(save_initialization_resolved_74a),",
+            "startup must wait for resolved save initialization",
+        ),
+        (
+            core_top_compact,
+            "assignstatus_setup_done=startup_complete;",
+            "status_setup_done must use persistent startup completion",
+        ),
+        (
+            core_top_compact,
+            ".ready_to_run_complete(ready_to_run_complete),",
+            "core_top must retain the Pocket acknowledgement of target 0140",
+        ),
+        (
+            core_top_compact,
+            "apf_dataslot_guardpocket_dataslot_guard(.clk(clk_74a),"
+            ".reset_n(pll_core_ready_74a),",
+            "data-slot guard reset must remain independent of host Reset Enter",
+        ),
+        (
+            core_top_compact,
+            ".read_loader_ready(startup_complete&&!reset_n&&"
+            "!execution_ready_74a&&save_backend_quiesced&&"
+            "save_metadata_table_published&&save_initialization_resolved_74a),",
+            "0080 flush must wait for real execution stop and backend quiescence",
+        ),
+        (
+            core_top_compact,
+            ".pll_core_locked(pll_core_ready_mem),",
+            "footer commit reset must remain independent of host Reset Enter",
+        ),
+    )
+    for source, expression, error in integration_requirements:
+        if expression not in source:
+            errors.append(error)
+
+    # Chip32 asserts cart_download before LOADF and holds it until the 0082
+    # transaction returns. Capture clearing therefore may not gate or abort the
+    # guard FSM; it must run after the request case so only diagnostics clear.
+    if (
+        "endelsebegincase(state)" not in guard_compact
+        or "endcaseif(captured_length_clear)begin" not in guard_compact
+    ):
+        errors.append("cart download capture clear must not block the request FSM")
+
+    # There is exactly one table-write assertion, inside the 008F-qualified
+    # publication branch checked above. This prevents an unqualified duplicate.
+    if core_top_compact.count("datatable_wren<=1'b1;") != 1:
+        errors.append("save-size table must have one 008F-qualified write source")
+
+    project_lines = {
+        "core/apf_dataslot_guard.sv": "Quartus must compile the data-slot guard",
+        "core/apf_save_metadata_cdc.sv": "Quartus must compile the metadata CDC",
+        "core/apf_startup_sequencer.sv": "Quartus must compile the startup sequencer",
+    }
+    for filename, error in project_lines.items():
+        line = f"set_global_assignment -name SYSTEMVERILOG_FILE {filename}"
+        if sources["qsf"].count(line) != 1:
+            errors.append(error)
+
+    runner_lines = {
+        "run_apf_dataslot_guard_tb.sh": "regression must run the data-slot guard bench",
+        "run_apf_save_metadata_cdc_tb.sh": "regression must run the metadata CDC bench",
+        "run_apf_startup_sequencer_tb.sh": "regression must run the startup sequencer bench",
+    }
+    for filename, error in runner_lines.items():
+        line = f'"$ROOT/sim/rtl/{filename}"'
+        if sources["regression"].count(line) != 1:
+            errors.append(error)
+
+    return errors
 
 
 class PocketFirstClassContractTest(unittest.TestCase):
@@ -124,11 +538,389 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertLessEqual(len(variables), 16)
         self.assertEqual(len({number(item["id"]) for item in variables}), len(variables))
 
+    def test_apf_boundary_sources_are_mutation_locked(self) -> None:
+        sources = source_bundle()
+        self.assertEqual(first_class_source_errors(sources), [])
+
+        mutations = (
+            (
+                "bridge",
+                "[47:0]  dataslot_requestwrite_size",
+                "[31:0]  dataslot_requestwrite_size",
+                "48-bit 0082 declaration",
+            ),
+            (
+                "bridge",
+                "{host_20[31:16], host_24}",
+                "{16'd0, host_24}",
+                "48-bit 0082 assembly",
+            ),
+            (
+                "bridge",
+                "[1:0]   dataslot_requestread_result",
+                "        dataslot_requestread_result",
+                "read result code must be explicit 2-bit",
+            ),
+            (
+                "bridge",
+                "[1:0]   dataslot_requestwrite_result",
+                "        dataslot_requestwrite_result",
+                "write result code must be explicit 2-bit",
+            ),
+            (
+                "bridge",
+                "{14'd0, dataslot_requestwrite_result}",
+                "{15'd0, dataslot_requestwrite_result[0]}",
+                "zero-extend write result code",
+            ),
+            (
+                "core_top",
+                "wire [47:0] dataslot_requestwrite_size;",
+                "wire [31:0] dataslot_requestwrite_size;",
+                "full 48-bit 0082 size",
+            ),
+            (
+                "core_top",
+                "dataslot_requestread || dataslot_requestwrite",
+                "dataslot_requestwrite",
+                "both 0080 and 0082 requests",
+            ),
+            (
+                "core_top",
+                "dataslot_requestwrite_size : 48'd0;",
+                "{16'd0, dataslot_requestwrite_size[31:0]} : 48'd0;",
+                "full 0082 size into the guard",
+            ),
+            (
+                "core_top",
+                "dataslot_guard_ack && dataslot_requestread;",
+                "1'b0;",
+                "guard acknowledgement to 0080",
+            ),
+            (
+                "core_top",
+                "dataslot_guard_ack && dataslot_requestwrite;",
+                "1'b0;",
+                "guard acknowledgement to 0082",
+            ),
+            (
+                "core_top",
+                "assign dataslot_requestread_result = dataslot_guard_result;",
+                "assign dataslot_requestread_result = 2'd0;",
+                "full guard result to 0080",
+            ),
+            (
+                "core_top",
+                "assign dataslot_requestwrite_result = dataslot_guard_result;",
+                "assign dataslot_requestwrite_result = 2'd0;",
+                "full guard result to 0082",
+            ),
+            (
+                "core_top",
+                ".request_id(dataslot_request_id),",
+                ".request_id(dataslot_requestwrite_id),",
+                "complete host request through the data-slot guard",
+            ),
+            (
+                "guard",
+                "end else begin\n      case (state)",
+                "end else if (!captured_length_clear) begin\n      case (state)",
+                "capture clear must not block the request FSM",
+            ),
+            (
+                "wonderswan",
+                "save_metadata_commit <= cart_download_mem_previous && !cart_download;",
+                "save_metadata_commit <= 1'b0;",
+                "commit footer metadata at cartridge completion",
+            ),
+            (
+                "core_top",
+                ".save_metadata_commit(save_metadata_commit),",
+                ".save_metadata_commit(),",
+                "receive the WonderSwan footer commit",
+            ),
+            (
+                "core_top",
+                "save_metadata_commit_pending_mem &&\n"
+                "                                     !save_metadata_cdc_busy;",
+                "save_metadata_commit_pending_mem;",
+                "wait until the metadata CDC is available",
+            ),
+            (
+                "core_top",
+                "save_size_bytes_snapshot_mem <= save_size_bytes;",
+                "save_size_bytes_snapshot_mem <= 20'd0;",
+                "snapshotted while its CDC commit is queued",
+            ),
+            (
+                "core_top",
+                "end else if (save_metadata_commit_source) begin\n"
+                "      save_metadata_commit_pending_mem <= 1'b0;",
+                "end else if (1'b0) begin\n"
+                "      save_metadata_commit_pending_mem <= 1'b0;",
+                "queue must retire only after starting its CDC transfer",
+            ),
+            (
+                "core_top",
+                ".save_size_bytes_source(save_size_bytes_snapshot_mem),",
+                ".save_size_bytes_source(save_size_bytes),",
+                "consume the queued footer snapshot",
+            ),
+            (
+                "core_top",
+                "save_metadata_publish_pending && dataslot_allcomplete",
+                "save_metadata_publish_pending",
+                "table publication must wait for 008F",
+            ),
+            (
+                "core_top",
+                ".load_complete(dataslot_allcomplete_mem),",
+                ".load_complete(dataslot_allcomplete),",
+                "receive synchronized 008F as load completion",
+            ),
+            (
+                "wonderswan",
+                ".load_complete(load_complete),",
+                ".load_complete(reset_n),",
+                "pass synchronized load completion to the save initializer",
+            ),
+            (
+                "core_top",
+                ".rtc_notification_observed(rtc_transfer_delivered),",
+                ".rtc_notification_observed(rtc_valid),",
+                "observe delivered RTC data",
+            ),
+            (
+                "core_top",
+                ".initializers_ready(save_initialization_resolved_74a),",
+                ".initializers_ready(1'b1),",
+                "wait for resolved save initialization",
+            ),
+            (
+                "core_top",
+                "assign status_setup_done = startup_complete;",
+                "assign status_setup_done = startup_ready_to_run_pulse;",
+                "persistent startup completion",
+            ),
+            (
+                "core_top",
+                ".ready_to_run_complete(ready_to_run_complete),",
+                ".ready_to_run_complete(),",
+                "acknowledgement of target 0140",
+            ),
+            (
+                "core_top",
+                "apf_save_metadata_cdc save_metadata_command_cdc (\n"
+                "      .reset_n(pll_core_locked),",
+                "apf_save_metadata_cdc save_metadata_command_cdc (\n"
+                "      .reset_n(reset_n),",
+                "metadata CDC reset must remain independent of host Reset Enter",
+            ),
+            (
+                "core_top",
+                "apf_dataslot_guard pocket_dataslot_guard (\n"
+                "      .clk(clk_74a),\n"
+                "      .reset_n(pll_core_ready_74a),",
+                "apf_dataslot_guard pocket_dataslot_guard (\n"
+                "      .clk(clk_74a),\n"
+                "      .reset_n(reset_n),",
+                "guard reset must remain independent of host Reset Enter",
+            ),
+            (
+                "core_top",
+                "!execution_ready_74a && save_backend_quiesced &&",
+                "1'b1 &&",
+                "0080 flush must wait for real execution stop and backend quiescence",
+            ),
+            (
+                "core_top",
+                ".pll_core_locked(pll_core_ready_mem),",
+                ".pll_core_locked(reset_n),",
+                "footer commit reset must remain independent of host Reset Enter",
+            ),
+            (
+                "startup",
+                "loaders_ready && initializers_ready;",
+                "loaders_ready;",
+                "startup gating must require 008F, 0090, loaders, and initializers",
+            ),
+            (
+                "startup",
+                "(rtc_seen || rtc_notification_observed)",
+                "rtc_seen",
+                "startup gating must require 008F, 0090, loaders, and initializers",
+            ),
+            (
+                "startup",
+                "ready_to_run_pulse <= 1'b1;",
+                "ready_to_run_pulse <= 1'b0;",
+                "exactly one Ready-to-Run source pulse",
+            ),
+            (
+                "bridge",
+                "if(ready_to_run_complete) begin\n                reset_n <= 1;",
+                "if(1'b1) begin\n                reset_n <= 1;",
+                "Reset Exit must be gated by completed startup",
+            ),
+            (
+                "bridge",
+                "if(!status_setup_done) begin\n"
+                "        // A new title drops startup_complete before it can rise again. Never\n"
+                "        // let that lifecycle consume the previous title's 0140 acknowledgement.\n"
+                "        ready_to_run_complete <= 0;\n"
+                "    end",
+                "if(1'b0) begin\n"
+                "        ready_to_run_complete <= 0;\n"
+                "    end",
+                "target 0140 acknowledgement must not cross title lifecycles",
+            ),
+            (
+                "metadata",
+                "reg [20:0] metadata_hold;",
+                "reg [19:0] metadata_hold;",
+                "bundled 21-bit snapshot",
+            ),
+            (
+                "metadata",
+                "assign busy_source = request_toggle != acknowledge_sync;",
+                "assign busy_source = request_toggle == acknowledge_sync;",
+                "busy must span request through acknowledgement",
+            ),
+            (
+                "metadata",
+                "metadata_hold <= {has_rtc_source, save_size_bytes_source};",
+                "metadata_hold <= {1'b0, save_size_bytes_source};",
+                "capture size and RTC atomically",
+            ),
+            (
+                "metadata",
+                "{has_rtc_74a, save_size_bytes_74a} <= metadata_hold;",
+                "{has_rtc_74a, save_size_bytes_74a} <= 21'd0;",
+                "publish size and RTC atomically",
+            ),
+            (
+                "metadata",
+                "if (commit_source && !commit_previous) begin",
+                "if (commit_source) begin",
+                "accept only a fresh commit edge while idle",
+            ),
+            (
+                "qsf",
+                "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_save_metadata_cdc.sv",
+                "# metadata CDC omitted",
+                "Quartus must compile the metadata CDC",
+            ),
+            (
+                "guard",
+                "[47:0] request_size",
+                "[31:0] request_size",
+                "guard must preserve the 48-bit request size",
+            ),
+            (
+                "guard",
+                "[ 1:0] request_result",
+                "       request_result",
+                "guard result must be explicit 2-bit",
+            ),
+            (
+                "guard",
+                "localparam [1:0] RESULT_CHECK_LATER = 2'd2;",
+                "localparam [1:0] RESULT_CHECK_LATER = 2'd0;",
+                "result 2 must mean check later",
+            ),
+            (
+                "guard",
+                "else if (!selected_loader_ready) begin",
+                "else if (1'b0) begin",
+                "retry while the selected loader is unavailable",
+            ),
+            (
+                "guard",
+                "captured_save_length <= latched_size;",
+                "captured_save_length <= 48'd0;",
+                "retain the offered 48-bit save length",
+            ),
+            (
+                "qsf",
+                "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_dataslot_guard.sv",
+                "# data-slot guard omitted",
+                "Quartus must compile the data-slot guard",
+            ),
+            (
+                "save_init",
+                "input  wire        load_complete,",
+                "input  wire        load_complete_missing,",
+                "pre-Ready-to-Run load_complete",
+            ),
+            (
+                "save_init",
+                "if (load_complete && init_pending) begin",
+                "if (reset_n && init_pending) begin",
+                "start only from load_complete",
+            ),
+            (
+                "save_init",
+                "initialization_resolved <= 1'b0;",
+                "initialization_resolved <= 1'b1;",
+                "cart download must clear save initialization resolution once",
+            ),
+            (
+                "save_init",
+                "initialization_resolved <= 1'b1;",
+                "initialization_resolved <= 1'b0;",
+                "loaded, SRAM, and EEPROM completion must each resolve",
+            ),
+            (
+                "save_init",
+                "wire [19:0] save_word_count = save_size_bytes >> 1;",
+                "wire [19:0] save_word_count = save_size_bytes;",
+                "clear the exact selected word capacity",
+            ),
+            (
+                "qsf",
+                "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_startup_sequencer.sv",
+                "# startup sequencer omitted",
+                "Quartus must compile the startup sequencer",
+            ),
+            (
+                "regression",
+                '"$ROOT/sim/rtl/run_apf_dataslot_guard_tb.sh"',
+                "# data-slot guard runner omitted",
+                "regression must run the data-slot guard bench",
+            ),
+            (
+                "regression",
+                '"$ROOT/sim/rtl/run_apf_save_metadata_cdc_tb.sh"',
+                "# metadata CDC runner omitted",
+                "regression must run the metadata CDC bench",
+            ),
+            (
+                "regression",
+                '"$ROOT/sim/rtl/run_apf_startup_sequencer_tb.sh"',
+                "# startup sequencer runner omitted",
+                "regression must run the startup sequencer bench",
+            ),
+        )
+
+        for index, (name, old, new, expected_error) in enumerate(mutations):
+            with self.subTest(mutation=index, source=name):
+                self.assertIn(old, sources[name])
+                mutated = dict(sources)
+                mutated[name] = mutated[name].replace(old, new, 1)
+                errors = first_class_source_errors(mutated)
+                self.assertTrue(
+                    any(expected_error in error for error in errors),
+                    f"mutation unexpectedly survived: {expected_error}; errors={errors}",
+                )
+
     def test_focused_wrapper_tests_are_executable(self) -> None:
         for relative in (
             "scripts/pocket_control_cdc_contract_test.py",
             "sim/rtl/run_apf_host_notify_tb.sh",
             "sim/rtl/run_apf_grayscale_video_tb.sh",
+            "sim/rtl/run_apf_dataslot_guard_tb.sh",
+            "sim/rtl/run_apf_save_metadata_cdc_tb.sh",
+            "sim/rtl/run_apf_startup_sequencer_tb.sh",
         ):
             path = ROOT / relative
             self.assertTrue(path.is_file())

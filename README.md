@@ -49,6 +49,45 @@ WonderSwan Color
 * `color.rom`
 * MD5: 880893BD5A7D53FFF826BD76A83D566E
 
+### Supported file sizes
+
+The development RTL applies the Pocket data-slot contract before accepting a
+file. Cartridge ROMs must be a power of two from 64 KiB through **16 MiB**;
+`bw.rom` must be exactly 4 KiB and `color.rom` exactly 8 KiB. The 16 MiB ROM
+ceiling is an implemented limit of this core's 24-bit mapper, not a claim about
+every possible WonderSwan cartridge. The documented header values reach
+16 MiB, while the later Bandai 2003 mapper's six 1 MiB linear-bank bits imply a
+theoretical 64 MiB address capacity. Larger images are not supported here. See
+the [WSdev ROM-header](https://ws.nesdev.org/wiki/ROM_header) and
+[mapper](https://ws.nesdev.org/wiki/Mapper) references and the
+[Wonderful WonderSwan target documentation](https://wonderful.asie.pl/docs/target/wswan/).
+
+Save slot 11 uses the cartridge footer to publish and validate the exact
+payload size. SRAM types `01/02`, `03`, `04`, and `05` use 32, 128, 256, and
+512 KiB. EEPROM types `10`, `20`, and `50` use 128, 2,048, and 1,024 bytes.
+Cartridges with RTC add an exact 12-byte trailer. Old 8,204-byte type-`01`
+saves must be converted; old 2,060-byte type-`10`/`50` RTC saves are accepted
+for compatibility but are written back at their canonical 140/1,036-byte
+sizes. The non-destructive conversion commands are in
+[BUILDING.md](BUILDING.md#migrating-legacy-type-01-pocket-saves).
+
+At the source level, startup now follows Analogue's documented lifecycle:
+Setup remains active through `008F` data-slot completion, delivered `0090` RTC
+data, save metadata/table publication, and initialization; the core then
+requests `0140`, waits for Pocket's acknowledgement, enters Idle, and does not
+enter Running until `0011`; starting a new title invalidates any preceding
+title's `0140` acknowledgement. On shutdown, save reads return `2` until Reset
+Enter has stopped execution and a fixed 31-`clk_74a` drain guard has elapsed.
+Slot requests use the full 48-bit `0082` length and return the documented `0`
+ready / `1` never / `2` later results. This is covered by focused simulation;
+it is not a claim of physical Pocket validation. The
+controlling specifications are Analogue's [boot process](https://www.analogue.co/developer/docs/core-boot-process),
+[host/target commands](https://www.analogue.co/developer/docs/host-target-commands),
+[`data.json`](https://www.analogue.co/developer/docs/core-definition-files/data-json),
+[`core.json`](https://www.analogue.co/developer/docs/core-definition-files/core-json),
+and [bus communication](https://www.analogue.co/developer/docs/bus-communication)
+documentation.
+
 ## Features
 
 ### Save States/Sleep + Wake

@@ -57,6 +57,12 @@ module wonderswan (
     // Saves
     output logic [19:0] save_size_bytes,
     output wire has_rtc,
+    // APF lifecycle evidence in clk_mem: footer metadata is committed once at
+    // cartridge completion, and save initialization resolves after 008F.
+    input wire load_complete,
+    output reg save_metadata_commit,
+    output wire save_initialization_resolved,
+    output wire execution_ready,
     input wire sd_buff_wr,
     input wire sd_buff_rd,
     input wire [20:0] sd_buff_addr,
@@ -164,6 +170,7 @@ module wonderswan (
   pocket_save_init save_initializer (
       .clk(clk_mem_110_592),
       .cart_download(cart_download),
+      .load_complete(load_complete),
       .reset_n(reset_n),
       .save_payload_write(sd_buff_wr && !extra_data_addr),
       .save_is_sram(saveIsSRAM),
@@ -174,7 +181,8 @@ module wonderswan (
       .clearing_sram(clearing_sram),
       .clear_sram_write(clear_sram_write),
       .clear_eeprom_write(clear_eeprom_write),
-      .clear_word_addr(clear_save_word_addr)
+      .clear_word_addr(clear_save_word_addr),
+      .initialization_resolved(save_initialization_resolved)
   );
 
   wire save_ram_ack;
@@ -228,6 +236,7 @@ module wonderswan (
   reg [15:0] lastdata             [0:4];
 
   reg        ioctl_wr_1 = 0;
+  reg        cart_download_mem_previous = 1'b0;
 
   reg        colorcart_downloaded;
 
@@ -245,6 +254,19 @@ module wonderswan (
       // if (sdram_ack) ioctl_wait <= 0;
     end
     // else ioctl_wait <= 0;
+  end
+
+  // Snapshot the footer-derived persistence contract only after the final ROM
+  // word is stable. The bundled metadata CDC in core_top holds this payload
+  // atomically while crossing to the Pocket command domain.
+  always @(posedge clk_mem_110_592) begin
+    if (!pll_core_locked) begin
+      cart_download_mem_previous <= 1'b0;
+      save_metadata_commit <= 1'b0;
+    end else begin
+      save_metadata_commit <= cart_download_mem_previous && !cart_download;
+      cart_download_mem_previous <= cart_download;
+    end
   end
 
   reg old_download;
@@ -270,6 +292,7 @@ module wonderswan (
   wire [15:0] Swan_AUDIO_R;
 
   wire reset = ~reset_n_sys | cart_download_sys | clearing_save_sys | external_reset;
+  assign execution_ready = ~reset;
 
   reg paused;
   always_ff @(posedge clk_sys_36_864) begin
