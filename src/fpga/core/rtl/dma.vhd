@@ -71,8 +71,6 @@ architecture arch of dma is
    signal DMA_LEN_H_written : std_logic;
    signal DMA_CTRL_written  : std_logic;
 
-   signal SDMA_SRC     : std_logic_vector(19 downto 0) := (others => '0');
-   signal SDMA_LEN     : std_logic_vector(19 downto 0) := (others => '0');
    signal SDMA_CTRL    : std_logic_vector( 7 downto 0) := (others => '0');
    
    signal SDMA_SRC_L_written : std_logic;
@@ -103,13 +101,16 @@ architecture arch of dma is
    signal waitcnt : integer range 0 to 4;
    
    -- sound DMA
-   signal SDMA_SRC_work : std_logic_vector(19 downto 0) := (others => '0');
-   signal SDMA_LEN_work : std_logic_vector(19 downto 0) := (others => '0');
-   signal sdmaSlow      : unsigned(9 downto 0); 
+   signal SDMA_SRC_work   : std_logic_vector(19 downto 0) := (others => '0');
+   signal SDMA_LEN_work   : std_logic_vector(19 downto 0) := (others => '0');
+   signal SDMA_SRC_reload : std_logic_vector(19 downto 0) := (others => '0');
+   signal SDMA_LEN_reload : std_logic_vector(19 downto 0) := (others => '0');
+   signal sdmaSlow        : unsigned(9 downto 0);
    signal sdma_requestIntern : std_logic;
+   signal sdma_state_code : std_logic_vector(2 downto 0);
    
    -- savestates
-   type t_ss_wired_or is array(0 to 1) of std_logic_vector(63 downto 0);
+   type t_ss_wired_or is array(0 to 2) of std_logic_vector(63 downto 0);
    signal ss_wired_or : t_ss_wired_or;
    
    signal SS_DMA           : std_logic_vector(REG_SAVESTATE_DMA     .upper downto REG_SAVESTATE_DMA     .lower);
@@ -117,6 +118,9 @@ architecture arch of dma is
    
    signal SS_SOUNDDMA      : std_logic_vector(REG_SAVESTATE_SOUNDDMA.upper downto REG_SAVESTATE_SOUNDDMA.lower);
    signal SS_SOUNDDMA_BACK : std_logic_vector(REG_SAVESTATE_SOUNDDMA.upper downto REG_SAVESTATE_SOUNDDMA.lower);
+
+   signal SS_SOUNDDMA_EXT      : std_logic_vector(REG_SAVESTATE_SOUNDDMA_EXT.upper downto REG_SAVESTATE_SOUNDDMA_EXT.lower);
+   signal SS_SOUNDDMA_EXT_BACK : std_logic_vector(REG_SAVESTATE_SOUNDDMA_EXT.upper downto REG_SAVESTATE_SOUNDDMA_EXT.lower);
 
 begin
 
@@ -129,12 +133,12 @@ begin
    iREG_DMA_LEN_H  : entity work.eReg generic map ( REG_DMA_LEN_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 6), DMA_LEN(15 downto  8) , open, DMA_LEN_H_written  ); 
    iREG_DMA_CTRL   : entity work.eReg generic map ( REG_DMA_CTRL   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 7), DMA_CTRL              , open, DMA_CTRL_written   );
    
-   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), SDMA_SRC( 7 downto  0), SDMA_SRC_L_written);
-   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), SDMA_SRC(15 downto  8), SDMA_SRC_M_written);
-   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), SDMA_SRC(19 downto 16), SDMA_SRC_H_written);
-   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), SDMA_LEN( 7 downto  0), SDMA_LEN_L_written);
-   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), SDMA_LEN(15 downto  8), SDMA_LEN_M_written);
-   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), SDMA_LEN(19 downto 16), SDMA_LEN_H_written);
+   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), open, SDMA_SRC_L_written);
+   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), open, SDMA_SRC_M_written);
+   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), open, SDMA_SRC_H_written);
+   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), open, SDMA_LEN_L_written);
+   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), open, SDMA_LEN_M_written);
+   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), open, SDMA_LEN_H_written);
    iREG_SDMA_CTRL  : entity work.eReg generic map ( REG_SDMA_CTRL  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(14), SDMA_CTRL             , open, SDMA_CTRL_written  ); 
 
    process (reg_wired_or)
@@ -165,6 +169,7 @@ begin
    
    iSS_DMA        : entity work.eReg_SS generic map ( REG_SAVESTATE_DMA      ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, ss_wired_or(0), SS_DMA_BACK     , SS_DMA       );
    iSS_SOUNDDMA   : entity work.eReg_SS generic map ( REG_SAVESTATE_SOUNDDMA ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, ss_wired_or(1), SS_SOUNDDMA_BACK, SS_SOUNDDMA  );
+   iSS_SOUNDDMA_EXT : entity work.eReg_SS generic map ( REG_SAVESTATE_SOUNDDMA_EXT ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, ss_wired_or(2), SS_SOUNDDMA_EXT_BACK, SS_SOUNDDMA_EXT);
    
    SS_DMA_BACK(15 downto  0) <= DMA_LEN; 
    SS_DMA_BACK(31 downto 16) <= DMA_DST; 
@@ -176,6 +181,29 @@ begin
    SS_SOUNDDMA_BACK(31 downto 20) <= (31 downto 20 => '0');  --unused
    SS_SOUNDDMA_BACK(51 downto 32) <= SDMA_SRC_work;
    SS_SOUNDDMA_BACK(59 downto 52) <= SDMA_CTRL;
+
+   -- Versioned extension in the previously-unused internal slot 18.  Slot 17
+   -- remains byte-for-byte compatible with existing save images.
+   SS_SOUNDDMA_EXT_BACK(19 downto  0) <= SDMA_LEN_reload;
+   SS_SOUNDDMA_EXT_BACK(39 downto 20) <= SDMA_SRC_reload;
+   SS_SOUNDDMA_EXT_BACK(49 downto 40) <= std_logic_vector(sdmaSlow);
+   SS_SOUNDDMA_EXT_BACK(50)           <= sdma_requestIntern;
+   SS_SOUNDDMA_EXT_BACK(53 downto 51) <= sdma_state_code;
+   SS_SOUNDDMA_EXT_BACK(59 downto 54) <= (others => '0');
+   SS_SOUNDDMA_EXT_BACK(62 downto 60) <= "001";
+   SS_SOUNDDMA_EXT_BACK(63)           <= '1';
+
+   -- Fixed encodings make the save format independent of the compiler's
+   -- representation of tState.  Only IDLE and the pre-bus SDMA_READ state are
+   -- legal restore points; the remaining encodings are diagnostic on save.
+   with state select sdma_state_code <=
+      "000" when IDLE,
+      "001" when WAITING,
+      "010" when READING,
+      "011" when WRITING,
+      "100" when DONE,
+      "101" when SDMA_READ,
+      "110" when SDMA_READDONE;
    
    
    process (clk)
@@ -242,9 +270,44 @@ begin
             SDMA_CTRL     <= SS_SOUNDDMA(59 downto 52);
 
             sdma_active        <= '0';
-            sdma_requestIntern <= '0';
-            
-            sdmaSlow <= (others => '0');
+            if (SS_SOUNDDMA_EXT(63) = '1' and
+                SS_SOUNDDMA_EXT(62 downto 60) = "001" and
+                SS_SOUNDDMA_EXT(59 downto 54) = "000000") then
+               SDMA_LEN_reload    <= SS_SOUNDDMA_EXT(19 downto  0);
+               SDMA_SRC_reload    <= SS_SOUNDDMA_EXT(39 downto 20);
+               sdmaSlow           <= unsigned(SS_SOUNDDMA_EXT(49 downto 40));
+
+               -- The save handshake can quiesce in IDLE or after IDLE has
+               -- selected SDMA_READ but before that state asserts bus_read.
+               -- No bus_dataread latch is saved, so every other state must
+               -- fail safe rather than resume a partial transaction.  An IDLE
+               -- request cannot legally survive with Sound DMA disabled, but
+               -- an already-selected SDMA_READ must finish atomically even if
+               -- software disabled the channel before the save handshake.
+               if (SS_SOUNDDMA_EXT(53 downto 51) = "101" and
+                   SS_SOUNDDMA_EXT(50) = '1') then
+                  state <= SDMA_READ;
+                  sdma_requestIntern <= '1';
+               elsif (SS_SOUNDDMA_EXT(53 downto 51) = "000") then
+                  state <= IDLE;
+                  if (SS_SOUNDDMA(59) = '1') then
+                     sdma_requestIntern <= SS_SOUNDDMA_EXT(50);
+                  else
+                     sdma_requestIntern <= '0';
+                  end if;
+               else
+                  state <= IDLE;
+                  sdma_requestIntern <= '0';
+               end if;
+            else
+               -- Legacy images have an all-zero slot 18.  Their visible live
+               -- counters are the best available repeat reload values.
+               SDMA_LEN_reload    <= SS_SOUNDDMA(19 downto  0);
+               SDMA_SRC_reload    <= SS_SOUNDDMA(51 downto 32);
+               sdmaSlow           <= (others => '0');
+               sdma_requestIntern <= '0';
+               state              <= IDLE;
+            end if;
             
          elsif (ce = '1') then
             
@@ -347,8 +410,8 @@ begin
                   
                   if (SDMA_CTRL(2) = '0' and unsigned(SDMA_LEN_work) = 0) then
                      if (SDMA_CTRL(3) = '1') then
-                        SDMA_SRC_work <= SDMA_SRC;
-                        SDMA_LEN_work <= SDMA_LEN;
+                        SDMA_SRC_work <= SDMA_SRC_reload;
+                        SDMA_LEN_work <= SDMA_LEN_reload;
                      else
                         SDMA_CTRL(7) <= '0';
                      end if;
@@ -358,23 +421,38 @@ begin
             
          end if;
 
-         -- The visible source/length ports are the live counters while eReg
-         -- retains the same writes as repeat reload shadows.  These byte
-         -- assignments are last so CPU writes win coincident transfers.
+         -- The visible source/length ports are the live counters.  Explicit
+         -- process-owned shadows retain the same writes for repeat reloads and
+         -- save-state restoration.  These byte assignments are last so CPU
+         -- writes win coincident transfers.
          if (reset = '0' and sleep_savestate = '0') then
-            if (SDMA_SRC_L_written = '1') then SDMA_SRC_work( 7 downto  0) <= RegBus_Din; end if;
-            if (SDMA_SRC_M_written = '1') then SDMA_SRC_work(15 downto  8) <= RegBus_Din; end if;
-            if (SDMA_SRC_H_written = '1') then SDMA_SRC_work(19 downto 16) <= RegBus_Din(3 downto 0); end if;
-            if (SDMA_LEN_L_written = '1') then SDMA_LEN_work( 7 downto  0) <= RegBus_Din; end if;
-            if (SDMA_LEN_M_written = '1') then SDMA_LEN_work(15 downto  8) <= RegBus_Din; end if;
-            if (SDMA_LEN_H_written = '1') then SDMA_LEN_work(19 downto 16) <= RegBus_Din(3 downto 0); end if;
+            if (SDMA_SRC_L_written = '1') then
+               SDMA_SRC_work( 7 downto  0) <= RegBus_Din;
+               SDMA_SRC_reload( 7 downto  0) <= RegBus_Din;
+            end if;
+            if (SDMA_SRC_M_written = '1') then
+               SDMA_SRC_work(15 downto  8) <= RegBus_Din;
+               SDMA_SRC_reload(15 downto  8) <= RegBus_Din;
+            end if;
+            if (SDMA_SRC_H_written = '1') then
+               SDMA_SRC_work(19 downto 16) <= RegBus_Din(3 downto 0);
+               SDMA_SRC_reload(19 downto 16) <= RegBus_Din(3 downto 0);
+            end if;
+            if (SDMA_LEN_L_written = '1') then
+               SDMA_LEN_work( 7 downto  0) <= RegBus_Din;
+               SDMA_LEN_reload( 7 downto  0) <= RegBus_Din;
+            end if;
+            if (SDMA_LEN_M_written = '1') then
+               SDMA_LEN_work(15 downto  8) <= RegBus_Din;
+               SDMA_LEN_reload(15 downto  8) <= RegBus_Din;
+            end if;
+            if (SDMA_LEN_H_written = '1') then
+               SDMA_LEN_work(19 downto 16) <= RegBus_Din(3 downto 0);
+               SDMA_LEN_reload(19 downto 16) <= RegBus_Din(3 downto 0);
+            end if;
          end if;
       end if;
    end process;
      
 
 end architecture;
-
-
-
-

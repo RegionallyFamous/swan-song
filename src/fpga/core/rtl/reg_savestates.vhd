@@ -23,6 +23,7 @@ package pReg_savestates is
    constant REG_SAVESTATE_SOUND3      : savestate_type := ( 15,   10,      0,        1, x"0000000000000000");
    constant REG_SAVESTATE_SOUND4      : savestate_type := ( 16,   19,      0,        1, x"0000000000000000");
    constant REG_SAVESTATE_SOUNDDMA    : savestate_type := ( 17,   59,      0,        1, x"0000000000000000");
+   constant REG_SAVESTATE_SOUNDDMA_EXT : savestate_type := ( 18,   63,      0,        1, x"0000000000000000");
    
    constant REG_SAVESTATE_EEPROMINT   : savestate_type := ( 19,   16,      0,        1, x"0000000000000000");
    constant REG_SAVESTATE_EEPROMEXT   : savestate_type := ( 21,   16,      0,        1, x"0000000000000000");
