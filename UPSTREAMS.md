@@ -7,6 +7,8 @@ Pinned on 2026-07-12:
 | Pocket baseline | https://github.com/agg23/openfpga-wonderswan | `073213a2e5992cff23b174d17763cb6354ee862b` | Top-level file contains GPL v2 text; file notices vary |
 | WonderSwan system reference | https://github.com/MiSTer-devel/WonderSwan_MiSTer | `8f7a4d670b4635eda0e518e7fd9a17ef8610db79` | `WonderSwan.sv` grants GPL v2-or-later; top-level file contains GPL v2 text; file notices vary |
 | APF utility reference | https://github.com/agg23/analogue-pocket-utils | `78482d1b363606336f4535aa0adc2e957bc20558` | MIT |
+| Wonderful open test reference | https://github.com/asiekierka/ws-test-suite | `7dfa0e2e869d08386b685d6a56df0bcfaf181b47` | MIT |
+| ares behavioral reference | https://github.com/ares-emulator/ares | `449b93716fb162632de2fd43bf2eba2064fa43f2` | ares core under ISC-style notice; bundled notices vary |
 
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
 the original WonderSwan FPGA core author. The following findings come from the

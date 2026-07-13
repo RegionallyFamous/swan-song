@@ -10,7 +10,7 @@
 | System simulation | Implemented for open tests | deterministic GPU-framebuffer hashes for two checked-in MiSTer tests via `make regression`, plus a pinned Wonderful `initfini` pass recorded in `WONDERFUL_VALIDATION.md`; Pocket wrappers and SDRAM controller are outside this harness |
 | PNG framebuffer output | Complete | `sim/verilator/rgb_to_png.py` |
 | Optional waveform trace | Complete at whole-design VCD level | `--trace FILE.vcd` |
-| Structured event trace | Verified in Verilator | simulation-gated CPU, bank-register, and GPU VRAM taps; CSV/JSONL logging; automated CPU/VRAM and generated C0-C3 bank-probe checks; `sim/verilator/TRACE.md` |
+| Structured event trace | Verified in Verilator | simulation-gated CPU, bank-register, and role-aware GPU internal-RAM taps; v2 CSV/JSONL with v1 CSV verification; automated all-role, address, PC, and generated C0-C3 bank-probe checks; `sim/verilator/TRACE.md` |
 | Quartus bitstream | Blocked on host tool availability | requires supported Linux/Windows Quartus 21.1.1 host |
 | Timing closure | Not tested | requires Quartus build |
 | Hardware equivalence | Not tested | requires user-approved Pocket validation |
@@ -23,9 +23,9 @@ timing closure, and optional device testing are performed.
 | Item | Status | Evidence needed or available |
 | --- | --- | --- |
 | ROM bank-switch writes | Verified with generated open probe | `make regression` executes C0-C3 writes with distinct values and requires all four serialized addresses; no probe binary is checked in |
-| VRAM/character fetch addresses | Runtime path verified | open-ROM regression requires valid `vram` records; the Wonderful `initfini` trace records 2,163,360 graphics fetches while rendering known text, but title-specific glyph-address correlation remains open |
+| VRAM/character fetch addresses | Runtime roles verified | open-ROM regression requires all six Screen 1/2 map/tile and sprite table/tile roles with aligned addresses; Wonderful v2 evidence is recorded in `WONDERFUL_VALIDATION.md`, but title-specific glyph provenance remains open |
 | CPU PC ranges | Verified with running ROMs | regression checks `CS:IP` against wrapped physical PC and range containment; Wonderful execution terminates at the expected `0xff68b` loop |
-| Trace-filter config | Verified | parser/serializer unit test plus translated-model event selection and PC-filter regression; `trace.example.conf`, CSV, and JSONL are documented |
+| Trace-filter config | Verified | parser/serializer unit test plus translated-model event selection, PC/address containment, and all six VRAM roles; `trace.example.conf`, v1/v2 CSV, and JSONL are documented |
 | Translation-target acceptance | Not tested | no trace of the target 2001 WSC title has been captured or correlated with its kanji/glyph mapping |
 
 The general Phase 1 instrumentation is working end to end in the translated
@@ -33,6 +33,18 @@ model. Phase acceptance remains open because it specifically requires a useful
 text-renderer trace from the target 2001 WSC title and correlation with that
 title's kanji/glyph mapping. No commercial ROM is included or acquired by this
 project.
+
+### Research-backed next trace step
+
+Role and address identify which map/tile word the display consumed, but not the
+CPU or DMA write that created it or the banked ROM byte that supplied it. The
+next useful bridge is a filtered memory-transaction event with initiator,
+read/write, value, byte enable, instruction identity/origin PC, mapped memory
+space, and resolved ROM/SRAM offset. This direction matches [Mesen's WonderSwan
+memory-operation debugger](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/Debugger/WsDebugger.cpp#L149-L230)
+and an open translation project's [far-pointer/charmap
+workflow](https://github.com/JohnTsq/WS_Cardcaptor_Sakura_chs/blob/52c7d2b89865874cb2d6b538359f3ac76570471a/tools/TransMsg/TransMsg.c).
+That provenance chain is still unimplemented and remains part of Phase 1.
 
 ## Baseline corrections discovered
 
