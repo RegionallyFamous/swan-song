@@ -1,0 +1,16 @@
+name: FPGA regression
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verilator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Verilator
+        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: Run open-ROM framebuffer regressions
+        run: make regression

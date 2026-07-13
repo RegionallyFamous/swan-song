@@ -1,8 +1,24 @@
-# WonderSwan Color for Analogue Pocket
+# Swan Song — WonderSwan for Analogue Pocket
 
-Ported from the original core developed by [Robert Piep](https://github.com/RobertPeip) ([Patreon](https://www.patreon.com/FPGAzumSpass)). Core icon provided by [spiritualized1997](https://github.com/spiritualized1997). Latest upstream available at https://github.com/MiSTer-devel/WonderSwan_MiSTer
+Swan Song is an incremental, simulation-first fork of the WonderSwan openFPGA
+core. The current branch starts from the released Pocket source while adding a
+reproducible build, an executable Verilator regression harness, and a documented
+boundary between console logic and Pocket integration. Hardware equivalence has
+not yet been confirmed; see [PHASE_STATUS.md](PHASE_STATUS.md).
 
-Please report any issues encountered to this repo. Most likely any problems are a result of my port, not the original core. Issues will be upstreamed as necessary.
+Start with [BUILDING.md](BUILDING.md), [ARCHITECTURE.md](ARCHITECTURE.md), and
+[PHASE_STATUS.md](PHASE_STATUS.md). No BIOS or commercial cartridge image is
+included or downloaded.
+
+The WonderSwan system core was developed by [Robert Peip](https://github.com/RobertPeip)
+([Patreon](https://www.patreon.com/FPGAzumSpass)) and the Analogue Pocket port
+was created by [Adam Gastineau](https://github.com/agg23). Core icon provided by
+[spiritualized1997](https://github.com/spiritualized1997). Upstream provenance and
+pinned revisions are documented in [UPSTREAMS.md](UPSTREAMS.md).
+
+Report issues with the exact core commit and whether they reproduce in the
+MiSTer core. Keep Pocket integration reports here; shared console-logic fixes
+should be upstreamed after they are verified.
 
 ## Installation
 
@@ -11,9 +27,13 @@ Please report any issues encountered to this repo. Most likely any problems are 
 I highly recommend the updater tools by [@mattpannella](https://github.com/mattpannella) and [@RetroDriven](https://github.com/RetroDriven). If you're running Windows, use [the RetroDriven GUI](https://github.com/RetroDriven/Pocket_Updater), or if you prefer the CLI, use [the mattpannella tool](https://github.com/mattpannella/pocket_core_autoupdate_net). Either of these will allow you to automatically download and install openFPGA cores onto your Analogue Pocket. Go donate to them if you can
 
 ### Manual mode
-Download the core by clicking Releases on the right side of this page, then download the `agg23.*.zip` file from the latest release.
+When a verified Swan Song release is available, download its APF ZIP from the
+Releases page. The current development branch has not been validated on Pocket.
 
-To install the core, copy the `Assets`, `Cores`, and `Platform` folders over to the root of your SD card. Please note that Finder on macOS automatically _replaces_ folders, rather than merging them like Windows does, so you have to manually merge the folders.
+To install the core, copy the `Assets`, `Cores`, and `Platforms` folders over to
+the root of your SD card. Please note that Finder on macOS automatically
+_replaces_ folders, rather than merging them like Windows does, so you have to
+manually merge the folders.
 
 ## Usage
 
