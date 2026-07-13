@@ -94,11 +94,16 @@ focused bench covers all of those cases, including the full 25-bit staging
 word address.
 
 This is still only a disabled boundary. Channel 1 has priority over the
-console's channel-3 cartridge/SRAM path, whose completion is not currently fed
-back to `SwanTop`. Allowing staging traffic now could delay a state-engine SRAM
-read past its inherited fixed wait and return stale data. The staging side
-therefore stays physically tied off until capture/restore is serialized and
-channel-3 completion plus global SDRAM quiescence are explicit.
+console's channel-3 cartridge/SRAM path. The controller now deterministically
+clears request history, queues, read-delay pipelines, ready/data outputs, and
+captured transaction state on PLL init; it exports a tested global
+`quiescent` level covering queued edges, active commands, delayed reads,
+ready/data capture, cooldown, refresh, and startup. `wonderswan.sv` also names
+channel-2/channel-3 requests and retains channel-3 ready instead of discarding
+it. Allowing staging traffic now could still delay a state-engine SRAM read
+past its inherited fixed wait and return stale data. The staging side therefore
+stays physically tied off until capture/restore is serialized and these drain
+observations are consumed by an acknowledged coordinator.
 
 The closest current community precedent found is mincer-ray's
 [openFPGA-GBA v0.6.2 controller](https://github.com/mincer-ray/openfpga-GBA/blob/b08568fa60ff6f5f918cca5763f5b1923ed2d3db/src/fpga/core/save_state_controller.sv)
@@ -112,11 +117,12 @@ write selection, and lack of a drain acknowledgement are not copied here.
 The isolated module is a control-plane contract, not a storage implementation.
 Integration requires all of the following:
 
-1. Add a cooperative console pause boundary and explicit SDRAM quiescence.
+1. Add a cooperative console pause boundary and consume the new SDRAM
+   quiescence/completion observations in an acknowledged ownership coordinator.
    A0 must first let the inherited state engine reach `system_idle`; asserting
    external pause before that point can strand a mid-instruction CPU forever.
-   Export real channel-3 completion and controller-idle state instead of using
-   the current refresh-counter/fixed-delay heuristic.
+   Replace the state engine's current refresh-counter/fixed-delay SRAM heuristic
+   with real channel-3 completion before staging is enabled.
 2. Add lossless `clk_74a` ↔ `clk_mem_110_592` request/response crossings.
    Analogue's checked-in bridge peripheral says consecutive bridge words are
    at worst 88 clocks apart at 74.25 MHz, but the integration must still prove

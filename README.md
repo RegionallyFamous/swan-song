@@ -254,8 +254,10 @@ validated and accepted by a full-size backend. A new fail-closed channel-1
 ownership mux is compiled in the live ROM path and tested for request draining,
 exclusive response routing, held-ROM preservation, and illegal stage access,
 but its staging side remains tied off until cooperative pause, real SDRAM
-quiescence, and lossless CDC exist. The complete state controller and physical
-Pocket lifecycle have not passed the release gate; see
+quiescence, and lossless CDC exist. The controller now exposes focused-tested
+global drain state and retains channel-3 completion locally, but the state
+engine does not consume that acknowledgement yet. The complete state controller
+and physical Pocket lifecycle have not passed the release gate; see
 [`SAVESTATE_FORMAT.md`](SAVESTATE_FORMAT.md) and
 [`MEMORIES_STAGING.md`](MEMORIES_STAGING.md).
 

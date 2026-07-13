@@ -64,6 +64,10 @@ def main() -> None:
             ".ch1_addr ({1'b0, ch1_sdram_word_addr})",
             "SDRAM ch1 does not retain the full physical word address",
         ),
+        (".ch2_req  (ch2_sdram_req)", "channel-2 drain is not observable"),
+        (".ch3_req (ch3_sdram_req)", "channel-3 drain is not observable"),
+        (".ch3_ready(ch3_sdram_ready)", "channel-3 completion is discarded"),
+        (".quiescent(sdram_quiescent)", "global SDRAM drain is discarded"),
     ):
         require(wonderswan, needle, message)
 

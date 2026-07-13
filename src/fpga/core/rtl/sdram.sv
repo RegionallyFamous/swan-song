@@ -57,7 +57,11 @@ module sdram
 	input      [ 1:0] ch3_be,
 	input             ch3_req,
 	input             ch3_rnw,
-	output reg        ch3_ready
+	output reg        ch3_ready,
+
+	// High only when the controller has no queued/active operation, delayed
+	// read completion, refresh work, or reset/startup work in flight.
+	output wire       quiescent
 );
 
 wire chip = 0;
@@ -107,27 +111,46 @@ localparam STATE_IDLE_4  = 8;
 localparam STATE_IDLE_5  = 9;
 localparam STATE_RFSH    = 10;
 
+reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay1;
+reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay2;
+reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay3;
+
+reg        saved_wr;
+reg [12:0] cas_addr;
+reg [15:0] saved_data;
+reg [15:0] dq_reg;
+reg  [3:0] state = STATE_STARTUP;
+
+reg        ch1_req_1, ch2_req_1, ch3_req_1;
+reg        ch1_rq, ch2_rq, ch3_rq;
+reg  [1:0] ch;
+
+reg        ch3_rnw_1;
+reg [26:1] ch3_addr_1;
+reg [15:0] ch3_din_1;
+reg  [1:0] ch3_be_1;
+
+reg        doRefresh_1;
+
+wire request_edge_pending = (ch1_req & ~ch1_req_1) |
+							(ch2_req & ~ch2_req_1) |
+							(ch3_req & ~ch3_req_1);
+wire read_completion_pending = (|data_ready_delay1) |
+							   (|data_ready_delay2) |
+							   (|data_ready_delay3);
+wire refresh_pending = doRefresh | doRefresh_1 |
+					   (refresh_count > cycles_per_refresh);
+
+assign quiescent = !init &&
+				   (state == STATE_IDLE) &&
+				   !ch1_rq && !ch2_rq && !ch3_rq &&
+				   !request_edge_pending &&
+				   !read_completion_pending &&
+				   !ch1_ready && !ch2_ready && !ch3_ready &&
+				   !refresh_pending;
+
 
 always @(posedge clk) begin
-	reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay1, data_ready_delay2, data_ready_delay3;
-
-	reg        saved_wr;
-	reg [12:0] cas_addr;
-	reg [15:0] saved_data;
-	reg [15:0] dq_reg;
-	reg  [3:0] state = STATE_STARTUP;
-
-	reg       ch1_req_1, ch2_req_1, ch3_req_1;
-	reg       ch1_rq, ch2_rq, ch3_rq;
-	reg [1:0] ch;
-
-	reg        ch3_rnw_1;
-	reg [26:1] ch3_addr_1;
-	reg [15:0] ch3_din_1;
-	reg [ 1:0] ch3_be_1;
-	
-	reg        doRefresh_1;
-	
 	ch1_req_1 <= ch1_req;
 	ch2_req_1 <= ch2_req;
 	ch3_req_1 <= ch3_req;
@@ -286,8 +309,40 @@ always @(posedge clk) begin
 	endcase
 
 	if (init) begin
-		state <= STATE_STARTUP;
-		refresh_count <= startup_refresh_max - sdram_startup_cycles;
+		state             <= STATE_STARTUP;
+		refresh_count     <= startup_refresh_max - sdram_startup_cycles;
+		command           <= CMD_NOP;
+		SDRAM_A           <= 13'd0;
+		SDRAM_BA          <= 2'd0;
+		SDRAM_DQ          <= 16'bZ;
+
+		ch1_req_1         <= ch1_req;
+		ch2_req_1         <= ch2_req;
+		ch3_req_1         <= ch3_req;
+		ch1_rq            <= 1'b0;
+		ch2_rq            <= 1'b0;
+		ch3_rq            <= 1'b0;
+		ch1_ready         <= 1'b0;
+		ch2_ready         <= 1'b0;
+		ch3_ready         <= 1'b0;
+		ch1_dout          <= 16'd0;
+		ch2_dout          <= 16'd0;
+		ch3_dout          <= 16'd0;
+
+		data_ready_delay1 <= '0;
+		data_ready_delay2 <= '0;
+		data_ready_delay3 <= '0;
+		saved_wr          <= 1'b0;
+		cas_addr          <= 13'd0;
+		saved_data        <= 16'd0;
+		dq_reg            <= 16'd0;
+		ch                <= 2'd0;
+
+		ch3_rnw_1         <= 1'b1;
+		ch3_addr_1        <= '0;
+		ch3_din_1         <= 16'd0;
+		ch3_be_1          <= 2'b11;
+		doRefresh_1       <= doRefresh;
 	end
 end
 

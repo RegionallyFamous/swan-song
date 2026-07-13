@@ -260,6 +260,8 @@ module wonderswan (
   wire [15:0] ch1_sdram_write_data;
   wire ch1_sdram_ready;
   wire [15:0] ch1_sdram_read_data;
+  wire ch3_sdram_ready;
+  wire sdram_quiescent;
 
   apf_rom_loader_adapter rom_loader_adapter (
       .clk(clk_mem_110_592),
@@ -312,6 +314,11 @@ module wonderswan (
       .sdram_read_data(ch1_sdram_read_data)
   );
 
+  wire ch2_sdram_req =
+      (saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) ||
+      clear_sram_write;
+  wire ch3_sdram_req = ~cart_download & (EXTRAM_read | EXTRAM_write);
+
   sdram sdram (
       .init(~pll_core_locked),
       .clk (clk_mem_110_592),
@@ -328,7 +335,7 @@ module wonderswan (
       .ch2_addr(clearing_sram ? {4'b1000, clear_save_word_addr} : {4'b1000, sd_buff_addr[20:1]}),
       .ch2_din(clearing_sram ? 16'b0 : sd_buff_dout),
       .ch2_dout(sdram_din),
-      .ch2_req  ((saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) || clear_sram_write),
+      .ch2_req  (ch2_sdram_req),
       .ch2_rnw(~clear_sram_write && ~sd_buff_wr),
       .ch2_ready(save_ram_ack),
 
@@ -336,9 +343,14 @@ module wonderswan (
       .ch3_din (EXTRAM_datawrite),
       .ch3_dout(EXTRAM_dataread),
       .ch3_be  (EXTRAM_be),
-      .ch3_req (~cart_download & (EXTRAM_read | EXTRAM_write)),
+      .ch3_req (ch3_sdram_req),
       .ch3_rnw (EXTRAM_read),
-      // .ch3_ready(),
+      .ch3_ready(ch3_sdram_ready),
+
+      // These memory-domain observations are intentionally not yet allowed to
+      // grant staging. They make the real channel-3 completion and complete
+      // controller drain available to the upcoming pause/ownership coordinator.
+      .quiescent(sdram_quiescent),
 
       // Actual SDRAM interface
       .SDRAM_DQ(dram_dq),
