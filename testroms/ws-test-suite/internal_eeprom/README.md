@@ -55,17 +55,20 @@ The manifest target is reset-release capture, 2,884,481 cycles, six completed
 frames, the default 4-KiB mono BIOS identity, zeroed initial IRAM, and complete
 CPU/background history with no trace filters.
 
-## Current diagnostic result: not accepted
+## Current translated-RTL result: accepted
 
-A current translated-RTL capture reaches the terminal loop and is stable, but
-only **6 of 23** result positions pass; 17 contain tile 6. Its final RGB
-SHA-256 is
-`57be9a54ac4351703744e625c8f390d74d93f08dc85bd3f6218f1eaa753ff9b9`
-and its trace SHA-256 is
-`3655fbe980422f8f0e3c957b96c9f165ad8f6a9447d996bf1b189fe0671c8b55`.
-Those hashes are diagnostic evidence only. The strict verifier intentionally
-rejects that capture, and this fixture is not integrated into the green
-regression until the RTL satisfies the 23-PASS target.
+Two independent current-code captures are byte-identical, remain in the
+terminal loop, and pass all **23 of 23** mono-hardware result positions. The
+strict verifier reports 184 complete PASS-tile rows, a terminal tail of 36,216
+CPU rows, and the target final RGB SHA-256
+`830503147842b803d26b707675009e6b8e3b0faa1ee3ad1aef15c3e9e74e444d`.
+The paired trace SHA-256 is
+`0b734a9609979bb2d010130fe082f7406b9e6fa4c3f96f56c484ff93eb326340`.
+A focused controller bench separately covers data-latch isolation, EWDS/EWEN,
+WRAL/ERAL, protected/user regions, invalid controls, DONE/READY transitions,
+and restoration of a saved disabled-write latch. The deterministic ten-enable
+READ busy window is an emulator-conservative functional delay, not a physical
+timing claim.
 
 ## Color-hardware mono-mode limitation
 

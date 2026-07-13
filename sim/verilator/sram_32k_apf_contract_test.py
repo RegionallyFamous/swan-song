@@ -39,12 +39,12 @@ def parse_savestate_sizes(source: str) -> dict[int, int]:
     }
 
 
-def parse_pocket_block_sizes(source: str) -> dict[int, int]:
+def parse_pocket_byte_sizes(source: str) -> dict[int, int]:
     return {
-        int(ram_type, 16): int(blocks, 16)
-        for ram_type, blocks in re.findall(
+        int(ram_type, 16): int(byte_size, 16)
+        for ram_type, byte_size in re.findall(
             r"if\s*\(ramtype\s*==\s*8'h([0-9A-Fa-f]{2})\)\s*"
-            r"save_size\s*=\s*12'h([0-9A-Fa-f]{1,3})",
+            r"save_size_bytes\s*=\s*20'h([0-9A-Fa-f]{1,5})",
             source,
         )
     }
@@ -59,7 +59,7 @@ def verify_contract(
 ) -> None:
     masks = parse_memory_masks(memorymux)
     save_payloads = parse_savestate_sizes(savestates)
-    pocket_blocks = parse_pocket_block_sizes(wonderswan)
+    pocket_sizes = parse_pocket_byte_sizes(wonderswan)
     for ram_type, byte_size in EXPECTED_BYTES.items():
         wanted_mask = byte_size - 1
         if masks.get(ram_type) != wanted_mask:
@@ -72,16 +72,15 @@ def verify_contract(
                 f"ramtype {ram_type:02x} save-state payload "
                 f"{save_payloads.get(ram_type)!r} != {byte_size}"
             )
-        wanted_blocks = byte_size // 512
-        if pocket_blocks.get(ram_type) != wanted_blocks:
+        if pocket_sizes.get(ram_type) != byte_size:
             raise ValueError(
-                f"ramtype {ram_type:02x} Pocket blocks "
-                f"{pocket_blocks.get(ram_type)!r} != {wanted_blocks}"
+                f"ramtype {ram_type:02x} Pocket bytes "
+                f"{pocket_sizes.get(ram_type)!r} != {byte_size}"
             )
 
     # The fourth JSON data slot is the runtime-sized nonvolatile Save slot.
-    # core_top writes the base save_size (512-byte blocks) plus the existing
-    # 12-byte RTC trailer to that exact table entry.
+    # core_top writes the exact base payload plus the conditional 12-byte RTC
+    # trailer to that exact table entry.
     try:
         data = data_definition["data"]  # type: ignore[index]
         if data["magic"] != "APF_VER_1":  # type: ignore[index]
@@ -97,6 +96,7 @@ def verify_contract(
         "parameters": "0x84",
         "nonvolatile": True,
         "extensions": ["sav"],
+        "size_maximum": 524300,
         "address": "0x20000000",
     }
     if save != expected_save:
@@ -104,8 +104,8 @@ def verify_contract(
     if not re.search(r"datatable_addr\s*<=\s*2\s*\*\s*3\s*\+\s*1\s*;", core_top):
         raise ValueError("APF runtime size does not target Save slot index 3")
     if not re.search(
-        r"datatable_data\s*<=\s*save_size\s*\*\s*512\s*\+\s*"
-        r"\(has_rtc\s*\?\s*6\s*\*\s*2\s*:\s*0\)\s*;",
+        r"datatable_data\s*<=\s*save_size_bytes\s*\+\s*"
+        r"\(has_rtc\s*\?\s*12\s*:\s*0\)\s*;",
         core_top,
     ):
         raise ValueError("APF runtime Save-slot size formula mismatch")
@@ -149,20 +149,20 @@ def main() -> None:
     must_fail([memorymux, old_state_size, *valid[2:]], "save-state payload")
 
     old_pocket_size = wonderswan.replace(
-        "if (ramtype == 8'h01) save_size = 12'h40",
-        "if (ramtype == 8'h01) save_size = 12'h10",
+        "if (ramtype == 8'h01) save_size_bytes = 20'h08000",
+        "if (ramtype == 8'h01) save_size_bytes = 20'h02000",
         1,
     )
     must_fail(
         [memorymux, savestates, old_pocket_size, core_top, data_definition],
-        "Pocket blocks",
+        "Pocket bytes",
     )
 
     wrong_slot = deepcopy(data_definition)
     wrong_slot["data"]["data_slots"][3]["parameters"] = "0x80"
     must_fail([*valid[:4], wrong_slot], "APF Save slot mismatch")
 
-    wrong_formula = core_top.replace("save_size * 512", "save_size * 128", 1)
+    wrong_formula = core_top.replace("save_size_bytes +", "save_size_bytes * 2 +", 1)
     must_fail(
         [memorymux, savestates, wonderswan, wrong_formula, data_definition],
         "size formula mismatch",
@@ -170,7 +170,7 @@ def main() -> None:
 
     print(
         "PASS SRAM size contract type01=32768 type02=32768 "
-        "Pocket=64x512 APF=dynamic+RTC"
+        "Pocket=exact-bytes APF=dynamic+conditional-RTC"
     )
 
 

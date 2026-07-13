@@ -222,7 +222,10 @@ always @(posedge clk) begin
         target_dataslot_write_queue <= 1;
     end
     
-    
+    // Host command 0090 is an edge notification. Keep the RTC payload
+    // registers stable, but pulse rtc_valid for exactly one bridge clock so a
+    // later RTC update can always produce a fresh rising edge.
+    rtc_valid <= 0;
     b_datatable_wren <= 0;
     b_datatable_addr <= bridge_addr >> 2;
         
@@ -326,11 +329,14 @@ always @(posedge clk) begin
             host_resultcode <= 1; // default: booting
             if(status_boot_done) begin
                 host_resultcode <= 2; // setup
-                if(status_setup_done) begin
-                    host_resultcode <= 3; // idle
-                end else if(status_running) begin
+                // core_top keeps setup_done asserted after PLL setup, including
+                // while the core is running. Running therefore has priority
+                // over idle when both lifecycle inputs are high.
+                if(status_running) begin
                     host_resultcode <= 4; // running
-                end 
+                end else if(status_setup_done) begin
+                    host_resultcode <= 3; // idle
+                end
             end
             hstate <= ST_DONE_CODE;
         end
@@ -435,6 +441,13 @@ always @(posedge clk) begin
         16'h00B0: begin
             // OS Notify: Menu State
             osnotify_inmenu <= host_20[0];
+            hstate <= ST_DONE_OK;
+        end
+        16'h00B1: begin
+            // OS Notify: Cartridge Adapter
+            // This core declares cartridge_adapter = -1 and keeps the Pocket
+            // cartridge pins in their safe inactive state. Pocket still sends
+            // B1 during every startup, so explicitly accept and ignore it.
             hstate <= ST_DONE_OK;
         end
         16'h00B2: begin

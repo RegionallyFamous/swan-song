@@ -22,6 +22,14 @@ echo "PASS deterministic controller input-script parser"
 "$ROOT/sim/rtl/run_dma_savestate_tb.sh"
 "$ROOT/sim/rtl/run_apf_host_notify_tb.sh"
 "$ROOT/sim/rtl/run_apf_grayscale_video_tb.sh"
+"$ROOT/sim/rtl/run_apf_boot_lifecycle_tb.sh"
+"$ROOT/sim/rtl/run_apf_savestate_commands_tb.sh"
+"$ROOT/sim/rtl/run_apf_i2s_waveform_tb.sh"
+"$ROOT/sim/rtl/run_apf_rtc_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_rtc_save_loader_tb.sh"
+"$ROOT/sim/rtl/run_apf_reset_sync_tb.sh"
+"$ROOT/sim/rtl/run_internal_eeprom_tb.sh"
+"$ROOT/sim/rtl/run_pocket_save_init_tb.sh"
 python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
@@ -46,7 +54,11 @@ python3 "$ROOT/sim/verilator/verify_sound_dma_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_internal_eeprom_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_cpu_quirks_probe_test.py"
 python3 "$ROOT/scripts/migrate_type01_save_test.py"
+python3 "$ROOT/scripts/migrate_legacy_eeprom_save_test.py"
 python3 "$ROOT/scripts/pocket_first_class_contract_test.py"
+python3 "$ROOT/scripts/pocket_control_cdc_contract_test.py"
+python3 "$ROOT/scripts/pocket_nv_size_contract_test.py"
+python3 "$ROOT/scripts/pocket_rtc_integration_contract_test.py"
 python3 "$ROOT/src/fpga/apf/build_id_gen_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 
@@ -757,6 +769,27 @@ python3 "$ROOT/sim/verilator/verify_sound_dma_fixture.py" \
   --final-a "$SOUND_DMA_OUT/a/frames/frame-14.rgb" \
   --trace-b "$SOUND_DMA_OUT/b/events.csv" \
   --final-b "$SOUND_DMA_OUT/b/frames/frame-14.rgb"
+
+# Run the pinned open mono internal-EEPROM fixture twice. The strict verifier
+# binds the source, ROM, manifest, all 23 PASS cells, terminal loop, and final
+# pixels. The exact capture length is part of the fixture contract so a timing
+# or protocol regression cannot silently move beyond the accepted endpoint.
+INTERNAL_EEPROM_FIXTURE="$ROOT/testroms/ws-test-suite/internal_eeprom"
+INTERNAL_EEPROM_OUT="$BUILD/internal-eeprom-fixture"
+rm -rf "$INTERNAL_EEPROM_OUT"
+for internal_eeprom_run in a b; do
+  "$SIM" --rom "$INTERNAL_EEPROM_FIXTURE/internal.ws" \
+    --frames 6 --max-cycles 2884481 \
+    --out "$INTERNAL_EEPROM_OUT/$internal_eeprom_run/frames" \
+    --event-trace "$INTERNAL_EEPROM_OUT/$internal_eeprom_run/events.csv" \
+    --trace-events cpu,bg_cell >/dev/null
+done
+python3 "$ROOT/sim/verilator/verify_internal_eeprom_fixture.py" \
+  --fixture "$INTERNAL_EEPROM_FIXTURE" \
+  --trace-a "$INTERNAL_EEPROM_OUT/a/events.csv" \
+  --final-a "$INTERNAL_EEPROM_OUT/a/frames/frame-5.rgb" \
+  --trace-b "$INTERNAL_EEPROM_OUT/b/events.csv" \
+  --final-b "$INTERNAL_EEPROM_OUT/b/frames/frame-5.rgb"
 
 # Wonderful's open WSC fixture distinguishes the valid 2bpp Color extended
 # screen/tile/sprite ranges from their 16-KiB aliases. Verify the visible PASS

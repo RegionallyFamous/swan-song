@@ -53,7 +53,9 @@ WonderSwan Color
 
 ### Save States/Sleep + Wake
 
-Known as "Memories" on the Pocket, this core supports the creation and loading of save states, and by extension, the core also supports Sleep + Wake functionality. Tapping the power button while playing will suspend the game, ready to be resumed when powering the Pocket back on.
+Memories and Sleep + Wake are disabled in this development tree. The APF
+command handler is covered in focused simulation, but the complete state
+controller and physical Pocket lifecycle have not passed the release gate yet.
 
 ### Fast Forward
 

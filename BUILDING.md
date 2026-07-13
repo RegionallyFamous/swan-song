@@ -22,6 +22,14 @@
   `871d7e2de2f915ceaae2a94fcf99b86825430f79588e43e640f9bfa8fed6dce0`.
   This upstream ROM checks result values; it does not test flags, AAM base-zero
   interrupt behavior, or instruction timing.
+- Wonderful's open mono internal-EEPROM fixture renders all 23 hardware-path
+  PASS results in two byte-identical captures, remains at terminal PC `0xff620`,
+  and matches the exact target RGB SHA-256
+  `830503147842b803d26b707675009e6b8e3b0faa1ee3ad1aef15c3e9e74e444d`.
+  A focused controller bench covers separate data latches, EWDS/EWEN,
+  WRAL/ERAL, protected/user words, invalid controls, DONE/READY, and a saved
+  disabled-write latch. Its deterministic busy window is not a physical timing
+  measurement, and the fixture does not exercise Color-hardware mono mode.
 - A complementary build-generated mono probe covers those value-only test
   boundaries without checking in another binary. Its self-authored 128 KiB
   image has SHA-256
@@ -136,6 +144,34 @@
   constructor-pass checkmark, and produces identical traces and final frames in
   two runs. See `WONDERFUL_VALIDATION.md` for the exact source, toolchain, and
   hashes; the generated ROM is not checked in.
+- Focused APF boundary benches now lock the official boot/status progression,
+  one-shot ready-to-run command, reset enter/exit, delayed data-slot results,
+  slot update/all-complete behavior, and the three-word one-cycle RTC event.
+  The host-notify bench also locks Pocket's unconditional `00B1` cartridge
+  notification as an explicit no-op. `pocket_control_cdc_contract_test.py`
+  mutation-locks independent memory/system reset and download copies, including
+  async-assert/synchronous-release save-clear staging into the system domain.
+  Another bench locks A0/A4 query fields, idle/busy/done/error precedence, and
+  save/load request hold-through-acknowledgement behavior.
+  RTC command delivery now uses an acknowledged bundled-data CDC; its
+  asynchronous-clock bench proves six coherent ordered epochs, one destination
+  pulse per accepted event, and explicit busy rejection. Source contracts also
+  lock per-title RTC state reset and one-shot trailer restoration.
+  A separate 10 ms I2S waveform gate proves 12.288 MHz MCLK, 3.072 MHz SCLK,
+  48 kHz signed stereo, coincident clock edges, left/right order, one-bit I2S
+  delay, and zero spacer bits under two randomized initialization seeds. The
+  I2S bench uses a behavioral CDC FIFO; physical FIFO and timing remain
+  Quartus/Pocket gates.
+- Pocket nonvolatile sizing is expressed in exact bytes: SRAM types `01/02`,
+  `03`, `04`, and `05` use 32/128/256/512 KiB, while EEPROM types `10`, `20`,
+  and `50` use 128/2,048/1,024 bytes. The 12-byte RTC trailer is now conditional
+  on the cartridge footer bit, and `data.json` caps the dynamic slot at 524,300
+  bytes. A focused RTL lifecycle bench proves that an absent external EEPROM is
+  initialized to `0xffff` for exactly its selected word capacity, a loaded save
+  is not cleared, and later Reset Enter/Exit cycles do not re-arm initialization.
+  Offline legacy conversion and padded-EEPROM load compatibility are covered
+  separately below. Runtime fail-closed length validation, full wrapper unload,
+  and physical Pocket quit/reload/sleep flushing remain release gates.
 - The APF build-ID generator no longer reads the live build clock or an RNG.
   A focused Tcl/Python contract proves that it preserves the 256×32 MIF shape,
   derives the three established words from a clean source commit and an
@@ -188,6 +224,30 @@ overwrite or alias either input. It never changes the original save. If the
 output filesystem cannot atomically create without replacement, create the
 new file on a local filesystem and then copy it to the SD card. Data already
 lost through the old 8 KiB address alias cannot be recovered.
+
+### Migrating padded type-10/type-50 Pocket saves
+
+Inherited Pocket builds allocated 2,048 EEPROM bytes before the RTC trailer
+for every external-EEPROM cartridge. Type `0x10` actually has 128 bytes and
+type `0x50` has 1,024 bytes, so their old RTC-bearing saves are 2,060 bytes
+instead of the canonical 140 and 1,036 bytes. Convert an old file to a new
+path before copying it back to the Pocket SD card:
+
+```sh
+./scripts/migrate_legacy_eeprom_save.py \
+  /path/to/type10-or-type50-game.ws \
+  /path/to/legacy-2060-byte.sav \
+  /path/to/new-exact-size.sav
+```
+
+The tool requires a checksummed ROM whose footer declares type `0x10` or
+`0x50` and an exactly 2,060-byte input. It preserves the exact EEPROM payload,
+drops only the inherited padding between that payload and byte 2,048, moves
+the opaque 12-byte RTC trailer directly after the payload, prints hashes for
+each region, and refuses to overwrite or alias either input. The original is
+never changed. The RTL loader also acknowledges old padding and recognizes a
+legacy RTC marker at byte 2,048 so an unmigrated file cannot stall startup;
+new save flushes expose only the canonical exact-size layout.
 
 ### Exact CI toolchain
 

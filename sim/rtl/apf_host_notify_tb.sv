@@ -33,6 +33,7 @@ module apf_host_notify_tb;
     reg         bridge_wr = 1'b0;
     reg  [31:0] bridge_wr_data = 32'h0000_0000;
 
+    wire        osnotify_inmenu;
     wire        osnotify_docked;
     wire [7:0]  osnotify_displaymode_id;
     wire        osnotify_displaymode_grayscale;
@@ -87,6 +88,7 @@ module apf_host_notify_tb;
         .datatable_wren(1'b0),
         .datatable_data(32'h0000_0000),
 
+        .osnotify_inmenu(osnotify_inmenu),
         .osnotify_docked(osnotify_docked),
         .osnotify_displaymode_id(osnotify_displaymode_id),
         .osnotify_displaymode_grayscale(osnotify_displaymode_grayscale),
@@ -140,6 +142,17 @@ module apf_host_notify_tb;
 
         if (osnotify_docked !== 1'b0) begin
             $fatal(1, "docked state did not initialize clear");
+        end
+
+        // Pocket sends B1 on every startup even when core.json declares no
+        // cartridge adapter. Its play/power/adapter fields must be accepted as
+        // an intentional no-op, without perturbing any other OS notification.
+        issue_command(16'h00B1, 32'h0101_0003);
+        expect_ok();
+        if (osnotify_inmenu !== 1'b0 || osnotify_docked !== 1'b0 ||
+            osnotify_displaymode_id !== 8'h00 ||
+            osnotify_displaymode_grayscale !== 1'b0) begin
+            $fatal(1, "B1 changed unrelated OS-notify state");
         end
 
         issue_command(16'h00B2, 32'h0000_0001);
@@ -215,7 +228,7 @@ module apf_host_notify_tb;
             $fatal(1, "unknown command contract changed: %08x", readback);
         end
 
-        $display("PASS APF host notify B2=docked B8=busy-until-applied grayscale state");
+        $display("PASS APF host notify B1=no-op B2=docked B8=busy-until-applied grayscale state");
         $finish;
     end
 endmodule

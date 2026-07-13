@@ -394,8 +394,20 @@ module core_top (
 
   // bridge host commands
   // synchronous to clk_74a
-  wire status_boot_done = pll_core_locked;
-  wire status_setup_done = pll_core_locked;  // rising edge triggers a target command
+  wire pll_core_ready_74a;
+  wire pll_core_ready_mem;
+  apf_reset_sync pll_ready_bridge (
+      .clk(clk_74a),
+      .reset_n_async(pll_core_locked),
+      .reset_n_sync(pll_core_ready_74a)
+  );
+  apf_reset_sync pll_ready_memory (
+      .clk(clk_mem_110_592),
+      .reset_n_async(pll_core_locked),
+      .reset_n_sync(pll_core_ready_mem)
+  );
+  wire status_boot_done = pll_core_ready_74a;
+  wire status_setup_done = pll_core_ready_74a;  // rising edge triggers a target command
   wire status_running = reset_n;  // we are running as soon as reset_n goes high
 
   wire dataslot_requestread;
@@ -411,8 +423,17 @@ module core_top (
   wire dataslot_allcomplete;
 
   wire [31:0] rtc_epoch_seconds;
+  wire [31:0] rtc_date_bcd;
+  wire [31:0] rtc_time_bcd;
+  wire rtc_valid;
+  wire [31:0] rtc_epoch_seconds_sys;
+  wire rtc_valid_sys;
+  wire rtc_cdc_busy;
+  wire rtc_cdc_rejected;
 
-  wire savestate_supported = 1;
+  // The command handler remains regression-tested, but the end-to-end state
+  // controller is not yet safe to advertise to Pocket for Memories/sleep.
+  wire savestate_supported = 0;
   wire [31:0] savestate_addr = 32'h40000000;
   // TODO: Change size of save state based on memory size
   wire [31:0] savestate_size = 32'h90_200;
@@ -479,6 +500,9 @@ module core_top (
       .dataslot_allcomplete(dataslot_allcomplete),
 
       .rtc_epoch_seconds(rtc_epoch_seconds),
+      .rtc_date_bcd(rtc_date_bcd),
+      .rtc_time_bcd(rtc_time_bcd),
+      .rtc_valid(rtc_valid),
 
       .savestate_supported  (savestate_supported),
       .savestate_addr       (savestate_addr),
@@ -507,6 +531,21 @@ module core_top (
       .datatable_wren(datatable_wren),
       .datatable_data(datatable_data),
       .datatable_q   (datatable_q)
+  );
+
+  // Command 0090 arrives while APF still holds the console in Reset Enter.
+  // Keep this bridge alive from PLL lock and move its event/payload into the
+  // console domain with an acknowledged bundled-data transfer.
+  apf_rtc_cdc rtc_command_cdc (
+      .reset_n(pll_core_ready_74a),
+      .clk_74a(clk_74a),
+      .rtc_epoch_src(rtc_epoch_seconds),
+      .rtc_valid_src(rtc_valid),
+      .rtc_busy_src(rtc_cdc_busy),
+      .rtc_rejected_src(rtc_cdc_rejected),
+      .clk_sys(clk_sys_36_864),
+      .rtc_epoch_dst(rtc_epoch_seconds_sys),
+      .rtc_valid_dst(rtc_valid_sys)
   );
 
   // Save states
@@ -688,20 +727,20 @@ module core_top (
   wire [1:0] bios_download = {color_bios_download, bw_bios_download};
   wire [1:0] ext_cart_download = is_color_cart ? {cart_download, 1'b0} : {1'b0, cart_download};
 
-  wire [11:0] save_size;
+  wire [19:0] save_size_bytes;
   wire has_rtc;
 
-  always @(posedge clk_74a or negedge pll_core_locked) begin
-    if (~pll_core_locked) begin
+  always @(posedge clk_74a or negedge pll_core_ready_74a) begin
+    if (!pll_core_ready_74a) begin
       datatable_addr <= 0;
       datatable_data <= 0;
       datatable_wren <= 0;
     end else begin
       // Write sram size
       datatable_wren <= 1;
-      // save_size is the number of 512 byte blocks
-      // has_rtc indicates an additional 6 words (always enabled)
-      datatable_data <= save_size * 512 + (has_rtc ? 6 * 2 : 0);
+      // Publish the exact nonvolatile payload plus the optional six-word RTC
+      // trailer. The slot remains runtime-sized because cartridge types vary.
+      datatable_data <= save_size_bytes + (has_rtc ? 12 : 0);
       // Data slot index 3, not id 3
       datatable_addr <= 2 * 3 + 1;
     end
@@ -723,12 +762,16 @@ module core_top (
 
   reg use_fastforward_sound;
 
-  // Synced settings
-  wire reset_n_s;
-  wire external_reset_s;
+  // Reset and download controls are consumed in two clock domains. Keep a
+  // dedicated copy in each destination domain; a signal synchronized to the
+  // memory clock is not a safe reset or control input for clk_sys logic.
+  wire reset_n_mem_s;
+  wire reset_n_sys_s;
+  wire external_reset_sys_s;
 
-  wire [1:0] ext_cart_download_s;
-  wire [1:0] bios_download_s;
+  wire [1:0] ext_cart_download_mem_s;
+  wire [1:0] ext_cart_download_sys_s;
+  wire [1:0] bios_download_sys_s;
 
   wire [1:0] configured_system_s;
 
@@ -742,12 +785,32 @@ module core_top (
 
   wire use_fastforward_sound_s;
 
+  apf_reset_sync core_reset_memory (
+      .clk(clk_mem_110_592),
+      .reset_n_async(reset_n),
+      .reset_n_sync(reset_n_mem_s)
+  );
+
+  apf_reset_sync core_reset_system (
+      .clk(clk_sys_36_864),
+      .reset_n_async(reset_n),
+      .reset_n_sync(reset_n_sys_s)
+  );
+
   synch_3 #(
-      .WIDTH(6)
-  ) sys_control_s (
-      {reset_n, external_reset, ext_cart_download, bios_download},
-      {reset_n_s, external_reset_s, ext_cart_download_s, bios_download_s},
+      .WIDTH(2)
+  ) cart_download_memory_s (
+      ext_cart_download,
+      ext_cart_download_mem_s,
       clk_mem_110_592
+  );
+
+  synch_3 #(
+      .WIDTH(5)
+  ) download_system_s (
+      {external_reset, ext_cart_download, bios_download},
+      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},
+      clk_sys_36_864
   );
 
   synch_3 #(
@@ -790,24 +853,27 @@ module core_top (
       .clk_sys_36_864 (clk_sys_36_864),
       .clk_mem_110_592(clk_mem_110_592),
 
-      .reset_n(reset_n_s),
-      .pll_core_locked(pll_core_locked),
-      .external_reset(external_reset_s),
+      .reset_n(reset_n_mem_s),
+      .reset_n_sys(reset_n_sys_s),
+      .pll_core_locked(pll_core_ready_mem),
+      .external_reset(external_reset_sys_s),
 
       .ioctl_wr  (ioctl_wr),
       .ioctl_addr(ioctl_addr),
       .ioctl_dout(ioctl_dout),
 
-      .ext_cart_download(ext_cart_download_s),
+      .ext_cart_download(ext_cart_download_mem_s),
+      .ext_cart_download_sys(ext_cart_download_sys_s),
 
       .bios_wr(bios_wr),
       .bios_addr(bios_addr),
       .bios_dout(bios_dout),
-      .bios_download(bios_download_s),
+      .bios_download(bios_download_sys_s),
 
       .rom_write_complete(rom_write_complete),
 
-      .rtc_epoch_seconds(rtc_epoch_seconds),
+      .rtc_epoch_seconds(rtc_epoch_seconds_sys),
+      .rtc_epoch_valid(rtc_valid_sys),
 
       // Inputs
       .button_a(cont1_key_s[4]),
@@ -835,7 +901,7 @@ module core_top (
       .use_fastforward_sound(use_fastforward_sound_s),
 
       // Saves
-      .save_size(save_size),
+      .save_size_bytes(save_size_bytes),
       .has_rtc(has_rtc),
       .sd_buff_wr(sd_buff_wr),
       .sd_buff_rd(sd_buff_rd),

@@ -29,7 +29,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
 
         # Display modes and their B8 command were introduced in framework 2.0.
         self.assertEqual(core["framework"]["version_required"], "2.0")
-        self.assertTrue(core["framework"]["sleep_supported"])
+        # Memories/sleep remains disabled until the full controller and a
+        # physical Pocket endurance matrix have passed.
+        self.assertFalse(core["framework"]["sleep_supported"])
         self.assertTrue(core["framework"]["dock"]["supported"])
         self.assertEqual(core["framework"]["hardware"]["cartridge_adapter"], -1)
 
@@ -63,6 +65,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
         )
         top = (ROOT / "src/fpga/core/core_top.v").read_text(encoding="utf-8")
         project = (ROOT / "src/fpga/ap_core.qsf").read_text(encoding="utf-8")
+        self.assertIn("16'h00B1", bridge)
         self.assertIn("16'h00B2", bridge)
         self.assertIn("16'h00B8", bridge)
         self.assertIn("32'h0000_444D", bridge)
@@ -92,7 +95,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(parameters & (1 << 7), 1 << 7)  # safe full restart
         self.assertEqual(number(save["address"]), 0x20000000)
         self.assertNotIn("size_exact", save)
-        self.assertNotIn("size_maximum", save)
+        self.assertEqual(number(save["size_maximum"]), 512 * 1024 + 12)
 
     def test_input_and_interact_limits(self) -> None:
         input_definition = load("input.json")["input"]
@@ -123,6 +126,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
 
     def test_focused_wrapper_tests_are_executable(self) -> None:
         for relative in (
+            "scripts/pocket_control_cdc_contract_test.py",
             "sim/rtl/run_apf_host_notify_tb.sh",
             "sim/rtl/run_apf_grayscale_video_tb.sh",
         ):

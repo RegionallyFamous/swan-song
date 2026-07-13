@@ -34,38 +34,38 @@ module sound_i2s #(
     input wire [CHANNEL_WIDTH - 1:0] audio_l,
     input wire [CHANNEL_WIDTH - 1:0] audio_r,
 
-    output reg audio_mclk,
-    output reg audio_lrck,
-    output reg audio_dac
+    output reg audio_mclk = 1'b0,
+    output reg audio_lrck = 1'b0,
+    output reg audio_dac = 1'b0
 );
   //
   // audio i2s generator
   //
 
-  reg audgen_nextsamp;
-
   // generate MCLK = 12.288mhz with fractional accumulator
   reg [21:0] audgen_accum = 0;
   localparam [20:0] CYCLE_48KHZ = 21'd122880 * 2;
+  wire audgen_mclk_toggle = audgen_accum >= 21'd742500;
+  wire audgen_mclk_rise = audgen_mclk_toggle && !audio_mclk;
   always @(posedge clk_74a) begin
     audgen_accum <= audgen_accum + CYCLE_48KHZ;
-    if (audgen_accum >= 21'd742500) begin
+    if (audgen_mclk_toggle) begin
       audio_mclk   <= ~audio_mclk;
       audgen_accum <= audgen_accum - 21'd742500 + CYCLE_48KHZ;
     end
   end
 
   // generate SCLK = 3.072mhz by dividing MCLK by 4
-  reg [1:0] aud_mclk_divider;
-  reg prev_audio_mclk;
+  reg [1:0] aud_mclk_divider = 0;
   wire audgen_sclk = aud_mclk_divider[1]  /* synthesis keep*/;
+  wire audgen_sclk_fall = audgen_mclk_rise && aud_mclk_divider == 2'b11;
 
   always @(posedge clk_74a) begin
-    if (audio_mclk && ~prev_audio_mclk) begin
+    // Use the same accumulator event that raises MCLK so SCLK edges are
+    // coincident with MCLK edges, as required by the APF audio interface.
+    if (audgen_mclk_rise) begin
       aud_mclk_divider <= aud_mclk_divider + 1'b1;
     end
-
-    prev_audio_mclk <= audio_mclk;
   end
 
   // shift out audio data as I2S
@@ -111,8 +111,8 @@ module sound_i2s #(
   );
 
   reg write_en = 0;
-  reg [CHANNEL_WIDTH - 1:0] prev_left;
-  reg [CHANNEL_WIDTH - 1:0] prev_right;
+  reg [CHANNEL_WIDTH - 1:0] prev_left = 0;
+  reg [CHANNEL_WIDTH - 1:0] prev_right = 0;
 
   // Mark write when necessary
   always @(posedge clk_audio) begin
@@ -128,13 +128,14 @@ module sound_i2s #(
 
   wire [31:0] audgen_sampdata_s;
 
-  reg [31:0] audgen_sampshift;
-  reg [4:0] audio_lrck_cnt;
-  reg prev_audgen_sclk;
+  reg [31:0] audgen_sampshift = 0;
+  reg [4:0] audio_lrck_cnt = 0;
   always @(posedge clk_74a) begin
-    if (prev_audgen_sclk && ~audgen_sclk) begin
-      // output the next bit
-      audio_dac <= audgen_sampshift[31];
+    if (audgen_sclk_fall) begin
+      // Change data on SCLK's falling edge.  Pocket latches on the rising edge.
+      // The first 16 positions are sample data; every remaining position is a
+      // deterministic zero spacer (including the I2S boundary delay bit).
+      audio_dac <= audio_lrck_cnt < 16 ? audgen_sampshift[31] : 1'b0;
 
       // 48khz * 64
       audio_lrck_cnt <= audio_lrck_cnt + 1'b1;
@@ -151,8 +152,6 @@ module sound_i2s #(
         audgen_sampshift <= {audgen_sampshift[30:0], 1'b0};
       end
     end
-
-    prev_audgen_sclk <= audgen_sclk;
   end
 
   initial begin

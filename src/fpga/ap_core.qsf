@@ -776,10 +776,14 @@ set_global_assignment -name VHDL_FILE core/rtl/divider.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE core/rtl/ddram.sv
 set_global_assignment -name VHDL_FILE core/rtl/cpu.vhd
 set_global_assignment -name VHDL_FILE core/rtl/bus_savestates.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE core/pocket_save_init.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/wonderswan.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rtc_save_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sync_fifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sound_i2s.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_grayscale_video.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_rtc_cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/apf_reset_sync.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/data_unloader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/data_loader.sv
 set_global_assignment -name QIP_FILE apf/apf.qip

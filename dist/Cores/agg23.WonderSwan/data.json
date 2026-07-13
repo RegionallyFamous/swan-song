@@ -35,6 +35,7 @@
         "parameters": "0x84",
         "nonvolatile": true,
         "extensions": ["sav"],
+        "size_maximum": 524300,
         "address": "0x20000000"
       }
     ]

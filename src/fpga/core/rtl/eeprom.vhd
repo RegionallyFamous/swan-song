@@ -52,7 +52,11 @@ end entity;
 architecture arch of eeprom is
   
    -- register
-   signal Data        : std_logic_vector(15 downto 0);
+   -- The WonderSwan controller has distinct write-data and read-result
+   -- latches.  In particular, completing a write must not make the written
+   -- value visible through the data ports until a read command completes.
+   signal WriteData   : std_logic_vector(15 downto 0);
+   signal ReadData    : std_logic_vector(15 downto 0);
    signal Addr        : std_logic_vector(15 downto 0);
    signal Cmd         : std_logic_vector( 7 downto 0);
    
@@ -77,11 +81,16 @@ architecture arch of eeprom is
       EVALCMD,
       CLEAR,
       OVERWRITE,
+      WRITEWAIT,
+      READWAIT,
       READONE
    );
    signal state : tState;
    
    signal writeEnable  : std_logic := '0';
+   signal writeProtect : std_logic := '0';
+   signal readDone     : std_logic := '1';
+   signal readDelay    : integer range 0 to 9 := 0;
    
    signal size         : integer range 0 to 1024 := 0;
    
@@ -99,10 +108,11 @@ architecture arch of eeprom is
    -- savestates     
    signal SS_EEPROM      : std_logic_vector(REG_SAVESTATE_EEPROM.upper downto REG_SAVESTATE_EEPROM.lower);
    signal SS_EEPROM_BACK : std_logic_vector(REG_SAVESTATE_EEPROM.upper downto REG_SAVESTATE_EEPROM.lower);
+   signal ssLoaded       : std_logic := '0';
 
 begin 
-   iREG_Data_H : entity work.eReg generic map ( REG_Data_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), Data( 7 downto 0)     , open             , Data_L_written);  
-   iREG_Data_L : entity work.eReg generic map ( REG_Data_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), Data(15 downto 8)     , open             , Data_H_written);  
+   iREG_Data_H : entity work.eReg generic map ( REG_Data_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0), ReadData( 7 downto 0) , WriteData( 7 downto 0), Data_L_written);
+   iREG_Data_L : entity work.eReg generic map ( REG_Data_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1), ReadData(15 downto 8) , WriteData(15 downto 8), Data_H_written);
    iREG_Addr_H : entity work.eReg generic map ( REG_Addr_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(2), Addr( 7 downto 0)     , Addr( 7 downto 0));  
    iREG_Addr_L : entity work.eReg generic map ( REG_Addr_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(3), Addr(15 downto 8)     , Addr(15 downto 8));  
    iREG_Cmd    : entity work.eReg generic map ( REG_Cmd    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(4), Status                , Cmd              , Cmd_written);  
@@ -120,7 +130,10 @@ begin
    opcode <= Addr(7 downto 6) when size = 64 else Addr(11 downto 10);
    extCmd <= Addr(5 downto 4) when size = 64 else Addr( 9 downto  8);
    
-   Status <= x"0F";
+   -- Bits 0 and 1 are DONE and READY.  Protection is latched only by the
+   -- internal controller and is reported in bit 7; the other bits read zero.
+   Status <= writeProtect & "00000" & '1' & readDone when state = IDLE else
+             writeProtect & "000000" & readDone;
    
    RAMAddrFull <= std_logic_vector(to_unsigned(addrCounter, 10));
    
@@ -153,7 +166,7 @@ begin
    
    iSS_EEPROM : entity work.eReg_SS generic map ( REG_SAVESTATE_EEPROM ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, SSBUS_Dout, SS_EEPROM_BACK, SS_EEPROM); 
                
-   SS_EEPROM_BACK(15 downto  0) <= Data;    
+   SS_EEPROM_BACK(15 downto  0) <= ReadData;
    SS_EEPROM_BACK(          16) <= writeEnable;       
                
    process (clk)
@@ -162,6 +175,11 @@ begin
       
          RAMWrEn <= '0';
          written <= RAMWrEn;
+
+         if (SSBUS_wren = '1' and
+             SSBUS_Adr = std_logic_vector(to_unsigned(REG_SAVESTATE_EEPROM.Adr, SSBUS_Adr'length))) then
+            ssLoaded <= '1';
+         end if;
       
          if (reset = '1') then
          
@@ -172,8 +190,24 @@ begin
                state        <= IDLE;
             end if;
             
-            Data         <= SS_EEPROM(15 downto  0);
-            writeEnable  <= SS_EEPROM(          16);
+            ReadData     <= SS_EEPROM(15 downto  0);
+            readDone     <= '1';
+            writeProtect <= '0';
+
+            -- The open bootstrap does not run the retail firmware sequence
+            -- which leaves internal EEPROM writes enabled.  Match that
+            -- post-boot controller state, but consume the saved latch when a
+            -- savestate register load immediately precedes this reset.
+            if (isExternal = '0') then
+               if (ssLoaded = '1') then
+                  writeEnable <= SS_EEPROM(16);
+                  ssLoaded <= '0';
+               else
+                  writeEnable <= '1';
+               end if;
+            else
+               writeEnable <= SS_EEPROM(16);
+            end if;
          
             if (isExternal = '1') then
                case (ramtype) is
@@ -199,11 +233,11 @@ begin
             
                when IDLE =>
                
-                  if (ce = '1' and Data_L_written = '1') then Data( 7 downto 0) <= RegBus_Din; end if;
-                  if (ce = '1' and Data_H_written = '1') then Data(15 downto 8) <= RegBus_Din; end if;
-               
                   if (ce = '1' and Cmd_written = '1') then
                      state <= EVALCMD;
+                     if (RegBus_Din = x"10") then
+                        readDone <= '0';
+                     end if;
                   end if;
                   
                   case (size) is
@@ -218,11 +252,25 @@ begin
 
                   case (Cmd) is
                      when x"10" => -- READ
-                        state <= READONE;
+                        if (opcode = "10") then
+                           state     <= READWAIT;
+                           readDelay <= 0;
+                        end if;
                         
                      when x"20" => -- WRITE
-                        writevalue <= Data;
-                        if (writeEnable = '1') then RAMWrEn <= '1'; end if; 
+                        if (opcode = "01") then
+                           writevalue <= WriteData;
+                           if (writeEnable = '1' and
+                               not (isExternal = '0' and writeProtect = '1' and addrCounter >= 16#30#)) then
+                              RAMWrEn <= '1';
+                              state <= WRITEWAIT;
+                           end if;
+                        elsif (opcode = "00" and extCmd = "01") then -- write all
+                           state       <= OVERWRITE;
+                           writevalue  <= WriteData;
+                           addrCounter <= 0;
+                           if (writeEnable = '1') then RAMWrEn <= '1'; end if;
+                        end if;
                      
                      when x"40" =>
                         case (opcode) is
@@ -231,15 +279,12 @@ begin
                                  when "00" =>
                                     writeEnable <= '0';
                                  
-                                 when "01" => -- write all
-                                    state       <= OVERWRITE;
-                                    writevalue  <= x"FFFF";
-                                    addrCounter <= 0;
-                                    if (writeEnable = '1') then RAMWrEn <= '1'; end if; 
+                                 when "01" => -- WRAL uses the WRITE control
+                                    null;
                                  
                                  when "10" => -- erase all
                                     state       <= OVERWRITE;
-                                    writevalue  <= Data;
+                                    writevalue  <= x"FFFF";
                                     addrCounter <= 0;
                                     if (writeEnable = '1') then RAMWrEn <= '1'; end if; 
                                  
@@ -249,22 +294,21 @@ begin
                                  when others => null;
                               end case;
                            
-                           when "01" => -- read
-                              state <= READONE;
-                           
-                           when "10" => -- write
-                              writevalue  <= Data;
-                              if (writeEnable = '1') then RAMWrEn <= '1'; end if; 
-                           
                            when "11" => -- erase
                               writevalue  <= x"FFFF";
-                              if (writeEnable = '1') then RAMWrEn <= '1'; end if; 
+                              if (writeEnable = '1' and
+                                  not (isExternal = '0' and writeProtect = '1' and addrCounter >= 16#30#)) then
+                                 RAMWrEn <= '1';
+                                 state <= WRITEWAIT;
+                              end if;
 
                            when others => null;
                         end case;
                      
-                     when x"80" => -- RESET
-                        writeEnable <= '0';
+                     when x"80" => -- internal write protection / external abort
+                        if (isExternal = '0') then
+                           writeProtect <= '1';
+                        end if;
 
                      when others => null;
                   end case;
@@ -316,13 +360,35 @@ begin
                when OVERWRITE =>
                   if (addrCounter + 1 < size and writeEnable = '1') then
                      addrCounter <= addrCounter + 1;
-                     RAMWrEn     <= '1';
+                     if (isExternal = '1' or writeProtect = '0' or addrCounter + 1 < 16#30#) then
+                        RAMWrEn <= '1';
+                     end if;
                   else
                      state <= IDLE;
                   end if;
+
+               when WRITEWAIT =>
+                  -- RAMWrEn was asserted in the preceding cycle.  Waiting one
+                  -- clock keeps READY low until the synchronous RAM has
+                  -- committed the write.
+                  state <= IDLE;
+
+               when READWAIT =>
+                  -- Keep DONE observably low across the next CPU instruction.
+                  -- Ten system enables follow the pinned emulator model's
+                  -- conservative command delay; it is not a physical write-
+                  -- latency claim.
+                  if (ce = '1') then
+                     if (readDelay = 9) then
+                        state <= READONE;
+                     else
+                        readDelay <= readDelay + 1;
+                     end if;
+                  end if;
                
                when READONE =>
-                  Data      <= readvalue;
+                  ReadData  <= readvalue;
+                  readDone  <= '1';
                   state     <= IDLE;
             
             end case;
@@ -334,8 +400,4 @@ begin
    
 
 end architecture;
-
-
-
-
 

@@ -2,7 +2,9 @@ module wonderswan (
     input wire clk_sys_36_864,
     input wire clk_mem_110_592,
 
+    // Host reset is synchronized separately for each consuming domain.
     input wire reset_n,
+    input wire reset_n_sys,
     input wire pll_core_locked,
     input wire external_reset,
 
@@ -12,6 +14,7 @@ module wonderswan (
     input wire [15:0] ioctl_dout,
     // 1 for B&W cart, 2 for color cart
     input wire [ 1:0] ext_cart_download,
+    input wire [ 1:0] ext_cart_download_sys,
 
     output wire rom_write_complete,
 
@@ -24,6 +27,7 @@ module wonderswan (
     input wire [15:0] bios_dout,
 
     input wire [31:0] rtc_epoch_seconds,
+    input wire rtc_epoch_valid,
 
     // Inputs
     input wire button_a,
@@ -51,7 +55,7 @@ module wonderswan (
     input wire use_fastforward_sound,
 
     // Saves
-    output wire [11:0] save_size,
+    output logic [19:0] save_size_bytes,
     output wire has_rtc,
     input wire sd_buff_wr,
     input wire sd_buff_rd,
@@ -106,10 +110,13 @@ module wonderswan (
   wire                                                          cart_rd;
   wire                                                          cart_wr;
 
-  wire ioctl_download = cart_download || |bios_download;
+  wire ioctl_download = cart_download_sys || |bios_download;
 
+  // ext_cart_download is the clk_mem copy; ext_cart_download_sys is the
+  // independently synchronized clk_sys copy.
   wire cart_download = |ext_cart_download;
-  wire colorcart_download = ext_cart_download[1];
+  wire cart_download_sys = |ext_cart_download_sys;
+  wire colorcart_download_sys = ext_cart_download_sys[1];
   // wire cart_download = ioctl_download && (filetype[5:0] == 6'h01 || filetype == 8'h80);
   // wire colorcart_download = ioctl_download && (filetype == 8'h01);
   // wire bios_download = ioctl_download && (filetype == 8'h00 || filetype == 8'h40);
@@ -124,68 +131,57 @@ module wonderswan (
 
   wire                                                   [15:0] sdram_din;
 
-  assign sd_buff_din = extra_data_addr ? sd_buff_din_time : saveIsSRAM ? sdram_din : eeprom_din;
+  wire extra_data_addr;
+  wire rtc_extra_write_complete;
+  wire canonical_rtc_read;
 
-  reg prev_reset_n = 0;
-  reg prev_save_ram_ack = 0;
-  reg did_download_save = 0;
+  // Only the canonical 12-byte trailer is exposed on save reads.  Legacy
+  // padding is load-only compatibility data and must never address past the
+  // RTC snapshot or be written back into a newly flushed save.
+  assign sd_buff_din = extra_data_addr ?
+                       (canonical_rtc_read ? sd_buff_din_time : 16'h0000) :
+                       saveIsSRAM ? sdram_din : eeprom_din;
 
-  localparam CLEARING_INIT = 0;
-  localparam CLEARING_WRITE = 1;
-  localparam CLEARING_WAIT_ACK = 2;
+  wire clearing_save;
+  wire clearing_sram;
+  wire clear_sram_write;
+  wire clear_eeprom_write;
+  wire [19:0] clear_save_word_addr;
 
-  reg [1:0] clearing_ram_state = CLEARING_INIT;
-  reg clearing_ram_write = 0;
-  reg [19:0] clearing_ram_addr = 0;
-
-  wire clearing_ram = clearing_ram_state != CLEARING_INIT;
-
-  always @(posedge clk_mem_110_592) begin
-    prev_reset_n <= reset_n;
-    prev_save_ram_ack <= save_ram_ack;
-
-    if (sd_buff_wr) begin
-      did_download_save <= 1;
+  // Save initialization is sequenced by clk_mem, but it holds the emulated
+  // machine in reset in clk_sys. Assert that reset immediately and release it
+  // only after the level has been observed low for three system clocks.
+  (* ASYNC_REG = "TRUE" *) reg [2:0] clearing_save_sys_sync = 3'b000;
+  always @(posedge clk_sys_36_864 or posedge clearing_save) begin
+    if (clearing_save) begin
+      clearing_save_sys_sync <= 3'b111;
+    end else begin
+      clearing_save_sys_sync <= {clearing_save_sys_sync[1:0], 1'b0};
     end
-
-    case (clearing_ram_state)
-      CLEARING_INIT: begin
-        if (reset_n && ~prev_reset_n) begin
-          // Loading complete
-          if (~did_download_save && saveIsSRAM) begin
-            // No save was loaded, make sure to clear mem
-            clearing_ram_state <= CLEARING_WRITE;
-          end
-        end
-      end
-      CLEARING_WRITE: begin
-        clearing_ram_state <= CLEARING_WAIT_ACK;
-
-        clearing_ram_write <= 1;
-      end
-      CLEARING_WAIT_ACK: begin
-        if (save_ram_ack && ~prev_save_ram_ack) begin
-          // Write complete
-          clearing_ram_write <= 0;
-          clearing_ram_state <= CLEARING_WRITE;
-
-          clearing_ram_addr  <= clearing_ram_addr + 20'h1;
-
-          if (&clearing_ram_addr) begin
-            // Finished writing
-            clearing_ram_state <= CLEARING_INIT;
-          end
-        end
-      end
-    endcase
   end
+  wire clearing_save_sys = clearing_save_sys_sync[2];
+
+  pocket_save_init save_initializer (
+      .clk(clk_mem_110_592),
+      .cart_download(cart_download),
+      .reset_n(reset_n),
+      .save_payload_write(sd_buff_wr && !extra_data_addr),
+      .save_is_sram(saveIsSRAM),
+      .save_is_eeprom(saveIsEEPROM),
+      .save_size_bytes(save_size_bytes),
+      .sram_write_ack(save_ram_ack),
+      .clearing(clearing_save),
+      .clearing_sram(clearing_sram),
+      .clear_sram_write(clear_sram_write),
+      .clear_eeprom_write(clear_eeprom_write),
+      .clear_word_addr(clear_save_word_addr)
+  );
 
   wire save_ram_ack;
-  reg  rtc_write_ack = 0;
 
   // EEPROM is in BRAM. Will ack immediately after write
-  // If in extra_data_addr space, ack when process below states
-  assign save_ram_write_complete = extra_data_addr ? rtc_write_ack : saveIsSRAM ? save_ram_ack : sd_buff_wr;
+  // Overflow words are acknowledged and classified by the RTC save loader.
+  assign save_ram_write_complete = extra_data_addr ? rtc_extra_write_complete : saveIsSRAM ? save_ram_ack : sd_buff_wr;
 
   sdram sdram (
       .init(~pll_core_locked),
@@ -200,11 +196,11 @@ module wonderswan (
       .ch1_ready(rom_write_complete),
       // .ch1_dout (),
 
-      .ch2_addr(clearing_ram ? {4'b1000, clearing_ram_addr} : {4'b1000, sd_buff_addr[20:1]}),
-      .ch2_din(clearing_ram ? 16'b0 : sd_buff_dout),
+      .ch2_addr(clearing_sram ? {4'b1000, clear_save_word_addr} : {4'b1000, sd_buff_addr[20:1]}),
+      .ch2_din(clearing_sram ? 16'b0 : sd_buff_dout),
       .ch2_dout(sdram_din),
-      .ch2_req  ((saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) || clearing_ram_write),
-      .ch2_rnw(~clearing_ram_write && ~sd_buff_wr),
+      .ch2_req  ((saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) || clear_sram_write),
+      .ch2_rnw(~clear_sram_write && ~sd_buff_wr),
       .ch2_ready(save_ram_ack),
 
       .ch3_addr(EXTRAM_addr[24:1]),
@@ -238,7 +234,6 @@ module wonderswan (
   always @(posedge clk_mem_110_592) begin
     ioctl_wr_1 <= ioctl_wr;
     if (cart_download) begin
-      colorcart_downloaded <= colorcart_download;
       if (ioctl_wr & ~ioctl_wr_1) begin
         // ioctl_wait  <= 1;
         lastdata[0] <= ioctl_dout;
@@ -256,16 +251,25 @@ module wonderswan (
   reg [24:0] mask_addr;
 
   always @(posedge clk_sys_36_864) begin
-    old_download <= cart_download;
-    if (old_download & ~cart_download) begin
-      mask_addr <= ioctl_addr[24:0] + 1'd1;
+    if (!reset_n_sys) begin
+      old_download <= 1'b0;
+      colorcart_downloaded <= 1'b0;
+      mask_addr <= 25'd0;
+    end else begin
+      old_download <= cart_download_sys;
+      if (cart_download_sys) begin
+        colorcart_downloaded <= colorcart_download_sys;
+      end
+      if (old_download & ~cart_download_sys) begin
+        mask_addr <= ioctl_addr[24:0] + 1'd1;
+      end
     end
   end
 
   wire [15:0] Swan_AUDIO_L;
   wire [15:0] Swan_AUDIO_R;
 
-  wire reset = ~reset_n | cart_download | clearing_ram | external_reset;
+  wire reset = ~reset_n_sys | cart_download_sys | clearing_save_sys | external_reset;
 
   reg paused;
   always_ff @(posedge clk_sys_36_864) begin
@@ -293,11 +297,6 @@ module wonderswan (
   wire [ 7:0] ramtype = lastdata[2][15:8];
 
   wire [15:0]                              eeprom_din;
-  reg  [31:0]                              prev_rtc_epoch_seconds = 0;
-
-  always @(posedge clk_sys_36_864) begin
-    prev_rtc_epoch_seconds <= rtc_epoch_seconds;
-  end
 
   SwanTop SwanTop (
       .clk     (clk_sys_36_864),
@@ -321,11 +320,11 @@ module wonderswan (
 
       // eeprom
       // .eepromWrite(eepromWrite),
-      .eeprom_addr(sd_buff_addr[20:1]),
-      .eeprom_din (sd_buff_dout),
+      .eeprom_addr(clear_eeprom_write ? clear_save_word_addr[9:0] : sd_buff_addr[10:1]),
+      .eeprom_din (clear_eeprom_write ? 16'hFFFF : sd_buff_dout),
       .eeprom_dout(eeprom_din),
-      .eeprom_req (~saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr),
-      .eeprom_rnw (~sd_buff_wr),
+      .eeprom_req (clear_eeprom_write || (saveIsEEPROM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr)),
+      .eeprom_rnw (!clear_eeprom_write && ~sd_buff_wr),
 
       // bios
       .bios_wraddr (bios_addr),
@@ -362,7 +361,7 @@ module wonderswan (
       .KeyB    (~vertical ? button_b : button_trig_r),
 
       // RTC
-      .RTC_timestampNew(rtc_epoch_seconds != prev_rtc_epoch_seconds),
+      .RTC_timestampNew(rtc_epoch_valid),
       .RTC_timestampIn(rtc_epoch_seconds),
       .RTC_timestampSaved(time_dout[42+:32]),
       .RTC_savedtimeIn(time_dout[0+:42]),
@@ -451,7 +450,7 @@ module wonderswan (
     rgb2 <= vram3[px_addr];
   end
 
-  wire [14:0] px_addr;
+  reg [14:0] px_addr = 15'd0;
 
   wire [11:0] rgb_last = (buffercnt_last == 0) ? rgb0 : (buffercnt_last == 1) ? rgb1 : rgb2;
 
@@ -612,74 +611,95 @@ module wonderswan (
   end
 
   /////////////////////////  SRAM/EEPROM SAVE/LOAD  /////////////////////////////
-  reg bk_record_rtc = 0;
   reg did_receive_sys_rtc = 0;
   reg is_save_rtc_ready = 0;
+  reg rtc_load_delivered = 0;
 
-  wire extra_data_addr = sd_buff_addr >= (save_size * 512);
+  wire [20:0] rtc_data_offset = sd_buff_addr - save_size_bytes;
+  wire rtc_trailer_begin;
+  wire rtc_payload_write;
+  wire [2:0] rtc_payload_index;
+  wire [15:0] rtc_payload_data;
+  wire rtc_trailer_complete;
 
-  // assign has_rtc = lastdata[1][8];
-  assign has_rtc = 1'b1;
+  // Cartridge footer bit 8 declares the optional RTC persistence trailer.
+  assign has_rtc = lastdata[1][8];
 
   wire saveIsSRAM = (ramtype == 8'h01) || (ramtype == 8'h02) || (ramtype == 8'h03) || (ramtype == 8'h04) || (ramtype == 8'h05);
+  wire saveIsEEPROM = (ramtype == 8'h10) || (ramtype == 8'h20) || (ramtype == 8'h50);
 
   always_comb begin
-    save_size = 0;
+    save_size_bytes = 20'h00000;
 
-    if (ramtype == 8'h01) save_size = 12'h40;
-    if (ramtype == 8'h02) save_size = 12'h40;
-    if (ramtype == 8'h03) save_size = 12'h100;
-    if (ramtype == 8'h04) save_size = 12'h200;
-    if (ramtype == 8'h05) save_size = 12'h400;
-    // These are EEPROM saves
-    if (ramtype == 8'h10) save_size = 12'h004;
-    if (ramtype == 8'h20) save_size = 12'h004;
-    if (ramtype == 8'h50) save_size = 12'h004;
+    if (ramtype == 8'h01) save_size_bytes = 20'h08000;
+    if (ramtype == 8'h02) save_size_bytes = 20'h08000;
+    if (ramtype == 8'h03) save_size_bytes = 20'h20000;
+    if (ramtype == 8'h04) save_size_bytes = 20'h40000;
+    if (ramtype == 8'h05) save_size_bytes = 20'h80000;
+    // EEPROM sizes are exact bytes: 64, 1024, and 512 16-bit words.
+    if (ramtype == 8'h10) save_size_bytes = 20'h00080;
+    if (ramtype == 8'h20) save_size_bytes = 20'h00800;
+    if (ramtype == 8'h50) save_size_bytes = 20'h00400;
   end
 
+  apf_rtc_save_loader rtc_save_loader (
+      .clk                 (clk_sys_36_864),
+      .reset_title         (cart_download_sys),
+      .has_rtc             (has_rtc),
+      .legacy_padded_type  ((ramtype == 8'h10) || (ramtype == 8'h50)),
+      .save_size_bytes     (save_size_bytes),
+      .sd_buff_wr          (sd_buff_wr),
+      .sd_buff_addr        (sd_buff_addr),
+      .sd_buff_dout        (sd_buff_dout),
+      .extra_data_addr     (extra_data_addr),
+      .extra_write_complete(rtc_extra_write_complete),
+      .rtc_trailer_begin   (rtc_trailer_begin),
+      .rtc_payload_write   (rtc_payload_write),
+      .rtc_payload_index   (rtc_payload_index),
+      .rtc_payload_data    (rtc_payload_data),
+      .rtc_trailer_complete(rtc_trailer_complete)
+  );
+
   always @(posedge clk_sys_36_864) begin
-    rtc_write_ack <= 0;
+    RTC_load <= 0;
 
-    if (rtc_epoch_seconds != 0) begin
-      // RTC received
-      did_receive_sys_rtc <= 1;
-    end
-
-    if (did_receive_sys_rtc && is_save_rtc_ready) begin
-      // Loaded save RTC, but couldn't send it since sys RTC hadn't yet been received
-      // We can mark the save RTC loaded now
-      RTC_load <= 1;
-    end
-
-    if (extra_data_addr) begin
-      // First byte of RTC
-      if (sd_buff_addr[8:0] == 0 && sd_buff_wr && sd_buff_dout == "RT") begin
-        bk_record_rtc <= 1;
-        RTC_load <= 0;
-
-        rtc_write_ack <= 1;
-      end
-    end
-
-    if (bk_record_rtc) begin
-      if (sd_buff_addr[8:1] < 6 && sd_buff_addr[8:1] >= 1) begin
-        // Word addressing (3:1)
-        // Skip first word of row ("RT")
-        time_dout[{sd_buff_addr[3:1]-3'd1, 4'b0000}+:16] <= sd_buff_dout;
-
-        rtc_write_ack <= 1;
+    if (cart_download_sys) begin
+      // Do not carry a previous title's trailer or readiness into this load.
+      did_receive_sys_rtc <= 0;
+      is_save_rtc_ready <= 0;
+      rtc_load_delivered <= 0;
+      time_dout <= 0;
+    end else begin
+      if (rtc_epoch_valid) begin
+        // RTC received
+        did_receive_sys_rtc <= 1;
       end
 
-      if (sd_buff_addr[8:1] == 5) begin
-        // RTC_load <= 1;
+      if (did_receive_sys_rtc && is_save_rtc_ready && !rtc_load_delivered) begin
+        // Both pieces belong to the current title. Emit a single load event.
+        RTC_load <= 1;
+        rtc_load_delivered <= 1;
+      end
+
+      if (rtc_trailer_begin) begin
+        is_save_rtc_ready <= 0;
+        rtc_load_delivered <= 0;
+      end
+
+      if (rtc_payload_write) begin
+        time_dout[{rtc_payload_index, 4'b0000}+:16] <= rtc_payload_data;
+      end
+
+      if (rtc_trailer_complete) begin
         is_save_rtc_ready <= 1;
-        bk_record_rtc <= 0;
       end
     end
   end
 
   wire [127:0] time_din_h = {32'd0, time_din, "RT"};
-  // Word addressing (3:1)
-  wire [ 15:0] sd_buff_din_time = time_din_h[{sd_buff_addr[3:1], 4'b0000}+:16];
+  assign canonical_rtc_read = has_rtc && (rtc_data_offset < 21'd12);
+  wire [2:0] rtc_read_word_index = canonical_rtc_read ? rtc_data_offset[3:1] : 3'd0;
+  // Word addressing (3:1), clamped before the variable part select.
+  wire [15:0] sd_buff_din_time = time_din_h[{rtc_read_word_index, 4'b0000}+:16];
 
 endmodule

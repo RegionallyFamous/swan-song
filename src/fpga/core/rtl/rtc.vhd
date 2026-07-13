@@ -183,7 +183,7 @@ begin
          end if;
          
          RTC_timestampNew_1 <= RTC_timestampNew;
-         if (RTC_timestampNew /= RTC_timestampNew_1) then
+         if (RTC_timestampNew = '1' and RTC_timestampNew_1 = '0') then
             RTC_timestamp <= RTC_timestampIn;
          end if;
          
@@ -281,7 +281,6 @@ begin
    
 
 end architecture;
-
 
 
 
