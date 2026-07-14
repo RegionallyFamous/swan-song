@@ -122,8 +122,17 @@ Codex can invoke these same commands in the repository terminal:
 ```
 
 `dispatch` is a dry run unless `--apply` is present. It rechecks that the
-default branch has not moved, records the exact workflow-run ID returned by
-GitHub, and verifies that run's branch, commit, event, and unique dispatch nonce.
+default branch has not moved and requires a completed successful hosted
+`.github/workflows/regression.yml` push run bound to that exact commit,
+workflow path and workflow ID. The exact run attempt must also contain the
+single successful GitHub-hosted regression job and all three required checkout,
+toolchain, and full-regression steps; skipped jobs or steps are not accepted. It
+then records the exact Quartus workflow-run ID returned by GitHub and verifies
+that run's branch, commit, event, and unique dispatch nonce. The Quartus job
+independently repeats the hosted-regression proof with the read-only Actions API
+before fitting, so manual dispatch cannot bypass the gate. This reuses
+already-completed test evidence instead of spending another full regression
+cycle on the billable Quartus worker.
 The protected `quartus-fit` GitHub environment can still require approval before
 the job reaches the runner.
 GitHub is the durable place for workflow logs and candidate evidence; the

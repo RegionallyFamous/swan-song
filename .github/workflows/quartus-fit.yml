@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   VERILATOR_IMAGE: verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299
@@ -47,7 +48,7 @@ jobs:
             echo "Quartus fit runner guest must report x86_64, got $architecture" >&2
             exit 1
           fi
-          for command in docker nproc awk df; do
+          for command in docker nproc awk df make python3 tclsh perl cmp find sed grep; do
             if ! command -v "$command" >/dev/null; then
               echo "Quartus fit runner is missing required command: $command" >&2
               exit 1
@@ -123,10 +124,18 @@ jobs:
             "$runner_free_kib KiB RUNNER_TEMP free, $docker_free_kib KiB " \
             "container-layer free ($docker_driver, $image_id)"
       - name: Check out exact source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Verify exact-commit hosted regression success
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/verify_hosted_regression.py
+          --repository "$GITHUB_REPOSITORY"
+          --sha "$GITHUB_SHA"
+          --branch "$GITHUB_REF_NAME"
       - name: Prepare empty artifact and evidence directories
         shell: bash
         run: |
@@ -134,12 +143,6 @@ jobs:
           evidence_dir="$(mktemp -d "$RUNNER_TEMP/quartus-evidence.XXXXXX")"
           echo "ARTIFACT_DIR=$artifact_dir" >> "$GITHUB_ENV"
           echo "EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
-      - name: Verify immutable HDL toolchain
-        run: |
-          echo "$GITHUB_WORKSPACE/.github/toolchain" >> "$GITHUB_PATH"
-          .github/toolchain/verify.sh
-      - name: Run complete regression gate
-        run: make regression
       - name: Verify pinned Quartus image
         run: ./scripts/quartus_docker.sh check-image
       - name: Fit and audit exact commit
@@ -153,7 +156,7 @@ jobs:
           --output "$EVIDENCE_DIR"
       - name: Preserve candidate evidence
         if: ${{ always() && steps.collect.outcome == 'success' && env.EVIDENCE_DIR != '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quartus-fit-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.EVIDENCE_DIR }}

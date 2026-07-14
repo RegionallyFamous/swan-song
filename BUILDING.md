@@ -416,8 +416,8 @@ new save flushes expose only the canonical exact-size layout.
 The GitHub regression workflow runs the same `make regression` entry point but
 does not install a moving Ubuntu package. It pins:
 
-- [`actions/checkout` v4.3.1](https://github.com/actions/checkout/commit/34e114876b0b11c390a56381ad16ebd13914f8d5)
-  by full commit SHA `34e114876b0b11c390a56381ad16ebd13914f8d5`;
+- [`actions/checkout` v7.0.0](https://github.com/actions/checkout/commit/9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0)
+  by full commit SHA `9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`;
 - the [official Verilator executable container](https://verilator.org/guide/latest/install.html#verilator-executable-docker-container)
   at version 5.050 and multi-architecture image index
   `sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299`,

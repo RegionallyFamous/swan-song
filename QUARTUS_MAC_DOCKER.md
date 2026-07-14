@@ -224,10 +224,28 @@ caches, accept the EULA there, and build the pinned private image once. A
 trusted manual or protected-branch job can then run:
 
 ```sh
-make regression
+python3 scripts/verify_hosted_regression.py \
+  --repository "$GITHUB_REPOSITORY" \
+  --sha "$GITHUB_SHA" \
+  --branch "$GITHUB_REF_NAME"
 ./scripts/quartus_docker.sh check-image
 ./scripts/quartus_docker.sh build "$RUNNER_TEMP/quartus-fit"
 ```
+
+The proof uses the read-only GitHub Actions API and requires the active
+`.github/workflows/regression.yml` workflow's exact ID and path plus a
+completed successful `push` run for the same repository, default branch, and
+40-hex commit. It also fetches the exact run attempt's jobs and requires the
+single GitHub-hosted Ubuntu `verilator` job plus checkout, immutable-toolchain,
+and full-regression steps to have completed successfully rather than skipped.
+The hosted lane already ran the complete `make regression` suite with the
+pinned Verilator/GHDL toolchain, so the Quartus worker does not repeat that
+roughly 18-minute gate. Missing, queued, skipped, failed, wrong-branch, or
+wrong-workflow results fail closed. `GITHUB_TOKEN` is read from the environment
+and needs only `actions: read`; it is never accepted on the command line.
+The query uses GitHub's documented
+[workflow-runs API](https://docs.github.com/en/rest/actions/workflow-runs?apiVersion=2026-03-10)
+with the pinned `2026-03-10` API version.
 
 The checked-in `.github/workflows/quartus-fit.yml` provides the manual fit
 job. It will remain queued until a runner carrying the cumulative labels

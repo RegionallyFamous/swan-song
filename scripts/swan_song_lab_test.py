@@ -96,7 +96,13 @@ class SwanSongLabTest(unittest.TestCase):
         self.assertIn("refusing to format a volume that already has a filesystem signature", script)
         self.assertLess(script.index("if blkid"), script.index("mkfs.ext4"))
         self.assertIn("/srv/swan-song-data/docker", script)
-        self.assertIn("systemctl enable --now docker", script)
+        self.assertIn("/srv/swan-song-data/containerd", script)
+        self.assertIn("root = \"/srv/swan-song-data/containerd\"", script)
+        self.assertIn("RequiresMountsFor=/srv/swan-song-data", script)
+        self.assertIn("systemctl daemon-reload", script)
+        self.assertIn("containerd.service", script)
+        self.assertIn("git jq make perl python3 rsync tcl ufw", script)
+        self.assertIn("systemctl enable --now containerd.service docker.service", script)
         for forbidden in ("ghp_", "github_pat_", "encoded_jit_config", "DIGITALOCEAN_TOKEN", "DO_API_TOKEN"):
             self.assertNotIn(forbidden, script)
 
@@ -238,6 +244,180 @@ class SwanSongLabTest(unittest.TestCase):
             self.assertEqual(command.call_args.args[0][-2:], ["docker", "info"])
             self.assertNotEqual(command.call_args.args[0][-3], "--")
 
+    def test_ssh_uses_bounded_keepalives_for_long_builds(self) -> None:
+        state = {
+            "public_ip": "192.0.2.10",
+            "known_hosts_file": "/tmp/lab-known-hosts",
+            "identity_file": "/tmp/lab-key",
+        }
+        command = lab.ssh_base(state)
+        self.assertIn("ServerAliveInterval=30", command)
+        self.assertIn("ServerAliveCountMax=3", command)
+
+    def test_resume_reverifies_image_without_reuploading_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            commit = "a" * 40
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "phase": "preparing-quartus",
+                "repo": lab.DEFAULT_REPO,
+                "default_branch": "main",
+                "commit": commit,
+                "public_ip": "192.0.2.10",
+                "pending_resources": [],
+            })
+            args = argparse.Namespace(state=str(path), apply=True)
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(
+                    lab, "json_command", return_value={"commit": {"sha": commit}}
+                ):
+                    with mock.patch.object(
+                        lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")
+                    ) as command:
+                        with mock.patch.object(lab, "install_runner") as install:
+                            with mock.patch.object(lab, "register_runner") as register:
+                                with mock.patch.object(lab, "wait_runner_online") as wait:
+                                    with mock.patch("builtins.print"):
+                                        lab.resume(args)
+            remote = command.call_args.kwargs["input_text"]
+            self.assertIn("quartus_docker.sh check-image", remote)
+            self.assertNotIn(lab.ARCHIVE_NAME, remote)
+            install.assert_called_once()
+            register.assert_called_once()
+            wait.assert_called_once()
+            self.assertEqual(lab.load_state(path)["phase"], "ready")
+
+    def test_warm_storage_moves_containerd_and_requires_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "public_ip": "192.0.2.10",
+            })
+            args = argparse.Namespace(state=str(path), apply=True)
+            with mock.patch.object(
+                lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")
+            ) as command:
+                with mock.patch("builtins.print"):
+                    lab.warm_storage(args)
+            remote = command.call_args.kwargs["input_text"]
+            self.assertIn("rsync -aHAX --numeric-ids", remote)
+            self.assertIn("root = \"/srv/swan-song-data/containerd\"", remote)
+            self.assertIn("RequiresMountsFor=/srv/swan-song-data", remote)
+            self.assertIn("refusing to replace an unowned containerd configuration", remote)
+            self.assertIn("systemctl stop docker.service docker.socket containerd.service || true", remote)
+            self.assertIn("containerd.service", remote)
+            self.assertIn("mountpoint -q /srv/swan-song-data", remote)
+            self.assertNotIn('test -z "$(find "$destination"', remote)
+            self.assertIn("80 * 1024 * 1024", remote)
+            self.assertIn(lab.IMAGE, remote)
+
+    def test_rearm_reuses_image_updates_source_and_registers_one_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            old_commit = "a" * 40
+            new_commit = "b" * 40
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "phase": "dispatched",
+                "repo": lab.DEFAULT_REPO,
+                "default_branch": "main",
+                "commit": old_commit,
+                "public_ip": "192.0.2.10",
+                "runner_id": 4,
+                "workflow_run_id": 55,
+                "workflow_run_url": "https://github.com/example/run/55",
+                "resource_names": {
+                    "runner": "old-runner",
+                    "workflow_run": "swan-lab-old",
+                },
+                "pending_resources": [],
+            })
+            workflow = {
+                "status": "completed",
+                "conclusion": "failure",
+                "head_sha": old_commit,
+                "head_branch": "main",
+                "event": "workflow_dispatch",
+                "display_title": "Quartus fit candidate swan-lab-old",
+            }
+            args = argparse.Namespace(state=str(path), apply=True, ref="new-main")
+
+            def record_runner(state: dict[str, object], unused_path: Path) -> None:
+                state["runner_id"] = 99
+
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(lab, "resource_get", side_effect=[workflow, None]):
+                    with mock.patch.object(lab, "local_commit", return_value=new_commit) as local:
+                        with mock.patch.object(
+                            lab, "json_command", return_value={"commit": {"sha": new_commit}}
+                        ):
+                            with mock.patch.object(
+                                lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")
+                            ) as command:
+                                with mock.patch.object(lab, "install_runner") as install:
+                                    with mock.patch.object(lab, "register_runner", side_effect=record_runner) as register:
+                                        with mock.patch.object(lab, "wait_runner_online") as wait:
+                                            with mock.patch.object(lab.uuid, "uuid4", return_value=mock.Mock(hex="12345678")):
+                                                with mock.patch("builtins.print"):
+                                                    lab.rearm(args)
+            local.assert_called_once_with("new-main")
+            remote = command.call_args.kwargs["input_text"]
+            self.assertIn(f"git fetch --depth=1 origin {new_commit}", remote)
+            self.assertIn(f"git checkout --detach {new_commit}", remote)
+            self.assertIn("quartus_docker.sh check-image", remote)
+            self.assertNotIn(lab.ARCHIVE_NAME, remote)
+            install.assert_called_once()
+            register.assert_called_once()
+            wait.assert_called_once()
+            persisted = lab.load_state(path)
+            self.assertEqual(persisted["phase"], "ready")
+            self.assertEqual(persisted["commit"], new_commit)
+            self.assertEqual(persisted["runner_id"], 99)
+            self.assertEqual(persisted["runner_name"], "swan-rearm-bbbbbbbb-12345678")
+            self.assertNotIn("workflow_run_id", persisted)
+            self.assertEqual(persisted["completed_workflow_runs"][0]["id"], 55)
+
+    def test_rearm_refuses_incomplete_run_or_existing_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            commit = "a" * 40
+            state = {
+                "magic": lab.MAGIC,
+                "phase": "dispatched",
+                "repo": lab.DEFAULT_REPO,
+                "default_branch": "main",
+                "commit": commit,
+                "runner_id": 4,
+                "workflow_run_id": 55,
+                "resource_names": {},
+                "pending_resources": [],
+            }
+            lab.save_state(path, state)
+            args = argparse.Namespace(state=str(path), apply=True, ref=None)
+            workflow = {
+                "status": "in_progress",
+                "head_sha": commit,
+                "head_branch": "main",
+                "event": "workflow_dispatch",
+                "display_title": "Quartus fit candidate",
+            }
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(lab, "resource_get", return_value=workflow):
+                    with self.assertRaisesRegex(lab.LabError, "not an exact completed run"):
+                        lab.rearm(args)
+            self.assertEqual(lab.load_state(path), state)
+            workflow["status"] = "completed"
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(lab, "resource_get", side_effect=[workflow, {"id": 4}]):
+                    with mock.patch.object(
+                        lab, "local_commit", side_effect=AssertionError("resolved a target with a live runner")
+                    ):
+                        with self.assertRaisesRegex(lab.LabError, "still exists"):
+                            lab.rearm(args)
+            self.assertEqual(lab.load_state(path), state)
+
     def test_uncertain_volume_create_is_reconciled_by_exact_name(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
@@ -301,6 +481,56 @@ class SwanSongLabTest(unittest.TestCase):
             args = argparse.Namespace(state=str(path), apply=True)
             responses = [
                 {"commit": {"sha": "a" * 40}},
+                {
+                    "id": 312570632,
+                    "path": lab.regression_proof.WORKFLOW_PATH,
+                    "state": "active",
+                },
+                {
+                    "total_count": 1,
+                    "workflow_runs": [
+                        {
+                            "id": 44,
+                            "run_attempt": 1,
+                            "workflow_id": 312570632,
+                            "path": lab.regression_proof.WORKFLOW_PATH,
+                            "head_sha": "a" * 40,
+                            "head_branch": "main",
+                            "event": "push",
+                            "status": "completed",
+                            "conclusion": "success",
+                            "repository": {"full_name": lab.DEFAULT_REPO},
+                        }
+                    ]
+                },
+                {
+                    "total_count": 1,
+                    "jobs": [
+                        {
+                            "id": 45,
+                            "run_id": 44,
+                            "head_sha": "a" * 40,
+                            "workflow_name": lab.regression_proof.WORKFLOW_NAME,
+                            "name": lab.regression_proof.JOB_NAME,
+                            "status": "completed",
+                            "conclusion": "success",
+                            "runner_group_name": "GitHub Actions",
+                            "labels": ["ubuntu-24.04"],
+                            "steps": [
+                                {
+                                    "name": name,
+                                    "number": number,
+                                    "status": "completed",
+                                    "conclusion": "success",
+                                }
+                                for number, name in enumerate(
+                                    lab.regression_proof.REQUIRED_STEPS,
+                                    start=2,
+                                )
+                            ],
+                        }
+                    ],
+                },
                 {"workflow_run_id": 55, "html_url": "https://github.com/example/run/55"},
             ]
             workflow = {
@@ -317,11 +547,82 @@ class SwanSongLabTest(unittest.TestCase):
                                 lab.dispatch(args)
             persisted = lab.load_state(path)
             self.assertEqual(persisted["workflow_run_id"], 55)
+            self.assertEqual(persisted["hosted_regression_run_id"], 44)
             self.assertEqual(persisted["phase"], "dispatched")
-            payload = api.call_args_list[1].kwargs["input_body"]
+            self.assertIn("actions/workflows/regression.yml", api.call_args_list[1].args[0][-1])
+            self.assertIn("actions/workflows/312570632/runs?", api.call_args_list[2].args[0][-1])
+            self.assertIn("actions/runs/44/attempts/1/jobs?", api.call_args_list[3].args[0][-1])
+            for proof_call in api.call_args_list[1:4]:
+                self.assertIn("X-GitHub-Api-Version: 2026-03-10", proof_call.args[0])
+            payload = api.call_args_list[4].kwargs["input_body"]
             self.assertEqual(payload["ref"], "main")
             self.assertEqual(payload["inputs"]["lab_nonce"], "swan-lab-fixed")
             self.assertIs(payload["return_run_details"], True)
+
+    def test_dispatch_refuses_without_exact_hosted_regression_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            state = {
+                "magic": lab.MAGIC,
+                "name": "swan-song-quartus-lab",
+                "phase": "ready",
+                "repo": lab.DEFAULT_REPO,
+                "commit": "a" * 40,
+                "default_branch": "main",
+                "runner_id": 4,
+                "resource_names": {},
+                "pending_resources": [],
+            }
+            lab.save_state(path, state)
+            responses = [
+                {"commit": {"sha": "a" * 40}},
+                {
+                    "id": 312570632,
+                    "path": lab.regression_proof.WORKFLOW_PATH,
+                    "state": "active",
+                },
+                {"total_count": 0, "workflow_runs": []},
+            ]
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(lab, "json_command", side_effect=responses):
+                    with mock.patch.object(
+                        lab,
+                        "resource_get",
+                        side_effect=AssertionError("workflow was dispatched without proof"),
+                    ):
+                        with self.assertRaisesRegex(lab.LabError, "hosted regression proof failed"):
+                            lab.dispatch(argparse.Namespace(state=str(path), apply=True))
+            self.assertEqual(lab.load_state(path), state)
+
+    def test_dispatch_adopts_exact_recorded_run_with_github_base_title(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            commit = "a" * 40
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "name": "swan-song-quartus-lab",
+                "phase": "ready",
+                "repo": lab.DEFAULT_REPO,
+                "commit": commit,
+                "default_branch": "main",
+                "runner_id": 4,
+                "workflow_run_id": 55,
+                "resource_names": {"workflow_run": "swan-lab-fixed"},
+                "pending_resources": [],
+            })
+            workflow = {
+                "head_sha": commit,
+                "head_branch": "main",
+                "event": "workflow_dispatch",
+                "display_title": "Quartus fit candidate",
+            }
+            with mock.patch.object(lab, "resource_get", return_value=workflow):
+                with mock.patch.object(
+                    lab, "json_command", side_effect=AssertionError("dispatched twice")
+                ):
+                    with mock.patch("builtins.print"):
+                        lab.dispatch(argparse.Namespace(state=str(path), apply=True))
+            self.assertEqual(lab.load_state(path)["phase"], "dispatched")
 
     def test_state_file_is_private_and_rejects_wrong_magic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

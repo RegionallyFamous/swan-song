@@ -11,6 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 HOST = ROOT / "scripts/quartus_docker.sh"
 WORKFLOW = ROOT / ".github/workflows/quartus-fit.yml"
+REGRESSION_WORKFLOW = ROOT / ".github/workflows/regression.yml"
 DOCKERFILE = ROOT / "toolchains/quartus-21.1.1/Dockerfile"
 CONTAINER_BUILD = ROOT / "toolchains/quartus-21.1.1/container-build-core.sh"
 TOOLCHAIN_CHECK = ROOT / "toolchains/quartus-21.1.1/toolchain-check.sh"
@@ -300,6 +301,7 @@ esac
         docker_free_kib: int = 90000000,
         docker_context: str | None = None,
         docker_host: str | None = None,
+        missing_command: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -308,20 +310,20 @@ esac
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             commands = {
-                "uname": """#!/usr/bin/env bash
+                "uname": """#!/bin/bash
 [[ "${1:-}" == -s ]] && { echo Linux; exit; }
 [[ "${1:-}" == -m ]] && { echo x86_64; exit; }
 exit 1
 """,
-                "nproc": "#!/usr/bin/env bash\necho 8\n",
-                "awk": """#!/usr/bin/env bash
+                "nproc": "#!/bin/bash\necho 8\n",
+                "awk": """#!/bin/bash
 if [[ "${2:-}" == /proc/meminfo ]]; then
   echo 33554432
 else
   /usr/bin/awk "$@"
 fi
 """,
-                "df": """#!/usr/bin/env bash
+                "df": """#!/bin/bash
 last="${!#}"
 if [[ "$last" == "$RUNNER_TEMP" ]]; then
   free=90000000
@@ -331,7 +333,7 @@ fi
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
 printf 'fake 100000000 1 %s 1%% /fake\n' "$free"
 """,
-                "docker": """#!/usr/bin/env bash
+                "docker": """#!/bin/bash
 case "${1:-}" in
   info)
     if [[ "${2:-}" == --format ]]; then
@@ -363,6 +365,19 @@ case "${1:-}" in
 esac
 """,
             }
+            for name in (
+                "make",
+                "python3",
+                "tclsh",
+                "perl",
+                "cmp",
+                "find",
+                "sed",
+                "grep",
+            ):
+                commands[name] = "#!/bin/bash\nexit 0\n"
+            if missing_command is not None:
+                commands.pop(missing_command, None)
             for name, payload in commands.items():
                 command = fake_bin / name
                 command.write_text(payload)
@@ -370,7 +385,7 @@ esac
             environment = os.environ.copy()
             environment.update(
                 {
-                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "PATH": str(fake_bin),
                     "RUNNER_TEMP": str(runner_temp),
                     "QUARTUS_IMAGE": "swan-song-quartus:21.1.1-850-cyclonev",
                     "FAKE_DOCKER_ENDPOINT": endpoint,
@@ -384,7 +399,7 @@ esac
             if docker_host is not None:
                 environment["DOCKER_HOST"] = docker_host
             return subprocess.run(
-                ["bash", "-c", cls.workflow_preflight_script()],
+                ["/bin/bash", "-c", cls.workflow_preflight_script()],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -497,7 +512,9 @@ esac
     def test_host_returns_container_artifacts_to_runner_ownership(self) -> None:
         host = HOST.read_text()
         container = CONTAINER_BUILD.read_text()
+        self.assertIn('[[ -O "$ROOT" ]]', host)
         self.assertIn('--env "ARTIFACT_UID=$(id -u)"', host)
+        self.assertIn('--env "SUDO_UID=$(id -u)"', host)
         self.assertIn('--env "ARTIFACT_GID=$(id -g)"', host)
         self.assertIn('case "${ARTIFACT_UID:-}"', container)
         self.assertIn('case "${ARTIFACT_GID:-}"', container)
@@ -647,6 +664,7 @@ esac
             "minimum_cpus=8",
             "minimum_memory_kib=$((30 * 1024 * 1024))",
             "minimum_free_disk_kib=$((80 * 1024 * 1024))",
+            "for command in docker nproc awk df make python3 tclsh perl cmp find sed grep",
             "docker info >/dev/null",
             "docker info --format '{{.OSType}}'",
             "docker info --format '{{.Architecture}}'",
@@ -680,21 +698,25 @@ esac
         self.assertNotEqual(starved.returncode, 0)
         self.assertIn("at least 80 GiB free for the Docker container layer", starved.stderr)
 
-    def test_vm_fit_workflow_runs_regression_before_quartus(self) -> None:
+        for command in ("make", "python3", "tclsh", "perl", "cmp", "find", "sed", "grep"):
+            with self.subTest(missing_command=command):
+                missing = self.run_fake_preflight(missing_command=command)
+                self.assertNotEqual(missing.returncode, 0)
+                self.assertIn(f"missing required command: {command}", missing.stderr)
+
+    def test_vm_fit_workflow_proves_exact_hosted_regression_before_quartus(self) -> None:
         workflow = WORKFLOW.read_text()
-        for digest in (
-            "verilator/verilator@sha256:"
-            "c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299",
-            "ghdl/ghdl@sha256:"
-            "8b3ec37c3873b2eee9387759e66c50830c15ae5b7b533badaa97ce007a0f8022",
-        ):
-            self.assertIn(digest, workflow)
-        toolchain = workflow.index(".github/toolchain/verify.sh")
-        regression = workflow.index("run: make regression")
+        regression_proof = workflow.index("scripts/verify_hosted_regression.py")
         image = workflow.index("quartus_docker.sh check-image")
         fit = workflow.index('quartus_docker.sh build "$ARTIFACT_DIR"')
-        self.assertLess(toolchain, regression)
-        self.assertLess(regression, image)
+        self.assertIn("  actions: read\n", workflow)
+        self.assertIn("GITHUB_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn('--repository "$GITHUB_REPOSITORY"', workflow)
+        self.assertIn('--sha "$GITHUB_SHA"', workflow)
+        self.assertIn('--branch "$GITHUB_REF_NAME"', workflow)
+        self.assertNotIn("run: make regression", workflow)
+        self.assertNotIn(".github/toolchain/verify.sh", workflow)
+        self.assertLess(regression_proof, image)
         self.assertLess(image, fit)
 
     def test_container_build_rejects_quartus_log_write_failure(self) -> None:
@@ -713,8 +735,8 @@ esac
         self.assertEqual(
             uses,
             [
-                "uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1",
-                "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2",
+                "uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+                "uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1",
             ],
         )
         self.assertIn('mktemp -d "$RUNNER_TEMP/quartus-fit.XXXXXX"', workflow)
@@ -729,6 +751,33 @@ esac
         self.assertNotIn("path: ${{ env.ARTIFACT_DIR }}", workflow)
         self.assertIn("if-no-files-found: warn", workflow)
         self.assertIn("retention-days: 14", workflow)
+
+    def test_regression_workflow_pins_node24_checkout(self) -> None:
+        workflow = REGRESSION_WORKFLOW.read_text()
+        uses = [
+            line.strip()
+            for line in workflow.splitlines()
+            if line.strip().startswith("uses:")
+        ]
+        self.assertEqual(
+            uses,
+            [
+                "uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0"
+            ],
+        )
+        self.assertIn("jobs:\n  verilator:\n    runs-on: ubuntu-24.04\n", workflow)
+        self.assertNotIn("    if:", workflow)
+        toolchain = workflow.index(".github/toolchain/verify.sh")
+        regression_command = workflow.index("run: make regression")
+        self.assertLess(toolchain, regression_command)
+        for step_name in (
+            "Check out source",
+            "Verify immutable HDL toolchain",
+            "Run open-ROM framebuffer regressions",
+        ):
+            self.assertEqual(workflow.count(f"- name: {step_name}"), 1)
+        regression = (ROOT / "scripts/regression.sh").read_text()
+        self.assertIn('python3 "$ROOT/scripts/verify_hosted_regression_test.py"', regression)
 
     def test_vm_fit_workflow_never_installs_or_distributes_quartus(self) -> None:
         workflow = WORKFLOW.read_text()

@@ -237,6 +237,7 @@ build_core() (
   require_docker
   local image_id provenance_root container_status
   provenance_root=""
+  [[ -O "$ROOT" ]] || fail "source checkout must be owned by the current host user"
   # Invoked indirectly by the EXIT trap below.
   # shellcheck disable=SC2329
   cleanup_build_core() {
@@ -273,10 +274,14 @@ build_core() (
   write_container_evidence "$provenance_root" "$image_id"
 
   set +e
+  # Git's ownership hardening only accepts safe.directory from protected
+  # configuration. A root process explicitly trusts the sudo caller's UID, so
+  # pass the exact owner already validated above instead of trusting a wildcard.
   docker run --rm \
     --platform linux/amd64 \
     --network none \
     --user 0:0 \
+    --env "SUDO_UID=$(id -u)" \
     --env "ARTIFACT_UID=$(id -u)" \
     --env "ARTIFACT_GID=$(id -g)" \
     --volume "$ROOT:/source:ro" \

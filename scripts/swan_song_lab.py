@@ -19,6 +19,8 @@ import time
 import uuid
 from typing import Any, Sequence
 
+import verify_hosted_regression as regression_proof
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_STATE = ROOT / ".swan-song-lab" / "state.json"
@@ -197,7 +199,7 @@ set -euo pipefail
 exec > >(tee -a /var/log/swan-song-lab-bootstrap.log) 2>&1
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl docker.io git jq ufw
+apt-get install -y ca-certificates curl docker.io git jq make perl python3 rsync tcl ufw
 install -d -m 0755 /etc/ssh/sshd_config.d
 cat > /etc/ssh/sshd_config.d/00-swan-song-lab.conf <<'EOF'
 PasswordAuthentication no
@@ -224,15 +226,27 @@ if blkid {shlex.quote(device)} >/dev/null 2>&1; then
 fi
 mkfs.ext4 -F {shlex.quote(device)}
 test "$(blkid -o value -s TYPE {shlex.quote(device)})" = ext4
-systemctl stop docker.service docker.socket || true
+systemctl stop docker.service docker.socket containerd.service || true
 install -d -m 0755 /srv/swan-song-data /var/lib/docker
 mount -o defaults,nofail,discard,noatime {shlex.quote(device)} /srv/swan-song-data
 uuid="$(blkid -o value -s UUID {shlex.quote(device)})"
 printf 'UUID=%s /srv/swan-song-data ext4 defaults,nofail,discard,noatime 0 2\n' "$uuid" >> /etc/fstab
 install -d -m 0711 /srv/swan-song-data/docker
+install -d -m 0711 /srv/swan-song-data/containerd
 mount --bind /srv/swan-song-data/docker /var/lib/docker
 printf '/srv/swan-song-data/docker /var/lib/docker none bind 0 0\n' >> /etc/fstab
-systemctl enable --now docker
+install -d -m 0755 /etc/containerd
+cat > /etc/containerd/config.toml <<'EOF'
+version = 2
+root = "/srv/swan-song-data/containerd"
+EOF
+install -d -m 0755 /etc/systemd/system/containerd.service.d
+cat > /etc/systemd/system/containerd.service.d/swan-song-storage.conf <<'EOF'
+[Unit]
+RequiresMountsFor=/srv/swan-song-data
+EOF
+systemctl daemon-reload
+systemctl enable --now containerd.service docker.service
 docker info >/dev/null
 useradd --create-home --shell /bin/bash runner
 usermod -aG docker runner
@@ -256,6 +270,8 @@ def ssh_base(state: dict[str, Any]) -> list[str]:
         "-o", "IdentitiesOnly=yes",
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=3",
     ]
     if state.get("known_hosts_file"):
         command.extend(["-o", f"UserKnownHostsFile={state['known_hosts_file']}"])
@@ -403,6 +419,8 @@ def prepare_remote(state: dict[str, Any], archive: Path, commit: str) -> None:
         "-o", "BatchMode=yes",
         "-o", "IdentitiesOnly=yes",
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=3",
         "-o", f"UserKnownHostsFile={state['known_hosts_file']}",
     ]
     if state.get("identity_file"):
@@ -853,6 +871,66 @@ def resource_get(argv: list[str]) -> dict[str, Any] | None:
         raise LabError(f"resource lookup returned invalid JSON: {shlex.join(command)}") from error
 
 
+def prove_hosted_regression(state: dict[str, Any]) -> dict[str, Any]:
+    """Require a hosted regression success bound to this exact prepared source."""
+    repository = state.get("repo")
+    commit = state.get("commit")
+    branch = state.get("default_branch")
+    try:
+        regression_proof.verify_regression_workflow_source()
+        regression_proof.validate_repository(repository)
+        regression_proof.validate_sha(commit)
+        regression_proof.validate_branch(branch)
+        api_prefix = [
+            "gh",
+            "api",
+            "--header",
+            f"X-GitHub-Api-Version: {regression_proof.API_VERSION}",
+        ]
+        metadata = json_command(
+            api_prefix + [regression_proof.workflow_endpoint(repository)]
+        )
+        workflow_id = regression_proof.verify_workflow_metadata(metadata)
+        runs = json_command(
+            api_prefix
+            + [
+                regression_proof.workflow_runs_endpoint(
+                    repository,
+                    workflow_id,
+                    commit,
+                    branch,
+                )
+            ]
+        )
+        proven = regression_proof.verify_workflow_runs(
+            runs,
+            repository=repository,
+            workflow_id=workflow_id,
+            sha=commit,
+            branch=branch,
+        )
+        jobs = json_command(
+            api_prefix
+            + [
+                regression_proof.workflow_jobs_endpoint(
+                    repository,
+                    int(proven["id"]),
+                    int(proven["run_attempt"]),
+                )
+            ]
+        )
+        job = regression_proof.verify_workflow_jobs(
+            jobs,
+            run_id=int(proven["id"]),
+            sha=commit,
+        )
+    except regression_proof.ProofError as error:
+        raise LabError(f"hosted regression proof failed: {error}") from error
+    result = dict(proven)
+    result["job_id"] = job["id"]
+    return result
+
+
 def status(args: argparse.Namespace) -> None:
     state = load_state(state_path(args))
     assert state is not None
@@ -904,6 +982,227 @@ def ssh_command(args: argparse.Namespace) -> None:
         raise LabError(f"SSH exited with status {result.returncode}")
 
 
+def resume(args: argparse.Namespace) -> None:
+    path = state_path(args)
+    state = load_state(path)
+    assert state is not None
+    if not args.apply:
+        print("Would re-verify the existing Quartus image and continue with runner installation.")
+        print("No remote or GitHub state was changed. Re-run resume with --apply.")
+        return
+    if state.get("phase") not in ("preparing-quartus", "installing-runner", "failed"):
+        raise LabError("resume requires a lab stopped during Quartus preparation")
+    if state.get("runner_id") or state.get("pending_resources"):
+        raise LabError("resume refuses a lab with a recorded or uncertain runner/resource operation")
+    require_tools()
+    branch = one_object(
+        json_command(["gh", "api", f"repos/{state['repo']}/branches/{state['default_branch']}"]),
+        "GitHub default branch",
+    )
+    branch_commit = branch.get("commit", {}).get("sha") if isinstance(branch.get("commit"), dict) else None
+    if branch_commit != state["commit"]:
+        raise LabError("default-branch head moved; the warm image cannot resume this prepared commit")
+    remote = f"""set -euo pipefail
+cd /srv/swan-song-source
+test "$(git rev-parse HEAD)" = {state['commit']}
+./scripts/quartus_docker.sh check-image
+docker image inspect --format '{{{{.Id}}}}' {shlex.quote(IMAGE)}
+"""
+    run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=900)
+    state["phase"] = "installing-runner"
+    state.pop("failure", None)
+    save_state(path, state)
+    try:
+        install_runner(state)
+        register_runner(state, path)
+        wait_runner_online(state)
+        state["phase"] = "ready"
+        save_state(path, state)
+    except Exception as error:
+        state["phase"] = "failed"
+        state["failure"] = str(error)
+        save_state(path, state)
+        raise LabError(f"resume stopped safely; run status before retrying or destroying: {error}") from error
+    print("Swan Song Lab resumed from its verified image; the one-job JIT runner is online.")
+
+
+def warm_storage(args: argparse.Namespace) -> None:
+    state = load_state(state_path(args))
+    assert state is not None
+    if not args.apply:
+        print("Would move containerd's warm image store onto the attached 200-GiB volume.")
+        print("No service, mount, or file was changed. Re-run warm-storage with --apply.")
+        return
+    require_tools()
+    if state.get("runner_id"):
+        runner = resource_get([
+            "gh", "api", f"repos/{state['repo']}/actions/runners/{state['runner_id']}"
+        ])
+        if runner is not None:
+            raise LabError("warm-storage refuses to stop Docker while the recorded runner still exists")
+    if state.get("workflow_run_id"):
+        workflow = resource_get([
+            "gh", "api", f"repos/{state['repo']}/actions/runs/{state['workflow_run_id']}"
+        ])
+        if workflow is not None and workflow.get("status") != "completed":
+            raise LabError("warm-storage refuses to stop Docker while the Quartus workflow is active")
+    remote = f"""set -euo pipefail
+source=/var/lib/containerd
+destination=/srv/swan-song-data/containerd
+config=/etc/containerd/config.toml
+expected_root='root = "/srv/swan-song-data/containerd"'
+mountpoint -q /srv/swan-song-data
+volume_available_kib="$(df -Pk /srv/swan-song-data | awk 'NR == 2 {{ print $4; exit }}')"
+test "$volume_available_kib" -ge $((80 * 1024 * 1024))
+install -d -m 0755 /etc/systemd/system/containerd.service.d
+cat > /etc/systemd/system/containerd.service.d/swan-song-storage.conf <<'EOF'
+[Unit]
+RequiresMountsFor=/srv/swan-song-data
+EOF
+systemctl daemon-reload
+if test -f "$config" && ! grep -Fqx "$expected_root" "$config"; then
+  echo 'refusing to replace an unowned containerd configuration' >&2
+  exit 70
+fi
+if ! test -f "$config"; then
+  test -d "$source"
+  install -d -m 0711 "$destination"
+  restore_services() {{
+    systemctl stop docker.service docker.socket containerd.service || true
+    rm -f "$config"
+    systemctl start containerd.service docker.service || true
+  }}
+  trap restore_services EXIT
+  systemctl stop docker.service docker.socket containerd.service
+  rsync -aHAX --numeric-ids --delete "$source/" "$destination/"
+  install -d -m 0755 /etc/containerd
+  config_temp="$(mktemp /etc/containerd/config.toml.XXXXXX)"
+  printf 'version = 2\n%s\n' "$expected_root" > "$config_temp"
+  chmod 0644 "$config_temp"
+  mv "$config_temp" "$config"
+  containerd --config "$config" config dump >/dev/null
+  systemctl start containerd.service docker.service
+  trap - EXIT
+fi
+systemctl start containerd.service docker.service
+systemctl is-active --quiet containerd.service docker.service
+grep -Fqx "$expected_root" "$config"
+available_kib="$(df -Pk "$destination" | awk 'NR == 2 {{ print $4; exit }}')"
+test "$available_kib" -ge $((80 * 1024 * 1024))
+docker image inspect {shlex.quote(IMAGE)} >/dev/null
+docker run --rm --platform linux/amd64 --network none --entrypoint /bin/df \
+  {shlex.quote(IMAGE)} -Pk / | awk 'NR == 2 {{ exit !($4 >= 80 * 1024 * 1024) }}'
+"""
+    run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=1800)
+    print("containerd warm image storage is mounted on the attached volume and has at least 80 GiB free.")
+
+
+def rearm(args: argparse.Namespace) -> None:
+    path = state_path(args)
+    state = load_state(path)
+    assert state is not None
+    if not args.apply:
+        print("Would verify the completed run, reuse the warm Quartus image, and register one fresh JIT runner.")
+        print("No remote or GitHub state was changed. Re-run rearm with --apply.")
+        return
+    if state.get("repo") != DEFAULT_REPO:
+        raise LabError(f"the trusted Quartus lane is bound to {DEFAULT_REPO}")
+    if state.get("phase") != "dispatched":
+        raise LabError("rearm requires a dispatched lab whose one-job workflow has completed")
+    if state.get("pending_resources"):
+        raise LabError("rearm refuses a lab with an uncertain resource operation")
+    resource_names = state.get("resource_names", {})
+    if not isinstance(resource_names, dict):
+        raise LabError("recorded resource names are invalid")
+    history = state.get("completed_workflow_runs", [])
+    if not isinstance(history, list):
+        raise LabError("recorded completed-workflow history is invalid")
+    run_id = state.get("workflow_run_id")
+    runner_id = state.get("runner_id")
+    if not isinstance(run_id, int) or not isinstance(runner_id, int):
+        raise LabError("rearm requires the exact prior workflow and JIT runner IDs")
+    require_tools()
+    workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
+    nonce = state.get("resource_names", {}).get("workflow_run")
+    accepted_titles = {"Quartus fit candidate"}
+    if isinstance(nonce, str) and nonce:
+        accepted_titles.add(f"Quartus fit candidate {nonce}")
+    if (
+        workflow is None
+        or workflow.get("status") != "completed"
+        or workflow.get("head_sha") != state.get("commit")
+        or workflow.get("head_branch") != state.get("default_branch")
+        or workflow.get("event") != "workflow_dispatch"
+        or workflow.get("display_title") not in accepted_titles
+    ):
+        raise LabError("the prior workflow is not an exact completed run for this lab")
+    if resource_get(["gh", "api", f"repos/{state['repo']}/actions/runners/{runner_id}"]) is not None:
+        raise LabError("the prior JIT runner still exists; rearm will not create a second runner")
+    target_commit = local_commit(args.ref)
+    branch = one_object(
+        json_command(["gh", "api", f"repos/{state['repo']}/branches/{state['default_branch']}"]),
+        "GitHub default branch",
+    )
+    branch_commit = branch.get("commit", {}).get("sha") if isinstance(branch.get("commit"), dict) else None
+    if branch_commit != target_commit:
+        raise LabError("the exact local rearm commit must equal the current GitHub default-branch head")
+    repo_url = f"https://github.com/{state['repo']}.git"
+    remote = f"""set -euo pipefail
+cd /srv/swan-song-source
+test "$(git remote get-url origin)" = {shlex.quote(repo_url)}
+test -z "$(git status --porcelain)"
+previous_commit="$(git rev-parse HEAD)"
+restore_previous() {{
+  status=$?
+  trap - EXIT
+  if (( status != 0 )); then
+    git checkout --detach "$previous_commit" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}}
+trap restore_previous EXIT
+git fetch --depth=1 origin {target_commit}
+git checkout --detach {target_commit}
+test "$(git rev-parse HEAD)" = {target_commit}
+test -z "$(git status --porcelain)"
+./scripts/quartus_docker.sh check-image
+docker image inspect --format '{{{{.Id}}}}' {shlex.quote(IMAGE)}
+trap - EXIT
+"""
+    run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=900)
+    history.append({
+        "id": run_id,
+        "commit": state["commit"],
+        "conclusion": workflow.get("conclusion"),
+        "url": state.get("workflow_run_url"),
+    })
+    state["completed_workflow_runs"] = history[-20:]
+    suffix = uuid.uuid4().hex[:8]
+    state["runner_name"] = f"swan-rearm-{target_commit[:8]}-{suffix}"
+    state["resource_names"] = resource_names
+    resource_names["runner"] = state["runner_name"]
+    resource_names.pop("workflow_run", None)
+    state["commit"] = target_commit
+    state["phase"] = "installing-runner"
+    state.pop("runner_id", None)
+    state.pop("workflow_run_id", None)
+    state.pop("workflow_run_url", None)
+    state.pop("failure", None)
+    save_state(path, state)
+    try:
+        install_runner(state)
+        register_runner(state, path)
+        wait_runner_online(state)
+        state["phase"] = "ready"
+        save_state(path, state)
+    except Exception as error:
+        state["phase"] = "failed"
+        state["failure"] = str(error)
+        save_state(path, state)
+        raise LabError(f"rearm stopped safely; inspect status before retrying or destroying: {error}") from error
+    print("Warm Quartus lab rearmed; one fresh JIT runner is online and ready for dispatch.")
+
+
 def dispatch(args: argparse.Namespace) -> None:
     path = state_path(args)
     state = load_state(path)
@@ -914,7 +1213,26 @@ def dispatch(args: argparse.Namespace) -> None:
         return
     if state.get("phase") != "ready" or not state.get("runner_id"):
         raise LabError("the prepared JIT runner is not ready")
-    if state.get("workflow_run_id") or "workflow_run" in state.get("pending_resources", []):
+    if state.get("workflow_run_id"):
+        run_id = state["workflow_run_id"]
+        workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
+        nonce = state.get("resource_names", {}).get("workflow_run")
+        accepted_titles = {"Quartus fit candidate"}
+        if isinstance(nonce, str) and nonce:
+            accepted_titles.add(f"Quartus fit candidate {nonce}")
+        if (
+            workflow is None
+            or workflow.get("head_sha") != state["commit"]
+            or workflow.get("head_branch") != state["default_branch"]
+            or workflow.get("event") != "workflow_dispatch"
+            or workflow.get("display_title") not in accepted_titles
+        ):
+            raise LabError("the recorded workflow run does not match this prepared lab")
+        state["phase"] = "dispatched"
+        save_state(path, state)
+        print(f"Adopted exact Quartus fit workflow run {run_id} after verified dispatch response.")
+        return
+    if "workflow_run" in state.get("pending_resources", []):
         raise LabError("this one-job lab already has a recorded or uncertain workflow dispatch")
     require_tools()
     branch = one_object(
@@ -924,6 +1242,8 @@ def dispatch(args: argparse.Namespace) -> None:
     branch_commit = branch.get("commit", {}).get("sha") if isinstance(branch.get("commit"), dict) else None
     if branch_commit != state["commit"]:
         raise LabError("default-branch head moved after image preparation; destroy and relaunch at the new head")
+    proven_regression = prove_hosted_regression(state)
+    state["hosted_regression_run_id"] = proven_regression["id"]
     nonce = f"swan-lab-{uuid.uuid4().hex}"
     state.setdefault("resource_names", {})["workflow_run"] = nonce
     mark_pending(state, path, "workflow_run")
@@ -955,7 +1275,10 @@ def dispatch(args: argparse.Namespace) -> None:
         or workflow.get("head_sha") != state["commit"]
         or workflow.get("head_branch") != state["default_branch"]
         or workflow.get("event") != "workflow_dispatch"
-        or workflow.get("display_title") != f"Quartus fit candidate {nonce}"
+        or workflow.get("display_title") not in {
+            "Quartus fit candidate",
+            f"Quartus fit candidate {nonce}",
+        }
     ):
         cancel_workflow_run(state)
         raise LabError("dispatched workflow did not bind the prepared commit, branch, event, and nonce")
@@ -1106,6 +1429,20 @@ def parser() -> argparse.ArgumentParser:
     ssh_parser = sub.add_parser("ssh", parents=[common], help="open SSH or execute a lab command")
     ssh_parser.add_argument("command", nargs=argparse.REMAINDER)
     ssh_parser.set_defaults(handler=ssh_command)
+    resume_parser = sub.add_parser("resume", parents=[common], help="continue a stopped lab from a verified image")
+    resume_parser.add_argument("--apply", action="store_true")
+    resume_parser.set_defaults(handler=resume)
+    storage_parser = sub.add_parser(
+        "warm-storage", parents=[common], help="move the reusable container image store to the attached volume"
+    )
+    storage_parser.add_argument("--apply", action="store_true")
+    storage_parser.set_defaults(handler=warm_storage)
+    rearm_parser = sub.add_parser(
+        "rearm", parents=[common], help="reuse the warm lab after its one-job JIT runner is consumed"
+    )
+    rearm_parser.add_argument("--apply", action="store_true")
+    rearm_parser.add_argument("--ref", help="local Git ref; defaults to HEAD and must equal the GitHub default branch")
+    rearm_parser.set_defaults(handler=rearm)
     dispatch_parser = sub.add_parser("dispatch", parents=[common], help="plan or dispatch the Quartus workflow")
     dispatch_parser.add_argument("--apply", action="store_true")
     dispatch_parser.set_defaults(handler=dispatch)
