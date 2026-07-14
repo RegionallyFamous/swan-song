@@ -140,6 +140,7 @@ python3 "$ROOT/scripts/quartus_evidence_test.py"
 python3 "$ROOT/scripts/quartus_fit_audit_test.py"
 python3 "$ROOT/scripts/swan_song_lab_test.py"
 python3 "$ROOT/scripts/generate_core_icon_test.py"
+python3 "$ROOT/scripts/generate_platform_art_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
 python3 "$ROOT/scripts/stage_pocket_sd_test.py"
 
