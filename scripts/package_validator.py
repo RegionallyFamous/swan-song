@@ -9,6 +9,7 @@ The limits below come from Analogue's APF_VER_1 developer documentation.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import pathlib
 import re
@@ -20,6 +21,7 @@ CORE_RELATIVE = pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong")
 PLATFORM_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_]{0,14}\Z")
 HEX_PATTERN = re.compile(r"0[xX][0-9a-fA-F]+\Z")
 VERSION_REQUIRED_PATTERN = re.compile(r"[0-9]+\.[0-9]+\Z")
+PLATFORM_ART_SHA256 = "0161970791a9d7913bfd1d146cb92324644607dd4a287c61d7f5a6d8e8f8045e"
 
 REQUIRED_DIRECTORIES = {
     "Assets",
@@ -452,6 +454,8 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
         save.get("filename"),
         _integer(save.get("parameters"), f"{save_where}.parameters"),
         save.get("nonvolatile"),
+        save.get("deferload", False),
+        save.get("secondary", False),
         save.get("extensions"),
         save.get("size_exact"),
         _integer(save.get("size_maximum"), f"{save_where}.size_maximum"),
@@ -463,6 +467,8 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
         None,
         0x86,
         True,
+        False,
+        False,
         ["sav"],
         None,
         524300,
@@ -471,7 +477,8 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
     if save_actual != save_expected:
         raise ValueError(
             f"{save_where} must be core-specific filename-cloned nonvolatile "
-            f"storage: expected {save_expected!r}, got {save_actual!r}"
+            "storage with automatic primary loading: "
+            f"expected {save_expected!r}, got {save_actual!r}"
         )
 
     expected_console_slots = {
@@ -569,8 +576,9 @@ def _validate_interact(document: dict[str, Any], relative: str) -> None:
             if "address" not in item or "defaultval" not in item:
                 raise ValueError(f"{where} persistent item requires address and defaultval")
         if kind == "action":
-            if ("address" in item) != ("value" in item):
-                raise ValueError(f"{where} action must define both address and value or neither")
+            for name in ("address", "value"):
+                if name not in item:
+                    raise ValueError(f"{where} action is missing {name}")
         elif kind == "check":
             for name in ("address", "defaultval", "value"):
                 if name not in item:
@@ -676,6 +684,12 @@ def _validate_assets(dist: pathlib.Path) -> None:
     if any(platform[index] != 0 for index in range(1, len(platform), 2)):
         raise ValueError(
             "Platforms/_images/wonderswan.bin has nonzero low brightness bytes"
+        )
+    platform_digest = hashlib.sha256(platform).hexdigest()
+    if platform_digest != PLATFORM_ART_SHA256:
+        raise ValueError(
+            "Platforms/_images/wonderswan.bin does not match the reviewed "
+            f"Swan Wake artwork ({PLATFORM_ART_SHA256})"
         )
 
     icon_path = dist / CORE_RELATIVE / "icon.bin"

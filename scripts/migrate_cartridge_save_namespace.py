@@ -9,19 +9,20 @@ Writing requires ``--apply`` and uses atomic no-replace publication.
 from __future__ import annotations
 
 import argparse
+import ctypes
 from dataclasses import dataclass
+import errno
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
+import secrets
 import stat
 import sys
 
 from migrate_swan_song_namespace import (
     MigrationError,
     MigrationFile,
-    _atomic_write_new,
     _destination_state,
-    _ensure_destination_parent,
     _path_below,
     _read_plain_file,
     _root,
@@ -88,6 +89,8 @@ class CartridgeMigrationFile:
 @dataclass(frozen=True)
 class CartridgeMigrationPlan:
     root: Path
+    root_device: int
+    root_inode: int
     files: tuple[CartridgeMigrationFile, ...]
     copies: tuple[PurePosixPath, ...]
     identical: tuple[PurePosixPath, ...]
@@ -99,6 +102,16 @@ class CartridgeMigrationPlan:
 class CartridgeMigrationResult:
     copied: tuple[PurePosixPath, ...]
     identical: tuple[PurePosixPath, ...]
+
+
+@dataclass(frozen=True)
+class _CreatedFile:
+    parent_descriptor: int
+    name: str
+    relative: PurePosixPath
+    device: int
+    inode: int
+    payload: bytes
 
 
 def _safe_selected_path(value: str) -> PurePosixPath:
@@ -290,6 +303,7 @@ def plan_migration(
     """Return a completely validated, read-only cartridge-save migration plan."""
 
     root = _root(sd_root)
+    root_metadata = root.stat(follow_symlinks=False)
     roms = _selected_roms(root, selected=selected, all_roms=all_roms)
     files: list[CartridgeMigrationFile] = []
     no_save: list[PurePosixPath] = []
@@ -321,6 +335,8 @@ def plan_migration(
         (copies if state == "copy" else identical).append(managed.destination)
     return CartridgeMigrationPlan(
         root=root,
+        root_device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
         files=tuple(files),
         copies=tuple(copies),
         identical=tuple(identical),
@@ -333,6 +349,411 @@ def _identity(item: CartridgeMigrationFile) -> tuple[object, ...]:
     return (item.rom, item.source, item.destination, item.payload, item.conversion)
 
 
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+
+
+def _open_root_descriptor(root: Path, *, device: int, inode: int) -> int:
+    try:
+        descriptor = os.open(root, _directory_flags())
+    except OSError as error:
+        raise MigrationError("SD root became unsafe after planning") from error
+    try:
+        opened = os.fstat(descriptor)
+        observed = os.stat(root, follow_symlinks=False)
+        expected = (device, inode)
+        if (
+            (opened.st_dev, opened.st_ino) != expected
+            or (observed.st_dev, observed.st_ino) != expected
+        ):
+            raise MigrationError("SD root identity changed after planning")
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _case_safe_name_at(directory: int, name: str, *, description: str) -> bool:
+    try:
+        matches = [
+            entry for entry in os.listdir(directory)
+            if entry.casefold() == name.casefold()
+        ]
+    except OSError as error:
+        raise MigrationError(f"cannot inspect {description}: {error}") from error
+    if len(matches) > 1 or (matches and matches[0] != name):
+        observed = matches[0] if matches else name
+        raise MigrationError(f"case-colliding {description}: {observed}")
+    return bool(matches)
+
+
+def _open_parent_at(
+    root_descriptor: int, relative: PurePosixPath, *, create: bool
+) -> int | None:
+    """Open one destination parent below a held root without following links."""
+
+    current = os.dup(root_descriptor)
+    walked: list[str] = []
+    try:
+        for part in relative.parts[:-1]:
+            walked.append(part)
+            description = "cartridge-save destination parent " + "/".join(walked)
+            exists = _case_safe_name_at(current, part, description=description)
+            if not exists:
+                if not create:
+                    os.close(current)
+                    return None
+                try:
+                    os.mkdir(part, 0o755, dir_fd=current)
+                except FileExistsError:
+                    pass
+                _case_safe_name_at(current, part, description=description)
+            try:
+                metadata = os.stat(part, dir_fd=current, follow_symlinks=False)
+            except OSError as error:
+                raise MigrationError(f"unsafe {description}") from error
+            if stat.S_ISLNK(metadata.st_mode):
+                raise MigrationError(f"{description} must not be a symlink")
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise MigrationError(f"{description} is not a directory")
+            try:
+                child = os.open(part, _directory_flags(), dir_fd=current)
+            except OSError as error:
+                raise MigrationError(f"unsafe {description}") from error
+            os.close(current)
+            current = child
+        return current
+    except Exception:
+        os.close(current)
+        raise
+
+
+def _read_destination_at(
+    directory: int, name: str, expected: bytes
+) -> tuple[bytes, os.stat_result] | None:
+    """Read a stable regular-file destination through a held parent descriptor."""
+
+    if not _case_safe_name_at(
+        directory, name, description="cartridge-save destination"
+    ):
+        return None
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory)
+    except OSError as error:
+        raise MigrationError(f"unsafe cartridge-save destination: {name}") from error
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise MigrationError(
+                f"cartridge-save destination is not a regular file: {name}"
+            )
+        if before.st_size != len(expected):
+            raise MigrationError(
+                f"destination differs; refusing to overwrite: {name}"
+            )
+        payload = bytearray()
+        while len(payload) <= len(expected):
+            chunk = os.read(
+                descriptor,
+                min(1024 * 1024, len(expected) + 1 - len(payload)),
+            )
+            if not chunk:
+                break
+            payload.extend(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    stable = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    ) == (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+    )
+    if not stable or len(payload) != after.st_size:
+        raise MigrationError(
+            f"cartridge-save destination changed while reading: {name}"
+        )
+    return bytes(payload), after
+
+
+def _destination_state_at(directory: int, name: str, payload: bytes) -> str:
+    observed = _read_destination_at(directory, name, payload)
+    if observed is None:
+        return "copy"
+    if observed[0] != payload:
+        raise MigrationError(f"destination differs; refusing to overwrite: {name}")
+    return "identical"
+
+
+def _native_rename_noreplace_at(directory: int, source: str, destination: str) -> None:
+    """Atomically rename within a held directory without replacing a name."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        renameatx = libc.renameatx_np
+        renameatx.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        renameatx.restype = ctypes.c_int
+        result = renameatx(
+            directory,
+            os.fsencode(source),
+            directory,
+            os.fsencode(destination),
+            0x00000004,
+        )
+    elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        renameat2 = libc.renameat2
+        renameat2.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            directory,
+            os.fsencode(source),
+            directory,
+            os.fsencode(destination),
+            0x00000001,
+        )
+    else:
+        raise OSError(errno.ENOSYS, "atomic exclusive rename is unavailable")
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination)
+
+
+def _install_atomic_no_replace_at(directory: int, source: str, destination: str) -> bool:
+    """Publish within a held directory; return whether rename consumed source."""
+
+    try:
+        _native_rename_noreplace_at(directory, source, destination)
+        return True
+    except OSError as error:
+        if error.errno == errno.EEXIST:
+            raise MigrationError(
+                f"destination appeared before atomic no-clobber copy: {destination}"
+            ) from error
+        unsupported = {
+            errno.ENOSYS,
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+        }
+        if error.errno not in unsupported:
+            raise
+
+    try:
+        os.link(
+            source,
+            destination,
+            src_dir_fd=directory,
+            dst_dir_fd=directory,
+            follow_symlinks=False,
+        )
+    except FileExistsError as error:
+        raise MigrationError(
+            f"destination appeared before atomic no-clobber copy: {destination}"
+        ) from error
+    except OSError as error:
+        raise MigrationError(
+            "destination filesystem does not support an atomic no-clobber "
+            f"install: {destination} ({error})"
+        ) from error
+    return False
+
+
+def _fsync_directory_best_effort(directory: int) -> None:
+    try:
+        os.fsync(directory)
+    except OSError:
+        # The complete file was fsynced before atomic publication. Directory
+        # fsync is unavailable on some removable filesystems and must not turn
+        # a successful publication into an untracked failure.
+        pass
+
+
+def _atomic_write_new_at(directory: int, name: str, payload: bytes) -> tuple[int, int]:
+    """Create a complete file through a held parent and return its inode identity."""
+
+    temporary_name: str | None = None
+    descriptor: int | None = None
+    published = False
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        for _ in range(32):
+            candidate = f".{name}.{secrets.token_hex(8)}.tmp"
+            try:
+                descriptor = os.open(candidate, flags, 0o600, dir_fd=directory)
+            except FileExistsError:
+                continue
+            temporary_name = candidate
+            break
+        if descriptor is None or temporary_name is None:
+            raise MigrationError(f"could not allocate a temporary file for {name}")
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = None
+            stream.write(payload)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+            metadata = os.fstat(stream.fileno())
+        _case_safe_name_at(
+            directory, name, description="cartridge-save destination"
+        )
+        consumed = _install_atomic_no_replace_at(directory, temporary_name, name)
+        published = True
+        if consumed:
+            temporary_name = None
+        else:
+            try:
+                os.unlink(temporary_name, dir_fd=directory)
+            except OSError:
+                # Publication already succeeded. A hidden temporary hard link is
+                # safer than reporting failure after installing an untracked file.
+                pass
+            temporary_name = None
+        _fsync_directory_best_effort(directory)
+        return metadata.st_dev, metadata.st_ino
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                if not published:
+                    raise
+
+
+def _confirm_parent_identity(
+    root_descriptor: int, relative: PurePosixPath, parent_descriptor: int
+) -> None:
+    reopened = _open_parent_at(root_descriptor, relative, create=False)
+    if reopened is None:
+        raise MigrationError(
+            f"cartridge-save destination parent disappeared: {relative.parent}"
+        )
+    try:
+        expected = os.fstat(parent_descriptor)
+        observed = os.fstat(reopened)
+        if (expected.st_dev, expected.st_ino) != (observed.st_dev, observed.st_ino):
+            raise MigrationError(
+                f"cartridge-save destination parent identity changed: {relative.parent}"
+            )
+    finally:
+        os.close(reopened)
+
+
+def _verify_created_at(created: _CreatedFile) -> None:
+    observed = _read_destination_at(
+        created.parent_descriptor, created.name, created.payload
+    )
+    if observed is None:
+        raise MigrationError(f"copied file disappeared: {created.relative}")
+    payload, metadata = observed
+    if (metadata.st_dev, metadata.st_ino) != (created.device, created.inode):
+        raise MigrationError(f"copied file identity changed: {created.relative}")
+    if payload != created.payload:
+        raise MigrationError(f"copied file verification failed: {created.relative}")
+
+
+def _rollback_created_at(created: _CreatedFile) -> bool:
+    """Quarantine by atomic rename, then remove only the created inode."""
+
+    quarantine: str | None = None
+    for _ in range(32):
+        candidate = f".{created.name}.{secrets.token_hex(8)}.rollback"
+        if _case_safe_name_at(
+            created.parent_descriptor,
+            candidate,
+            description="rollback quarantine",
+        ):
+            continue
+        try:
+            _native_rename_noreplace_at(
+                created.parent_descriptor, created.name, candidate
+            )
+        except OSError as error:
+            if error.errno == errno.ENOENT:
+                return True
+            if error.errno == errno.EEXIST:
+                continue
+            return False
+        quarantine = candidate
+        break
+    if quarantine is None:
+        return False
+
+    try:
+        observed = _read_destination_at(
+            created.parent_descriptor, quarantine, created.payload
+        )
+    except MigrationError:
+        observed = None
+    if observed is not None:
+        payload, metadata = observed
+        if (
+            (metadata.st_dev, metadata.st_ino) == (created.device, created.inode)
+            and payload == created.payload
+        ):
+            try:
+                final = os.stat(
+                    quarantine,
+                    dir_fd=created.parent_descriptor,
+                    follow_symlinks=False,
+                )
+                if (final.st_dev, final.st_ino) != (created.device, created.inode):
+                    return False
+                os.unlink(quarantine, dir_fd=created.parent_descriptor)
+                _fsync_directory_best_effort(created.parent_descriptor)
+                return True
+            except OSError:
+                return False
+
+    # The destination name held someone else's inode. Restore it exclusively;
+    # never delete or overwrite it as part of this invocation's rollback.
+    try:
+        _native_rename_noreplace_at(
+            created.parent_descriptor, quarantine, created.name
+        )
+    except OSError:
+        return False
+    return False
+
+
 def apply_migration(
     plan: CartridgeMigrationPlan, *, selected: tuple[str, ...] = (), all_roms: bool = False
 ) -> CartridgeMigrationResult:
@@ -341,89 +762,82 @@ def apply_migration(
     root = _root(plan.root)
     if root != plan.root:
         raise MigrationError("SD root identity changed after planning")
-    current = plan_migration(root, selected=selected, all_roms=all_roms)
-    if (
-        tuple(map(_identity, current.files)) != tuple(map(_identity, plan.files))
-        or current.no_save != plan.no_save
-        or current.missing != plan.missing
-    ):
-        raise MigrationError("cartridge-save source changed after planning")
-
+    root_descriptor = _open_root_descriptor(
+        root, device=plan.root_device, inode=plan.root_inode
+    )
     copied: list[PurePosixPath] = []
     identical: list[PurePosixPath] = []
-    # Every entry records the exact inode created by this invocation.  If a
-    # later exclusive publish fails, rollback removes only those unchanged
-    # inodes; a destination that was replaced or altered is left for recovery
-    # instead of risking deletion of someone else's file.
-    created: list[tuple[Path, int, int, bytes]] = []
+    # Retain each exact parent descriptor until the transaction finishes. If a
+    # later exclusive publish fails, rollback can remove only the unchanged
+    # inode this invocation created, without resolving a possibly swapped path.
+    created: list[_CreatedFile] = []
     try:
-        for managed in current.files:
-            namespace_file = managed.namespace_file()
-            if _destination_state(root, namespace_file) == "identical":
-                identical.append(managed.destination)
-                continue
-            destination = _ensure_destination_parent(root, managed.destination)
-            if _destination_state(root, namespace_file) == "identical":
-                identical.append(managed.destination)
-                continue
-            _atomic_write_new(destination, managed.payload)
-            installed = destination.lstat()
-            if not stat.S_ISREG(installed.st_mode):
-                raise MigrationError(
-                    f"copied destination is not a regular file: {managed.destination}"
+        try:
+            current = plan_migration(root, selected=selected, all_roms=all_roms)
+            if (
+                (current.root_device, current.root_inode)
+                != (plan.root_device, plan.root_inode)
+                or tuple(map(_identity, current.files))
+                != tuple(map(_identity, plan.files))
+                or current.no_save != plan.no_save
+                or current.missing != plan.missing
+            ):
+                raise MigrationError("cartridge-save source changed after planning")
+
+            for managed in current.files:
+                parent_descriptor = _open_parent_at(
+                    root_descriptor, managed.destination, create=True
                 )
-            created.append(
-                (destination, installed.st_dev, installed.st_ino, managed.payload)
-            )
-            written = _read_plain_file(
-                destination,
-                description="migrated cartridge save",
-                maximum=max(1, len(managed.payload)),
-            )
-            if written != managed.payload:
-                raise MigrationError(
-                    f"copied file verification failed: {managed.destination}"
-                )
-            copied.append(managed.destination)
-    except Exception as error:
-        leftovers: list[str] = []
-        for destination, device, inode, payload in reversed(created):
-            try:
-                checked = _path_below(
-                    root,
-                    PurePosixPath(destination.relative_to(root).as_posix()),
-                    description="rollback destination",
-                )
-                metadata = checked.lstat()
-                if (
-                    not stat.S_ISREG(metadata.st_mode)
-                    or metadata.st_dev != device
-                    or metadata.st_ino != inode
-                ):
-                    leftovers.append(str(checked.relative_to(root)))
-                    continue
-                observed = _read_plain_file(
-                    checked,
-                    description="rollback destination",
-                    maximum=max(1, len(payload)),
-                )
-                if observed != payload:
-                    leftovers.append(str(checked.relative_to(root)))
-                    continue
-                checked.unlink()
-            except (MigrationError, OSError, ValueError):
+                assert parent_descriptor is not None
+                retain_parent = False
                 try:
-                    leftovers.append(str(destination.relative_to(root)))
-                except ValueError:
-                    leftovers.append(str(destination))
-        if leftovers:
-            joined = ", ".join(leftovers)
-            raise MigrationError(
-                f"cartridge-save apply failed ({error}); rollback left "
-                f"inode-changed or unverifiable file(s): {joined}"
-            ) from error
-        raise
-    return CartridgeMigrationResult(tuple(copied), tuple(identical))
+                    state = _destination_state_at(
+                        parent_descriptor, managed.destination.name, managed.payload
+                    )
+                    if state == "identical":
+                        identical.append(managed.destination)
+                        continue
+                    device, inode = _atomic_write_new_at(
+                        parent_descriptor, managed.destination.name, managed.payload
+                    )
+                    installed = _CreatedFile(
+                        parent_descriptor=parent_descriptor,
+                        name=managed.destination.name,
+                        relative=managed.destination,
+                        device=device,
+                        inode=inode,
+                        payload=managed.payload,
+                    )
+                    created.append(installed)
+                    retain_parent = True
+                    _confirm_parent_identity(
+                        root_descriptor, managed.destination, parent_descriptor
+                    )
+                    _verify_created_at(installed)
+                    copied.append(managed.destination)
+                finally:
+                    if not retain_parent:
+                        os.close(parent_descriptor)
+        except Exception as error:
+            leftovers: list[str] = []
+            for installed in reversed(created):
+                try:
+                    if not _rollback_created_at(installed):
+                        leftovers.append(str(installed.relative))
+                except (MigrationError, OSError, ValueError):
+                    leftovers.append(str(installed.relative))
+            if leftovers:
+                joined = ", ".join(leftovers)
+                raise MigrationError(
+                    f"cartridge-save apply failed ({error}); rollback left "
+                    f"inode-changed or unverifiable file(s): {joined}"
+                ) from error
+            raise
+        return CartridgeMigrationResult(tuple(copied), tuple(identical))
+    finally:
+        for installed in created:
+            os.close(installed.parent_descriptor)
+        os.close(root_descriptor)
 
 
 def _summary(
