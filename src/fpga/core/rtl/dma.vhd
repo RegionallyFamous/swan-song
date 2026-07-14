@@ -18,6 +18,10 @@ entity dma is
       ce               : in  std_logic;
       reset            : in  std_logic;
       isColor          : in  std_logic;
+      -- Current $A0 cartridge-ROM bus configuration.  Defaults preserve all
+      -- existing instantiations until the central control owner is wired.
+      cartridge_rom_word : in std_logic := '1';
+      cartridge_rom_slow : in std_logic := '0';
                        
       dma_active       : out std_logic;
       sdma_active      : out std_logic := '0';
@@ -122,6 +126,29 @@ architecture arch of dma is
    signal SS_SOUNDDMA_EXT      : std_logic_vector(REG_SAVESTATE_SOUNDDMA_EXT.upper downto REG_SAVESTATE_SOUNDDMA_EXT.lower);
    signal SS_SOUNDDMA_EXT_BACK : std_logic_vector(REG_SAVESTATE_SOUNDDMA_EXT.upper downto REG_SAVESTATE_SOUNDDMA_EXT.lower);
 
+   -- GDMA accepts only 16-bit, single-cycle sources.  IRAM (segment 0) is
+   -- always eligible; SRAM (segment 1) is always byte-wide; cartridge ROM
+   -- (segments 2-F) requires the live $A0 word-width bit and no ROM wait.
+   -- Re-evaluating this predicate before every word matches hardware's
+   -- mid-transfer stop at a region boundary or after configuration changes.
+   --
+   -- WSdev DMA, permanent revision 562:
+   -- https://ws.nesdev.org/w/index.php?title=DMA&oldid=562
+   -- Mesen2 b9fa69d RunGeneralDma:
+   -- https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsDmaController.cpp#L14-L44
+   function gdma_source_valid(
+      source_address : std_logic_vector(19 downto 0);
+      rom_word       : std_logic;
+      rom_slow       : std_logic
+   ) return boolean is
+   begin
+      case source_address(19 downto 16) is
+         when x"0" => return true;
+         when x"1" => return false;
+         when others => return rom_word = '1' and rom_slow = '0';
+      end case;
+   end function;
+
 begin
 
    iREG_DMA_SRC_L  : entity work.eReg generic map ( REG_DMA_SRC_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 0), DMA_SRC( 7 downto  0) , open, DMA_SRC_L_written  ); 
@@ -151,7 +178,10 @@ begin
       RegBus_Dout <= wired_or;
    end process;
    
-   dma_active   <= dmaOn;
+   -- On the final WRITING edge dmaOn clears immediately to avoid an extra
+   -- DONE busy cycle.  Keep ownership through that edge's bus-write pulse so
+   -- SwanTop still selects the DMA address/data for the completed word.
+   dma_active   <= dmaOn or bus_write;
    sdma_request <= sdma_requestIntern when is_simu = '0' else '0';
    
    bus_be <= "11";
@@ -208,8 +238,16 @@ begin
    
    process (clk)
       variable sdma_timerhit : std_logic;
+      variable gdma_start_accepted : boolean;
+      variable gdma_next_source : std_logic_vector(19 downto 0);
    begin
       if rising_edge(clk) then
+
+         -- The register-write path and the CE-driven shared FSM both run in
+         -- this process.  Remember an accepted GDMA start so the later IDLE
+         -- arbitration cannot overwrite WAITING with a pending SDMA grant on
+         -- the same edge and leave dmaOn stranded high in IDLE.
+         gdma_start_accepted := false;
       
          bus_read  <= '0';
          bus_write <= '0';
@@ -232,10 +270,12 @@ begin
             DMA_CTRL(7) <= RegBus_Din(7);
             DMA_CTRL(0) <= RegBus_Din(6);
             if (RegBus_Din(7) = '1') then
-               if (unsigned(DMA_LEN) > 0 and DMA_SRC(19 downto 16) /= x"1") then
+               if (unsigned(DMA_LEN) > 0 and
+                   gdma_source_valid(DMA_SRC, cartridge_rom_word, cartridge_rom_slow)) then
                   dmaOn   <= '1';
                   state   <= WAITING;
                   waitcnt <= 0;
+                  gdma_start_accepted := true;
                else
                   DMA_CTRL(7) <= '0';
                end if;
@@ -330,7 +370,11 @@ begin
             case (state) is
          
                when IDLE =>
-                  if (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1' and (RegBus_Din(7) = '0' or unsigned(SDMA_LEN_work) = 0)) then
+                  if (gdma_start_accepted) then
+                     -- GDMA owns this edge; retain any pending SDMA request so
+                     -- it can arbitrate normally after the block transfer.
+                     null;
+                  elsif (SDMA_CTRL_written = '1' and sleep_savestate = '0' and isColor = '1' and (RegBus_Din(7) = '0' or unsigned(SDMA_LEN_work) = 0)) then
                      sdma_requestIntern <= '0';
                   elsif (sdma_requestIntern = '1') then
                      if (SDMA_CTRL(7) = '0') then
@@ -348,28 +392,51 @@ begin
                   end if;
          
                when READING =>
-                  state <= WRITING;
-                  if (DMA_SRC(19 downto 16) /= x"1") then
+                  if (gdma_source_valid(DMA_SRC, cartridge_rom_word, cartridge_rom_slow)) then
+                     state    <= WRITING;
                      bus_read <= '1';
                      bus_addr <= unsigned(DMA_SRC);
+                  else
+                     -- Abort before issuing or accounting the current word.
+                     -- Prior completed words remain reflected in the live
+                     -- source, destination, and length registers.
+                     state       <= IDLE;
+                     dmaOn       <= '0';
+                     DMA_CTRL(7) <= '0';
                   end if;
                   
                when WRITING =>
-                  if (DMA_SRC(19 downto 16) /= x"1") then
-                     bus_write     <= '1';
-                     bus_addr      <= x"0" & unsigned(DMA_DST);
-                     bus_datawrite <= bus_dataread;
-                  end if;
+                  bus_write     <= '1';
+                  bus_addr      <= x"0" & unsigned(DMA_DST);
+                  bus_datawrite <= bus_dataread;
                   DMA_LEN <= std_logic_vector(unsigned(DMA_LEN) - 2);
                   if (DMA_CTRL(0) = '1') then
-                     DMA_SRC <= std_logic_vector(unsigned(DMA_SRC) - 2);
+                     gdma_next_source := std_logic_vector(unsigned(DMA_SRC) - 2);
+                     DMA_SRC <= gdma_next_source;
                      DMA_DST <= std_logic_vector(unsigned(DMA_DST) - 2);
                   else
-                     DMA_SRC <= std_logic_vector(unsigned(DMA_SRC) + 2);
+                     gdma_next_source := std_logic_vector(unsigned(DMA_SRC) + 2);
+                     DMA_SRC <= gdma_next_source;
                      DMA_DST <= std_logic_vector(unsigned(DMA_DST) + 2);
                   end if;
                   if (unsigned(DMA_LEN) = 2) then
-                     state       <= DONE;
+                     -- The bus_write pulse above holds dma_active high for
+                     -- this final transfer CE.  Retire directly to IDLE so
+                     -- total active time is exactly 5 + 2*words CE pulses.
+                     state       <= IDLE;
+                     dmaOn       <= '0';
+                     DMA_CTRL(7) <= '0';
+                  elsif (not gdma_source_valid(
+                           gdma_next_source,
+                           cartridge_rom_word,
+                           cartridge_rom_slow)) then
+                     -- Source validation itself has zero cycle cost.  Retire
+                     -- on the completed-write edge when the next word crosses
+                     -- into an ineligible region or the live bus mode changed,
+                     -- rather than stalling the CPU for an abort-only CE.
+                     state       <= IDLE;
+                     dmaOn       <= '0';
+                     DMA_CTRL(7) <= '0';
                   else
                      state <= READING;
                   end if;
