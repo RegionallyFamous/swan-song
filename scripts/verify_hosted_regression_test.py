@@ -91,6 +91,7 @@ class HostedRegressionProofTest(unittest.TestCase):
                 "  verilator:\n    runs-on: ubuntu-24.04\n",
                 "  verilator:\n    runs-on: ubuntu-24.04\n    if: false\n",
             ),
+            source.replace("    timeout-minutes: 30\n", "    timeout-minutes: 20\n"),
             source.replace(
                 "      - name: Verify immutable HDL toolchain\n",
                 "__STEP_SENTINEL__\n",

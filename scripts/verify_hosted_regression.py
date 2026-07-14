@@ -54,6 +54,7 @@ def verify_regression_workflow_source(path: Path = DEFAULT_WORKFLOW_SOURCE) -> N
         "name: FPGA regression\n",
         "permissions:\n  contents: read\n",
         "jobs:\n  verilator:\n    runs-on: ubuntu-24.04\n",
+        "    timeout-minutes: 30\n",
         "      - name: Check out source\n"
         f"        {CHECKOUT_USE}\n",
         "      - name: Verify immutable HDL toolchain\n"
