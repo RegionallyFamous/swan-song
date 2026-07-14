@@ -36,7 +36,11 @@ def verify_contract(sources: dict[str, str]) -> None:
             raise ValueError(f"core top player {player} key port is not 32-bit")
 
     for word_index, player in ((0, 1), (3, 2), (6, 3), (9, 4)):
-        expected = f"{word_index}:cont{player}_key<=rx_word;"
+        expected = (
+            "0:begincont1_key<=rx_word;cont1_key_updated<=1;"
+            if player == 1
+            else f"{word_index}:cont{player}_key<=rx_word;"
+        )
         if expected not in pad:
             raise ValueError(
                 f"PAD player {player} does not capture the complete rx_word"
@@ -52,24 +56,41 @@ def verify_contract(sources: dict[str, str]) -> None:
         if pad.count(f"{signal}<=0;") < 3:
             raise ValueError(f"PAD reset/timeout does not invalidate {signal}")
 
-    expected_filter = (
-        "TYPE_POCKET,TYPE_DOCK_DIGITAL,TYPE_DOCK_ANALOG:"
-        "buttons<=key_word[15:0];default:buttons<=16'd0;"
-    )
-    if expected_filter not in gamepad_filter:
-        raise ValueError("gamepad filter does not accept exactly APF types 1, 2, and 3")
+    for fragment in (
+        "wirevalid_gamepad=key_word[31:28]==TYPE_POCKET||"
+        "key_word[31:28]==TYPE_DOCK_DIGITAL||"
+        "key_word[31:28]==TYPE_DOCK_ANALOG;",
+        "TYPE_POCKET,TYPE_DOCK_DIGITAL,TYPE_DOCK_ANALOG:begin"
+        "buttons<=key_word[15:0];input_blocked<=1'b0;end",
+        "elseif(os_focus_lost)beginbuttons<=16'd0;",
+        "if(key_word_updated&&neutral_gamepad)begin",
+    ):
+        if fragment not in gamepad_filter:
+            raise ValueError(
+                "gamepad filter must accept only APF types 1-3 and guard PocketOS focus"
+            )
 
     for fragment in (
         ".clk(clk_74a)",
         ".reset_n(reset_n)",
+        ".os_focus_lost(osnotify_inmenu)",
+        ".key_word_updated(cont1_key_updated)",
         ".key_word(cont1_key)",
         ".buttons(cont1_gamepad_key_74a)",
+        ".input_blocked(physical_input_blocked_74a)",
     ):
         if fragment not in core_top:
             raise ValueError(f"gamepad filter integration is missing {fragment}")
-    if "cont1_s(cont1_gamepad_key_74a,cont1_key_s,clk_sys_36_864)" not in core_top:
-        raise ValueError("system CDC does not consume the sanitized P1 buttons")
-    if "cont1_s(cont1_key,cont1_key_s,clk_sys_36_864)" in core_top:
+    for fragment in (
+        "apf_input_blocked_cdcinput_state_system_cdc(",
+        ".buttons_source(cont1_gamepad_key_74a)",
+        ".input_blocked_source(physical_input_blocked_74a)",
+        ".buttons_destination(cont1_key_s)",
+        ".input_blocked_destination(physical_input_blocked_sys_s)",
+    ):
+        if fragment not in core_top:
+            raise ValueError(f"atomic system input CDC is missing {fragment}")
+    if ".buttons_source(cont1_key[15:0])" in core_top:
         raise ValueError("raw PAD key word bypasses the gamepad type filter")
 
     if "SYSTEMVERILOG_FILE core/apf_gamepad_filter.sv" not in qsf:
@@ -92,20 +113,21 @@ def main() -> None:
 
     mutations = (
         ("pad", "output  reg     [31:0]  cont1_key", "output  reg     [15:0]  cont1_key"),
-        ("pad", "0: cont1_key <= rx_word;", "0: cont1_key <= rx_word[15:0];"),
+        ("pad", "cont1_key <= rx_word;", "cont1_key <= rx_word[15:0];"),
         ("pad", "cont4_trig <= 0;", "cont4_trig <= cont4_trig;"),
         ("apf_top", "wire    [31:0]  cont4_key", "wire    [15:0]  cont4_key"),
         ("core_top", "input wire [31:0] cont2_key", "input wire [15:0] cont2_key"),
         (
             "core_top",
-            "cont1_gamepad_key_74a,\n      cont1_key_s",
-            "cont1_key,\n      cont1_key_s",
+            ".buttons_source(cont1_gamepad_key_74a)",
+            ".buttons_source(cont1_key[15:0])",
         ),
         (
             "filter",
-            "TYPE_DOCK_ANALOG: buttons <= key_word[15:0];",
-            "TYPE_DOCK_ANALOG, 4'h4: buttons <= key_word[15:0];",
+            "TYPE_DOCK_ANALOG: begin",
+            "TYPE_DOCK_ANALOG, 4'h4: begin",
         ),
+        ("filter", "else if (os_focus_lost)", "else if (1'b0)"),
         ("qsf", "core/apf_gamepad_filter.sv", "core/missing_gamepad_filter.sv"),
         (
             "regression",

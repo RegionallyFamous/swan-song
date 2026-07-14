@@ -38,8 +38,18 @@ def main() -> None:
     )
     require(
         core_top,
-        "wire savestate_supported = 0;",
+        "localparam SAVESTATE_SUPPORTED = 1'b0;",
         "Memories support was enabled before its release gates",
+    )
+    require(
+        core_top,
+        "wire savestate_supported = SAVESTATE_SUPPORTED;",
+        "APF capability reporting bypasses the disabled compile-time gate",
+    )
+    require(
+        core_top,
+        "else begin : gen_save_state_disabled",
+        "disabled Memories transport is not compiled through its fail-closed branch",
     )
     if core_json["core"]["framework"]["sleep_supported"] is not False:
         raise AssertionError("Sleep was enabled before its release gates")

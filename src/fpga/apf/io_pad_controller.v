@@ -58,6 +58,7 @@ output  reg     [15:0]  cont2_trig,
 output  reg     [15:0]  cont3_trig,
 output  reg     [15:0]  cont4_trig,
 
+output  reg             cont1_key_updated,
 output  reg             rx_timed_out
 );
 
@@ -93,6 +94,7 @@ synch_3 s01(pad_1wire, pad_1wire_s, clk, pad_1wire_r, pad_1wire_f);
     
 always @(posedge clk) begin
     tx_word_start <= 0;
+    cont1_key_updated <= 0;
     
     auto_poll_cnt <= auto_poll_cnt + 1'b1;
     heartbeat_cnt <= heartbeat_cnt + 1'b1;
@@ -156,7 +158,10 @@ always @(posedge clk) begin
         if(rx_word_done) begin
             cnt <= cnt + 1'b1;
             case(cnt)
-            0: cont1_key <= rx_word;
+            0: begin
+                cont1_key <= rx_word;
+                cont1_key_updated <= 1;
+            end
             1: cont1_joy <= rx_word;
             2: cont1_trig <= rx_word[15:0];
             
@@ -212,6 +217,7 @@ always @(posedge clk) begin
         cont2_trig <= 0;
         cont3_trig <= 0;
         cont4_trig <= 0;
+        cont1_key_updated <= 0;
     end
     
     if(~reset_n_s) begin
@@ -229,6 +235,7 @@ always @(posedge clk) begin
         cont2_trig <= 0;
         cont3_trig <= 0;
         cont4_trig <= 0;
+        cont1_key_updated <= 0;
     end
 end
 

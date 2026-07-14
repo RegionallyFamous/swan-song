@@ -36,6 +36,31 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
     if setup != [expected]:
         raise ValueError("interact Console Setup action contract changed")
 
+    inert_headings = {
+        number(item["id"]): item
+        for item in variables
+        if number(item["id"]) in (40, 80)
+    }
+    if inert_headings != {
+        40: {
+            "name": "Video",
+            "id": 40,
+            "type": "action",
+            "enabled": False,
+            "address": "0x58",
+            "value": 0,
+        },
+        80: {
+            "name": "Sound",
+            "id": 80,
+            "type": "action",
+            "enabled": False,
+            "address": "0x5C",
+            "value": 0,
+        },
+    }:
+        raise ValueError("disabled interact heading no-op contract changed")
+
     sequencer = compact(sources["sequencer"])
     for expression, message in (
         ("parameterintegerreset_cycles=1_048_576", "setup reset interval changed"),
@@ -94,6 +119,11 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
     ):
         if expression not in core_top:
             raise ValueError(message)
+    for no_op_address in ("58", "5c"):
+        if re.search(rf"32'h0*{no_op_address}(?![0-9a-f])", core_top):
+            raise ValueError(
+                f"disabled interact heading address 0x{no_op_address} is decoded"
+            )
     if "configured_orientation<=console_setup" in core_top:
         raise ValueError("Console Setup must never mutate presentation orientation")
 
@@ -146,6 +176,20 @@ def main() -> None:
         )
         item[field] = value
         mutations.append((changed, sources))
+    for item_id, field, value in (
+        (40, "address", "0x5C"),
+        (40, "value", 1),
+        (80, "address", "0x58"),
+        (80, "enabled", True),
+    ):
+        changed = copy.deepcopy(interact)
+        item = next(
+            item
+            for item in changed["interact"]["variables"]
+            if number(item["id"]) == item_id
+        )
+        item[field] = value
+        mutations.append((changed, sources))
     for source_name, old, new in (
         ("sequencer", "START_CYCLES = 33_554_432", "START_CYCLES = 1_048_576"),
         ("sequencer", "or negedge reset_n", ""),
@@ -159,6 +203,13 @@ def main() -> None:
             ".external_reset(external_reset_sys_s | console_setup_reset_sys_s)",
             ".external_reset(external_reset_sys_s)",
         ),
+        ("core_top", "32'h050: begin", "32'h058: begin"),
+        (
+            "core_top",
+            "bridge_addr == 32'h00000054",
+            "bridge_addr == 32'h0000005c",
+        ),
+        ("core_top", "32'h100: begin", "32'h05c: begin"),
         ("core_top", "cont1_key_s[15] | console_setup_start_sys_s", "cont1_key_s[15]"),
         ("qsf", "core/apf_console_setup.sv", "core/missing_console_setup.sv"),
         ("regression", "run_apf_console_setup_tb.sh", "run_missing_console_setup_tb.sh"),

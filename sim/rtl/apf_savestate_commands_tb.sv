@@ -65,6 +65,7 @@ module apf_savestate_commands_tb;
         .status_boot_done(1'b1),
         .status_setup_done(1'b1),
         .status_running(1'b0),
+        .reset_exit_ready(1'b1),
         .dataslot_requestread_ack(1'b0),
         .dataslot_requestread_result(2'd0),
         .dataslot_requestwrite_ack(1'b0),

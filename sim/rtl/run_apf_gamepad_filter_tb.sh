@@ -29,7 +29,7 @@ if ! output="$("$BUILD/obj_dir/apf_gamepad_filter_tb" 2>&1)"; then
   exit 1
 fi
 printf '%s\n' "$output"
-if ! grep -q '^PASS APF PAD 32-bit transport, type safety, disconnect, timeout, and reset$' <<<"$output"; then
+if ! grep -q '^PASS APF PAD type safety, PocketOS focus guard, neutral rearm, disconnect, timeout, and reset$' <<<"$output"; then
   echo "missing APF gamepad filter PASS marker" >&2
   exit 1
 fi

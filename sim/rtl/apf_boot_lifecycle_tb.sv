@@ -113,6 +113,7 @@ module apf_boot_lifecycle_tb;
         .status_boot_done(status_boot_done),
         .status_setup_done(status_setup_done),
         .status_running(status_running),
+        .reset_exit_ready(1'b1),
         .ready_to_run_complete(ready_to_run_complete),
 
         .dataslot_requestread(dataslot_requestread),

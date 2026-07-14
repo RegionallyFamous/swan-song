@@ -115,6 +115,29 @@ def main() -> None:
         metadata_source_count: int, metadata_destination_count: int
     ) -> subprocess.CompletedProcess[str]:
         harness = f"""
+proc get_clocks {{args}} {{ return [list sdram_pll_clock] }}
+proc get_ports {{args}} {{
+  set filter [lindex $args end]
+  set result {{}}
+  if {{[string first "dram_clk" $filter] >= 0}} {{
+    return [list dram_clk]
+  }} elseif {{[string first "dram_a" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 37}} {{incr i}} {{ lappend result "sdram_write_$i" }}
+  }} elseif {{[string first "dram_dq" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 16}} {{incr i}} {{ lappend result "sdram_read_$i" }}
+  }} elseif {{[string first "bridge_spiss" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 4}} {{incr i}} {{ lappend result "apf_input_$i" }}
+  }} elseif {{[string first "bridge_1wire" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 3}} {{incr i}} {{ lappend result "apf_bridge_output_$i" }}
+  }} elseif {{[string first "scal_auddac" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 20}} {{incr i}} {{ lappend result "apf_scaler_output_$i" }}
+  }}
+  return $result
+}}
+proc create_generated_clock {{args}} {{}}
+proc set_output_delay {{args}} {{}}
+proc set_input_delay {{args}} {{}}
+proc set_false_path {{args}} {{}}
 proc set_clock_groups {{args}} {{}}
 proc derive_clock_uncertainty {{}} {{}}
 proc get_registers {{args}} {{
@@ -126,9 +149,13 @@ proc get_registers {{args}} {{
   }} elseif {{[string first "pending_slot_video" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_destination_$i" }}
   }} elseif {{[string first "settings_hold_source" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_source_$i" }}
+    for {{set i 0}} {{$i < 13}} {{incr i}} {{ lappend result "settings_source_$i" }}
   }} elseif {{[string first "settings_destination" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_destination_$i" }}
+    for {{set i 0}} {{$i < 13}} {{incr i}} {{ lappend result "settings_destination_$i" }}
+  }} elseif {{[string first "input_state_system_cdc|payload_hold_source" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 17}} {{incr i}} {{ lappend result "input_state_source_$i" }}
+  }} elseif {{[string first "input_state_system_cdc|payload_destination" $filter] >= 0}} {{
+    for {{set i 0}} {{$i < 17}} {{incr i}} {{ lappend result "input_state_destination_$i" }}
   }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
     for {{set i 0}} {{$i < {metadata_source_count}}} {{incr i}} {{ lappend result "source_$i" }}
     if {{!$no_duplicates}} {{ lappend result "source_fitter_duplicate" }}
@@ -139,23 +166,47 @@ proc get_registers {{args}} {{
   }}
   return $result
 }}
+proc get_fanouts {{args}} {{
+  set result {{}}
+  for {{set i 0}} {{$i < 16}} {{incr i}} {{ lappend result "sdram_capture_$i" }}
+  return $result
+}}
 proc get_collection_size {{collection}} {{ return [llength $collection] }}
 proc foreach_in_collection {{variable collection body}} {{
   upvar 1 $variable item
   foreach item $collection {{ uplevel 1 $body }}
 }}
 proc get_object_info {{args}} {{ return [lindex $args end] }}
-set ::net_delay_args {{}}
-set ::max_skew_args {{}}
-proc set_net_delay {{args}} {{ set ::net_delay_args $args }}
-proc set_max_skew {{args}} {{ set ::max_skew_args $args }}
+proc set_multicycle_path {{args}} {{}}
+set ::net_delay_calls {{}}
+set ::max_skew_calls {{}}
+proc set_net_delay {{args}} {{ lappend ::net_delay_calls $args }}
+proc set_max_skew {{args}} {{ lappend ::max_skew_calls $args }}
 source {{{SDC}}}
-if {{[llength $::net_delay_args] == 0}} {{ error "set_net_delay was not called" }}
-if {{[llength $::max_skew_args] == 0}} {{ error "set_max_skew was not called" }}
-set net_delay_from [lindex $::net_delay_args [expr {{[lsearch -exact $::net_delay_args "-from"] + 1}}]]
-set net_delay_to [lindex $::net_delay_args [expr {{[lsearch -exact $::net_delay_args "-to"] + 1}}]]
-set max_skew_from [lindex $::max_skew_args [expr {{[lsearch -exact $::max_skew_args "-from"] + 1}}]]
-set max_skew_to [lindex $::max_skew_args [expr {{[lsearch -exact $::max_skew_args "-to"] + 1}}]]
+if {{[llength $::net_delay_calls] != 4}} {{ error "expected four set_net_delay calls" }}
+if {{[llength $::max_skew_calls] != 4}} {{ error "expected four set_max_skew calls" }}
+set net_delay_args {{}}
+foreach call $::net_delay_calls {{
+  set from_index [lsearch -exact $call "-from"]
+  if {{$from_index >= 0 &&
+      [lsearch -exact [lindex $call [expr {{$from_index + 1}}]] "source_fitter_duplicate"] >= 0}} {{
+    set net_delay_args $call
+  }}
+}}
+set max_skew_args {{}}
+foreach call $::max_skew_calls {{
+  set from_index [lsearch -exact $call "-from"]
+  if {{$from_index >= 0 &&
+      [lsearch -exact [lindex $call [expr {{$from_index + 1}}]] "source_fitter_duplicate"] >= 0}} {{
+    set max_skew_args $call
+  }}
+}}
+if {{[llength $net_delay_args] == 0}} {{ error "save-metadata set_net_delay was not called" }}
+if {{[llength $max_skew_args] == 0}} {{ error "save-metadata set_max_skew was not called" }}
+set net_delay_from [lindex $net_delay_args [expr {{[lsearch -exact $net_delay_args "-from"] + 1}}]]
+set net_delay_to [lindex $net_delay_args [expr {{[lsearch -exact $net_delay_args "-to"] + 1}}]]
+set max_skew_from [lindex $max_skew_args [expr {{[lsearch -exact $max_skew_args "-from"] + 1}}]]
+set max_skew_to [lindex $max_skew_args [expr {{[lsearch -exact $max_skew_args "-to"] + 1}}]]
 foreach collection [list $net_delay_from $max_skew_from] {{
   if {{[lsearch -exact $collection "source_fitter_duplicate"] < 0}} {{
     error "source Fitter duplicate omitted from timing bound"

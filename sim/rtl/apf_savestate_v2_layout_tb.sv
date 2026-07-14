@@ -91,6 +91,10 @@ module apf_savestate_v2_layout_tb;
     check(V2_CPU_SCHEMA == 1 && V2_PPU_SCHEMA == 1 &&
           V2_APU_SCHEMA == 1 && V2_DEVICE_SCHEMA == 1,
           "component schemas");
+    check(V2_SETTINGS_ALLOWED == 32'h0000_1fff,
+          "13-bit settings snapshot mask");
+    check(V2_SETTINGS_HARD_MATCH == 32'h0000_0400,
+          "CPU-turbo settings hard-match bit");
 
     // The v1 tuple and every individual v1 length/version are unambiguously
     // rejected by the v2 static gate.

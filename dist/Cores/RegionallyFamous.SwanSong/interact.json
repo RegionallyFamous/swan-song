@@ -19,7 +19,7 @@
         "value": 1
       },
       {
-        "name": "System Type",
+        "name": "System Type (reset)",
         "id": 10,
         "type": "list",
         "enabled": true,
@@ -57,7 +57,9 @@
         "name": "Video",
         "id": 40,
         "type": "action",
-        "enabled": false
+        "enabled": false,
+        "address": "0x58",
+        "value": 0
       },
       {
         "name": "Triple Buffer",
@@ -150,10 +152,36 @@
         ]
       },
       {
+        "name": "Control Layout",
+        "id": 46,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "writeonly": true,
+        "address": "0x214",
+        "defaultval": 0,
+        "options": [
+          {
+            "value": 0,
+            "name": "Auto"
+          },
+          {
+            "value": 1,
+            "name": "Horizontal"
+          },
+          {
+            "value": 2,
+            "name": "Vertical"
+          }
+        ]
+      },
+      {
         "name": "Sound",
         "id": 80,
         "type": "action",
-        "enabled": false
+        "enabled": false,
+        "address": "0x5C",
+        "value": 0
       },
       {
         "name": "Audio in Fast Forward",

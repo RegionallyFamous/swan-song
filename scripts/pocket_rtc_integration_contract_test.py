@@ -138,8 +138,8 @@ def verify_contract(
         {
             "clk": "clk_sys_36_864",
             "reset_title": "cart_download_sys",
-            "has_rtc": "has_rtc",
-            "save_size_bytes": "save_size_bytes",
+            "has_rtc": "has_rtc_sys",
+            "save_size_bytes": "save_size_bytes_sys",
             "sd_buff_wr": "sd_buff_wr",
             "sd_buff_addr": "sd_buff_addr",
             "sd_buff_dout": "sd_buff_dout",
@@ -197,7 +197,7 @@ def verify_contract(
     parsed_save_sizes = {
         int(ram_type, 16): int(byte_size, 16)
         for ram_type, byte_size in re.findall(
-            r"if\s*\(\s*ramtype\s*==\s*8'h([0-9A-Fa-f]{2})\s*\)\s*"
+            r"if\s*\(\s*ramtype_mem\s*==\s*8'h([0-9A-Fa-f]{2})\s*\)\s*"
             r"save_size_bytes\s*=\s*20'h([0-9A-Fa-f]{5})\s*;",
             wonderswan,
         )
@@ -214,7 +214,7 @@ def verify_contract(
         raise ValueError("RTC trailer boundary is not relative to save_size_bytes")
     if not re.search(
         r"wire\s*\[20:0\]\s*rtc_data_offset\s*=\s*"
-        r"sd_buff_addr\s*-\s*save_size_bytes\s*;",
+        r"sd_buff_addr\s*-\s*save_size_bytes_sys\s*;",
         wonderswan,
     ):
         raise ValueError("RTC trailer offset is not relative to save_size_bytes")
@@ -233,7 +233,7 @@ def verify_contract(
     ):
         raise ValueError("legacy RTC marker is not safely type and write gated")
     if not re.search(
-        r"assign\s+has_rtc\s*=\s*lastdata\[1\]\[15:8\]\s*"
+        r"wire\s+has_rtc_mem\s*=\s*lastdata\[1\]\[15:8\]\s*"
         r"==\s*8'h01\s*;",
         wonderswan,
     ):
@@ -361,8 +361,8 @@ def main() -> None:
         ("rtc_save_loader", "sd_buff_addr >= {1'b0, save_size_bytes}", "sd_buff_addr >= 21'h08000", "boundary is not relative"),
         ("rtc_save_loader", "extra_data_addr && sd_buff_wr", "extra_data_addr && 1'b0", "overflow writes are not acknowledged after sampling"),
         ("rtc_save_loader", "has_rtc && legacy_padded_type && sd_buff_wr", "has_rtc && legacy_padded_type && 1'b1", "legacy RTC marker is not safely type and write gated"),
-        ("wonderswan", "sd_buff_addr - save_size_bytes", "sd_buff_addr - 20'h08000", "offset is not relative"),
-        ("wonderswan", "if (ramtype == 8'h01) save_size_bytes = 20'h08000;", "if (ramtype == 8'h01) save_size_bytes = 20'h02000;", "exact save_size_bytes map mismatch"),
+        ("wonderswan", "sd_buff_addr - save_size_bytes_sys", "sd_buff_addr - 20'h08000", "offset is not relative"),
+        ("wonderswan", "if (ramtype_mem == 8'h01) save_size_bytes = 20'h08000;", "if (ramtype_mem == 8'h01) save_size_bytes = 20'h02000;", "exact save_size_bytes map mismatch"),
         ("wonderswan", "did_receive_sys_rtc <= 0;", "did_receive_sys_rtc <= did_receive_sys_rtc;", "per-title RTC reset omits did_receive_sys_rtc"),
         ("wonderswan", "is_save_rtc_ready <= 0;", "is_save_rtc_ready <= is_save_rtc_ready;", "per-title RTC reset omits is_save_rtc_ready"),
         ("wonderswan", "rtc_load_delivered <= 0;", "rtc_load_delivered <= rtc_load_delivered;", "per-title RTC reset omits rtc_load_delivered"),

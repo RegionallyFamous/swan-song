@@ -12,18 +12,18 @@
 module apf_settings_cdc #(
     // Matches interact.json defaults in this packing:
     // {system[1:0], cpu_turbo, triple_buffer, lcd_response[1:0],
-    //  orientation[1:0], landscape_180, color_profile,
+    //  orientation[1:0], control_layout[1:0], landscape_180, color_profile,
     //  fastforward_sound}.
-    parameter [10:0] DEFAULT_SETTINGS = 11'h081
+    parameter [12:0] DEFAULT_SETTINGS = 13'h0201
 ) (
     input  wire       reset_n,
 
     input  wire       clk_source,
-    input  wire [10:0] settings_source,
+    input  wire [12:0] settings_source,
     output wire       update_pending_source,
 
     input  wire       clk_destination,
-    output reg  [10:0] settings_destination
+    output reg  [12:0] settings_destination
 );
   // Assertion is asynchronous so loss of PLL readiness discards an in-flight
   // update in both domains. Release is synchronized independently to each.
@@ -42,7 +42,7 @@ module apf_settings_cdc #(
     else destination_reset_sync <= {destination_reset_sync[0], 1'b1};
   end
 
-  reg [10:0] settings_hold_source;
+  reg [12:0] settings_hold_source;
   reg request_toggle_source;
   (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_meta_source;
   (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sync_source;

@@ -18,6 +18,7 @@ SOURCE_PATHS = {
     "core_top": "src/fpga/core/core_top.v",
     "guard": "src/fpga/core/apf_dataslot_guard.sv",
     "metadata": "src/fpga/core/apf_save_metadata_cdc.sv",
+    "settings": "src/fpga/core/apf_settings_cdc.sv",
     "startup": "src/fpga/core/apf_startup_sequencer.sv",
     "save_init": "src/fpga/core/pocket_save_init.sv",
     "wonderswan": "src/fpga/core/wonderswan.sv",
@@ -64,6 +65,7 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     guard_compact = compact_hdl(sources["guard"])
     metadata = strip_hdl_comments(sources["metadata"])
     metadata_compact = compact_hdl(sources["metadata"])
+    settings_compact = compact_hdl(sources["settings"])
     startup = strip_hdl_comments(sources["startup"])
     startup_compact = compact_hdl(sources["startup"])
     save_init = strip_hdl_comments(sources["save_init"])
@@ -118,10 +120,52 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     ):
         errors.append("Ready-to-Run must atomically publish completion and enter Idle")
     if (
-        "if(ready_to_run_complete)beginreset_n<=1;hstate<=ST_DONE_OK;end"
+        "if(ready_to_run_complete&&reset_exit_ready)begin"
+        "reset_n<=1;hstate<=ST_DONE_OK;end"
         not in bridge_compact
     ):
-        errors.append("Reset Exit must be gated by completed startup")
+        errors.append("Reset Exit must wait for startup and settings acknowledgement")
+    if (
+        "assignupdate_pending_source=transfer_busy_source||"
+        "settings_source!=settings_hold_source;"
+        not in settings_compact
+    ):
+        errors.append("settings pending must cover in-flight and superseding payloads")
+    if (
+        "wiresettings_reset_exit_ready_74a=!settings_write_74a&&"
+        "!settings_update_pending_74a;"
+        not in core_top_compact
+        or ".reset_exit_ready(settings_reset_exit_ready_74a),"
+        not in core_top_compact
+    ):
+        errors.append("core_top must fence Reset Exit on the acknowledged settings CDC")
+    settings_write_match = re.search(
+        r"wire\s+settings_write_74a\s*=\s*bridge_wr\s*&&\s*(.*?);",
+        core_top,
+        flags=re.DOTALL,
+    )
+    settings_write_compact = (
+        re.sub(r"\s+", "", settings_write_match.group(1))
+        if settings_write_match
+        else ""
+    )
+    settings_addresses = (
+        "32'h00000100",
+        "32'h00000110",
+        "32'h00000200",
+        "32'h00000204",
+        "32'h00000208",
+        "32'h0000020c",
+        "32'h00000210",
+        "32'h00000214",
+        "32'h00000300",
+    )
+    if not all(address in settings_write_compact for address in settings_addresses):
+        errors.append("same-cycle settings write guard must cover every interact register")
+    if bridge_compact.count("reset_exit_ready") != 2:
+        errors.append("settings acknowledgement may qualify only Reset Exit")
+    if "run_apf_settings_boot_barrier_tb.sh" not in sources["regression"]:
+        errors.append("regression must run the asynchronous settings boot barrier test")
     if (
         "if(!status_setup_done)beginready_to_run_complete<=0;end"
         not in bridge_compact
@@ -378,6 +422,11 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
             core_top_compact,
             ".ready_to_run_complete(ready_to_run_complete),",
             "core_top must retain the Pocket acknowledgement of target 0140",
+        ),
+        (
+            core_top_compact,
+            ".update_pending_source(settings_update_pending_74a),",
+            "core_top must consume the settings CDC acknowledgement state",
         ),
         (
             core_top_compact,
@@ -824,24 +873,38 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertTrue(all(len(item["name"]) <= 19 for item in mappings))
 
         # Bind those user-facing labels to both halves of the production
-        # vertical mapping: wrapper wiring and joypad.vhd's native rotation.
+        # vertical mapping: controls-only mapper and joypad.vhd's native rotation.
         swan = compact_hdl(
             (ROOT / "src/fpga/core/wonderswan.sv").read_text(encoding="utf-8")
+        )
+        control_layout = compact_hdl(
+            (ROOT / "src/fpga/core/apf_control_layout.sv").read_text(
+                encoding="utf-8"
+            )
         )
         joypad = compact_hdl(
             (ROOT / "src/fpga/core/rtl/joypad.vhd").read_text(encoding="utf-8")
         ).lower()
         for expression in (
-            ".keyy1(vertical?button_x:button_trig_l)",
-            ".keyy2(vertical?button_a:button_trig_r)",
-            ".keyy3(vertical?button_b:button_x)",
-            ".keyy4(vertical?button_y:button_y)",
+            ".keyy1(control_key_y1)",
+            ".keyy2(control_key_y2)",
+            ".keyy3(control_key_y3)",
+            ".keyy4(control_key_y4)",
             ".keyx1(dpad_up)",
             ".keyx2(dpad_right)",
             ".keyx3(dpad_down)",
             ".keyx4(dpad_left)",
         ):
             self.assertIn(expression, swan.lower())
+        for expression in (
+            "assignkey_y1=controls_vertical?button_x:button_trig_l;",
+            "assignkey_y2=controls_vertical?button_a:button_trig_r;",
+            "assignkey_y3=controls_vertical?button_b:button_x;",
+            "assignkey_y4=button_y;",
+            "assignkey_a=controls_vertical?button_trig_l:button_a;",
+            "assignkey_b=controls_vertical?button_trig_r:button_b;",
+        ):
+            self.assertIn(expression, control_layout.lower())
         for expression in (
             "if(keyy4='1')thenkeypad_read(0)<='1';endif;",
             "if(keyy1='1')thenkeypad_read(1)<='1';endif;",
@@ -855,6 +918,28 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertLessEqual(len(variables), 16)
         self.assertEqual(len({number(item["id"]) for item in variables}), len(variables))
         variables_by_id = {number(item["id"]): item for item in variables}
+        self.assertEqual(
+            variables_by_id[40],
+            {
+                "name": "Video",
+                "id": 40,
+                "type": "action",
+                "enabled": False,
+                "address": "0x58",
+                "value": 0,
+            },
+        )
+        self.assertEqual(
+            variables_by_id[80],
+            {
+                "name": "Sound",
+                "id": 80,
+                "type": "action",
+                "enabled": False,
+                "address": "0x5C",
+                "value": 0,
+            },
+        )
         system_type = variables_by_id[10]
         self.assertEqual(number(system_type["address"]), 0x100)
         self.assertEqual(
@@ -881,6 +966,15 @@ class PocketFirstClassContractTest(unittest.TestCase):
                 for option in variables_by_id[45]["options"]
             ],
             [(0, "Raw RGB444"), (1, "Color LCD (ares)")],
+        )
+        self.assertEqual(variables_by_id[46]["name"], "Control Layout")
+        self.assertEqual(number(variables_by_id[46]["address"]), 0x214)
+        self.assertEqual(
+            [
+                (number(option["value"]), option["name"])
+                for option in variables_by_id[46]["options"]
+            ],
+            [(0, "Auto"), (1, "Horizontal"), (2, "Vertical")],
         )
         self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
         self.assertEqual(number(variables_by_id[81]["address"]), 0x300)
@@ -1105,9 +1199,36 @@ class PocketFirstClassContractTest(unittest.TestCase):
             ),
             (
                 "bridge",
-                "if(ready_to_run_complete) begin\n                reset_n <= 1;",
+                "if(ready_to_run_complete && reset_exit_ready) begin\n"
+                "                reset_n <= 1;",
                 "if(1'b1) begin\n                reset_n <= 1;",
-                "Reset Exit must be gated by completed startup",
+                "Reset Exit must wait for startup and settings acknowledgement",
+            ),
+            (
+                "core_top",
+                "wire settings_reset_exit_ready_74a =\n"
+                "      !settings_write_74a && !settings_update_pending_74a;",
+                "wire settings_reset_exit_ready_74a = 1'b1;",
+                "core_top must fence Reset Exit on the acknowledged settings CDC",
+            ),
+            (
+                "core_top",
+                "       (bridge_addr == 32'h00000214) ||\n",
+                "",
+                "same-cycle settings write guard must cover every interact register",
+            ),
+            (
+                "settings",
+                "assign update_pending_source = transfer_busy_source ||\n"
+                "      settings_source != settings_hold_source;",
+                "assign update_pending_source = transfer_busy_source;",
+                "settings pending must cover in-flight and superseding payloads",
+            ),
+            (
+                "regression",
+                '"$ROOT/sim/rtl/run_apf_settings_boot_barrier_tb.sh"\n',
+                "",
+                "regression must run the asynchronous settings boot barrier test",
             ),
             (
                 "bridge",

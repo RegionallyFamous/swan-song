@@ -38,6 +38,7 @@ class PocketPerGamePresetTests(unittest.TestCase):
                 asset="/Assets/wonderswan/common/Vertical/Example.wsc",
                 options=PresetOptions(
                     orientation="vertical",
+                    control_layout="vertical",
                     landscape_180="off",
                     color_profile="ares",
                     triple_buffer="off",
@@ -71,6 +72,7 @@ class PocketPerGamePresetTests(unittest.TestCase):
             self.assertEqual(variables[43]["defaultval"], 2)
             self.assertEqual(variables[44]["defaultval"], 0)
             self.assertEqual(variables[45]["defaultval"], 1)
+            self.assertEqual(variables[46]["defaultval"], 2)
             self.assertEqual(variables[81]["defaultval"], 0)
 
             self.assertEqual(
@@ -276,6 +278,12 @@ class PocketPerGamePresetTests(unittest.TestCase):
                     asset="Game.ws",
                     options=PresetOptions(orientation="diagonal"),
                 )
+            with self.assertRaisesRegex(PresetError, "unsupported control-layout"):
+                generate_presets(
+                    sd_root=root,
+                    asset="Game.ws",
+                    options=PresetOptions(control_layout="diagonal"),
+                )
 
     def test_definition_drift_fails_closed_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -353,6 +361,8 @@ class PocketPerGamePresetTests(unittest.TestCase):
                     "Games/Example.ws",
                     "--orientation",
                     "horizontal",
+                    "--control-layout",
+                    "vertical",
                     "--color-profile",
                     "ares",
                     "--lcd-response",
@@ -368,6 +378,17 @@ class PocketPerGamePresetTests(unittest.TestCase):
             self.assertIn("Interact:", success.stdout)
             self.assertIn("Input:", success.stdout)
             self.assertEqual(success.stderr, "")
+            generated = json.loads(
+                (
+                    root
+                    / "Presets/RegionallyFamous.SwanSong/Interact/"
+                    "wonderswan/common/Games/Example.json"
+                ).read_text(encoding="utf-8")
+            )
+            generated_by_id = {
+                item["id"]: item for item in generated["interact"]["variables"]
+            }
+            self.assertEqual(generated_by_id[46]["defaultval"], 2)
 
             failure = subprocess.run(
                 [

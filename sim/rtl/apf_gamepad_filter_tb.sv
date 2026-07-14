@@ -5,8 +5,11 @@ module apf_gamepad_filter_tb;
   always #5 clk = ~clk;
 
   reg reset_n = 1'b0;
+  reg os_focus_lost = 1'b0;
+  reg key_word_updated = 1'b0;
   reg [31:0] key_word = 32'd0;
   wire [15:0] buttons;
+  wire input_blocked;
 
   tri pad_1wire;
   wire [31:0] cont1_key;
@@ -21,6 +24,7 @@ module apf_gamepad_filter_tb;
   wire [15:0] cont2_trig;
   wire [15:0] cont3_trig;
   wire [15:0] cont4_trig;
+  wire cont1_key_updated;
   wire pad_rx_timed_out;
 
   integer errors = 0;
@@ -29,8 +33,11 @@ module apf_gamepad_filter_tb;
   apf_gamepad_filter dut (
       .clk(clk),
       .reset_n(reset_n),
+      .os_focus_lost(os_focus_lost),
+      .key_word_updated(key_word_updated),
       .key_word(key_word),
-      .buttons(buttons)
+      .buttons(buttons),
+      .input_blocked(input_blocked)
   );
 
   io_pad_controller pad_dut (
@@ -49,6 +56,7 @@ module apf_gamepad_filter_tb;
       .cont2_trig(cont2_trig),
       .cont3_trig(cont3_trig),
       .cont4_trig(cont4_trig),
+      .cont1_key_updated(cont1_key_updated),
       .rx_timed_out(pad_rx_timed_out)
   );
 
@@ -67,8 +75,10 @@ module apf_gamepad_filter_tb;
     begin
       @(negedge clk);
       key_word = {device_type, 12'ha5c, digital_bits};
+      key_word_updated = 1'b1;
       @(posedge clk);
       #1;
+      key_word_updated = 1'b0;
       if (buttons !== expected_bits)
         fail($sformatf("type %0h produced %04h, expected %04h",
                        device_type, buttons, expected_bits));
@@ -100,6 +110,8 @@ module apf_gamepad_filter_tb;
     #1;
     if (buttons !== 16'h0000)
       fail("reset exposed Pocket buttons");
+    if (input_blocked !== 1'b1)
+      fail("reset did not fail closed at the input ownership boundary");
 
     @(negedge clk);
     reset_n = 1'b1;
@@ -126,6 +138,36 @@ module apf_gamepad_filter_tb;
     apply_word(4'h5, 16'hffff, 16'h0000);
     apply_word(4'h1, 16'hffff, 16'hffff);
     apply_word(4'h0, 16'hffff, 16'h0000);
+
+    // PocketOS focus owns all physical buttons.  Neither an invalid/disconnect
+    // packet nor a still-held valid gamepad can rearm after focus returns.
+    apply_word(4'h3, 16'h4002, 16'h4002);
+    @(negedge clk);
+    os_focus_lost = 1'b1;
+    @(posedge clk);
+    #1;
+    if (buttons !== 16'h0000 || input_blocked !== 1'b1)
+      fail("focus loss did not block a held Dock menu chord");
+    apply_word(4'h1, 16'hffff, 16'h0000);
+    apply_word(4'h2, 16'h0000, 16'h0000);
+    if (input_blocked !== 1'b1)
+      fail("PAD rearmed while PocketOS still owned focus");
+
+    @(negedge clk);
+    os_focus_lost = 1'b0;
+    apply_word(4'h0, 16'h0000, 16'h0000);
+    if (input_blocked !== 1'b1)
+      fail("disconnect packet incorrectly counted as physical neutral");
+    apply_word(4'h4, 16'h0000, 16'h0000);
+    if (input_blocked !== 1'b1)
+      fail("keyboard packet incorrectly counted as physical neutral");
+    apply_word(4'h3, 16'h4002, 16'h0000);
+    if (input_blocked !== 1'b1)
+      fail("held Dock gamepad rearmed after focus return");
+    apply_word(4'h1, 16'h0000, 16'h0000);
+    if (input_blocked !== 1'b0)
+      fail("valid neutral Pocket packet did not rearm input");
+    apply_word(4'h2, 16'h8001, 16'h8001);
 
     // Import one complete APF PAD snapshot.  Key words deliberately set their
     // high type nibble and all otherwise-unused bits, catching any recurrence
@@ -191,7 +233,7 @@ module apf_gamepad_filter_tb;
     if (errors != 0)
       $fatal(1, "APF gamepad filter failed with %0d errors", errors);
 
-    $display("PASS APF PAD 32-bit transport, type safety, disconnect, timeout, and reset");
+    $display("PASS APF PAD type safety, PocketOS focus guard, neutral rearm, disconnect, timeout, and reset");
     $finish;
   end
 

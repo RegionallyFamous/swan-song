@@ -48,6 +48,7 @@ module wonderswan (
     input wire dpad_down,
     input wire dpad_left,
     input wire dpad_right,
+    input wire physical_input_blocked,
 
     // Settings
     input wire [1:0] configured_system,
@@ -57,6 +58,7 @@ module wonderswan (
     input wire use_triple_buffer,
     input wire [1:0] configured_flickerblend,
     input wire [1:0] configured_orientation,
+    input wire [1:0] configured_control_layout,
     input wire use_flip_horizontal,
     input wire configured_color_profile,
 
@@ -176,7 +178,7 @@ module wonderswan (
   // RTC snapshot or be written back into a newly flushed save.
   assign sd_buff_din = extra_data_addr ?
                        (canonical_rtc_read ? sd_buff_din_time : 16'h0000) :
-                       saveIsSRAM ? sdram_din : eeprom_din;
+                       save_is_sram_sys ? sdram_din : eeprom_din;
 
   wire clearing_save;
   wire clearing_sram;
@@ -206,8 +208,8 @@ module wonderswan (
       .load_complete(load_complete),
       .reset_n(reset_n),
       .save_payload_write(sd_buff_wr && !extra_data_addr),
-      .save_is_sram(saveIsSRAM),
-      .save_is_eeprom(saveIsEEPROM),
+      .save_is_sram(save_is_sram_mem),
+      .save_is_eeprom(save_is_eeprom_mem),
       .save_size_bytes(save_size_bytes),
       .sram_write_ack(save_ram_ack),
       .clearing(clearing_save),
@@ -242,7 +244,7 @@ module wonderswan (
 
   // EEPROM is in BRAM. Will ack immediately after write
   // Overflow words are acknowledged and classified by the RTC save loader.
-  assign save_ram_write_complete = extra_data_addr ? rtc_extra_write_complete : saveIsSRAM ? save_ram_ack : sd_buff_wr;
+  assign save_ram_write_complete = extra_data_addr ? rtc_extra_write_complete : save_is_sram_mem ? save_ram_ack : sd_buff_wr;
 
   wire rom_sdram_req;
   wire rom_sdram_rnw;
@@ -316,7 +318,7 @@ module wonderswan (
   );
 
   wire ch2_sdram_req =
-      (saveIsSRAM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) ||
+      (save_is_sram_mem && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr) ||
       clear_sram_write;
   wire ch3_sdram_req = ~cart_download & (EXTRAM_read | EXTRAM_write);
 
@@ -368,6 +370,24 @@ module wonderswan (
   );
 
   reg [15:0] lastdata             [0:4];
+
+  // The ROM footer is shifted in by clk_mem, but most of its consumers run on
+  // clk_sys.  Capture the three lifecycle-static fields while the synchronized
+  // system-domain download window is open, before doing any decode.  The final
+  // clk_sys capture occurs only after the last legal clk_mem footer update has
+  // settled.  Keep this snapshot across host Reset Enter/Exit so a running
+  // title cannot lose its mapper or persistence identity.
+  reg        footer_color_sys = 1'b0;
+  reg [ 7:0] footer_romtype_sys = 8'h00;
+  reg [ 7:0] footer_ramtype_sys = 8'h00;
+
+  always @(posedge clk_sys_36_864) begin
+    if (cart_download_sys) begin
+      footer_color_sys   <= lastdata[4][8];
+      footer_romtype_sys <= lastdata[1][15:8];
+      footer_ramtype_sys <= lastdata[2][15:8];
+    end
+  end
 
   reg        ioctl_wr_1 = 0;
   reg        cart_download_mem_previous = 1'b0;
@@ -456,6 +476,19 @@ module wonderswan (
   wire reset = ~reset_n_sys | cart_download_sys | clearing_save_sys | external_reset;
   assign execution_ready = ~reset;
 
+  // System Type is a boot-time machine selection. Pocket may write the
+  // persistent menu value while a title is already running, but changing the
+  // active model live would immediately alter memory, DMA, EEPROM, and video
+  // behavior. Capture the requested value only while the console is held in
+  // reset; Reset Exit is already fenced until the complete settings snapshot
+  // has crossed into this clock domain.
+  reg [1:0] configured_system_active = 2'b00;
+  always @(posedge clk_sys_36_864) begin
+    if (reset) begin
+      configured_system_active <= configured_system;
+    end
+  end
+
   reg paused;
   always_ff @(posedge clk_sys_36_864) begin
     paused <= syncpaused;
@@ -472,14 +505,17 @@ module wonderswan (
     end
   end
 
-  wire isColor = (configured_system == 0) ? (lastdata[4][8] | colorcart_downloaded) : (configured_system == 2'b10);
+  wire isColor = (configured_system_active == 0) ?
+                 (footer_color_sys | colorcart_downloaded) :
+                 (configured_system_active == 2'b10);
 
   reg [79:0] time_dout = 80'd0;
   wire [79:0] time_din;
   assign time_din[42+32+:80-(42+32)] = '0;
   reg                                      RTC_load = 0;
 
-  wire [ 7:0] ramtype = lastdata[2][15:8];
+  wire [ 7:0] ramtype_mem = lastdata[2][15:8];
+  wire [ 7:0] ramtype_sys = footer_ramtype_sys;
 
   wire [15:0]                              eeprom_din;
   wire [15:0] internal_eeprom_din;
@@ -504,6 +540,30 @@ module wonderswan (
   assign console_eeprom_write_complete =
       console_eeprom_wr && !console_eeprom_clearing;
 
+  wire vertical;
+  wire control_key_y1;
+  wire control_key_y2;
+  wire control_key_y3;
+  wire control_key_y4;
+  wire control_key_a;
+  wire control_key_b;
+  apf_control_layout control_layout_mapper (
+      .configured_layout(configured_control_layout),
+      .native_vertical(vertical),
+      .button_a(button_a),
+      .button_b(button_b),
+      .button_x(button_x),
+      .button_y(button_y),
+      .button_trig_l(button_trig_l),
+      .button_trig_r(button_trig_r),
+      .key_y1(control_key_y1),
+      .key_y2(control_key_y2),
+      .key_y3(control_key_y3),
+      .key_y4(control_key_y4),
+      .key_a(control_key_a),
+      .key_b(control_key_b)
+  );
+
   SwanTop SwanTop (
       .clk     (clk_sys_36_864),
       .clk_ram (clk_mem_110_592),
@@ -524,16 +584,16 @@ module wonderswan (
       // Footer byte -3 is the RTC field used by existing software metadata to
       // select Bandai 2003. The old romtype wiring incorrectly used byte -6
       // (the ROM-size code), which happened to be unused by memorymux.
-      .romtype(lastdata[1][15:8]),
-      .ramtype(ramtype),
-      .hasRTC(has_rtc),
+      .romtype(footer_romtype_sys),
+      .ramtype(ramtype_sys),
+      .hasRTC(has_rtc_sys),
 
       // eeprom
       // .eepromWrite(eepromWrite),
       .eeprom_addr(clear_eeprom_write ? clear_save_word_addr[9:0] : sd_buff_addr[10:1]),
       .eeprom_din (clear_eeprom_write ? 16'hFFFF : sd_buff_dout),
       .eeprom_dout(eeprom_din),
-      .eeprom_req (clear_eeprom_write || (saveIsEEPROM && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr)),
+      .eeprom_req (clear_eeprom_write || (save_is_eeprom_mem && (sd_buff_rd || sd_buff_wr) && ~extra_data_addr)),
       .eeprom_rnw (!clear_eeprom_write && ~sd_buff_wr),
 
       .internal_eeprom_bank(internal_eeprom_bank),
@@ -565,17 +625,17 @@ module wonderswan (
       .turbo      (use_cpu_turbo),
 
       // joystick
-      .KeyY1   (vertical ? button_x : button_trig_l),   // Vertical X2
-      .KeyY2   (vertical ? button_a : button_trig_r),   // Vertical X3
-      .KeyY3   (vertical ? button_b : button_x),        // Vertical X4
-      .KeyY4   (vertical ? button_y : button_y),        // Vertical X1
+      .KeyY1   (control_key_y1),                        // Vertical X2
+      .KeyY2   (control_key_y2),                        // Vertical X3
+      .KeyY3   (control_key_y3),                        // Vertical X4
+      .KeyY4   (control_key_y4),                        // Vertical X1
       .KeyX1   (dpad_up),                               // Horizontal up, vertical Y2
       .KeyX2   (dpad_right),                            // Horizontal right, vertical Y3
       .KeyX3   (dpad_down),                             // Horizontal down, vertical Y4
       .KeyX4   (dpad_left),                             // Horizontal left, vertical Y1
       .KeyStart(button_start),
-      .KeyA    (~vertical ? button_a : button_trig_l),
-      .KeyB    (~vertical ? button_b : button_trig_r),
+      .KeyA    (control_key_a),
+      .KeyB    (control_key_b),
 
       // RTC
       .RTC_timestampNew(rtc_epoch_valid),
@@ -627,7 +687,6 @@ module wonderswan (
   wire buffervideo =
       use_triple_buffer_applied | (flickerblend_applied != 2'd0);
 
-  wire vertical;
   reg hs, vs, hbl, vbl, ce_pix;
   reg [7:0] r, g, b;
   wire [8:0] x, y;
@@ -792,10 +851,9 @@ module wonderswan (
   wire candidate_uses_live_orientation =
       !framebank_protect_pending && producer_frame_done;
 
-  // Presentation follows the orientation stored beside the frame that owns
-  // the pixels. The live `vertical` signal remains connected directly to the
-  // emulated keypad and GPU; Pocket-only buffering must never delay or force
-  // game-visible input behavior.
+  // Presentation follows the native orientation stored beside the frame that
+  // owns the pixels. Control Layout is consumed only by the keypad mapper
+  // above and must never enter this display-orientation path.
   apf_frame_orientation frame_orientation (
       .clk(clk_sys_36_864),
       .reset(reset),
@@ -921,44 +979,26 @@ module wonderswan (
 
   ///////////////////////////// Fast Forward Latch /////////////////////////////////
 
-  reg fast_forward;
-  reg ff_latch;
-
-  wire fastforward = button_select && !ioctl_download;
+  wire fast_forward;
   wire ff_on;
 
-  always @(posedge clk_sys_36_864) begin : ffwd
-    reg last_ffw;
-    reg ff_was_held;
-    longint ff_count;
-
-    last_ffw <= fastforward;
-
-    if (fastforward) ff_count <= ff_count + 1;
-
-    if (~last_ffw & fastforward) begin
-      ff_latch <= 0;
-      ff_count <= 0;
-    end
-
-    if ((last_ffw & ~fastforward)) begin  // 32mhz clock, 0.2 seconds
-      ff_was_held <= 0;
-
-      if (ff_count < 6400000 && ~ff_was_held) begin
-        ff_was_held <= 1;
-        ff_latch <= 1;
-      end
-    end
-
-    fast_forward <= (fastforward | ff_latch);
-  end
+  // Host/external reset, a new cartridge, or loss of physical-input ownership
+  // clears the complete gesture history.  PocketOS focus does not pause the
+  // emulated console; it only removes physical controls and Fast Forward.
+  apf_fast_forward_control fast_forward_control (
+      .clk(clk_sys_36_864),
+      .reset_n(reset_n_sys),
+      .clear_state(external_reset || cart_download_sys || physical_input_blocked),
+      .button_select(button_select),
+      .fast_forward(fast_forward)
+  );
 
   /////////////////////////  SRAM/EEPROM SAVE/LOAD  /////////////////////////////
   reg did_receive_sys_rtc = 0;
   reg is_save_rtc_ready = 0;
   reg rtc_load_delivered = 0;
 
-  wire [20:0] rtc_data_offset = sd_buff_addr - save_size_bytes;
+  wire [20:0] rtc_data_offset = sd_buff_addr - save_size_bytes_sys;
   wire rtc_trailer_begin;
   wire rtc_payload_write;
   wire [2:0] rtc_payload_index;
@@ -967,31 +1007,53 @@ module wonderswan (
 
   // Canonical footer RTC value 01 declares the optional RTC trailer and
   // selects the Bandai 2003 register extensions in memorymux.
-  assign has_rtc = lastdata[1][15:8] == 8'h01;
+  wire has_rtc_mem = lastdata[1][15:8] == 8'h01;
+  wire has_rtc_sys = footer_romtype_sys == 8'h01;
+  assign has_rtc = has_rtc_mem;
 
-  wire saveIsSRAM = (ramtype == 8'h01) || (ramtype == 8'h02) || (ramtype == 8'h03) || (ramtype == 8'h04) || (ramtype == 8'h05);
-  wire saveIsEEPROM = (ramtype == 8'h10) || (ramtype == 8'h20) || (ramtype == 8'h50);
+  wire save_is_sram_mem = (ramtype_mem == 8'h01) || (ramtype_mem == 8'h02) ||
+                          (ramtype_mem == 8'h03) || (ramtype_mem == 8'h04) ||
+                          (ramtype_mem == 8'h05);
+  wire save_is_eeprom_mem = (ramtype_mem == 8'h10) || (ramtype_mem == 8'h20) ||
+                            (ramtype_mem == 8'h50);
+  wire save_is_sram_sys = (ramtype_sys == 8'h01) || (ramtype_sys == 8'h02) ||
+                          (ramtype_sys == 8'h03) || (ramtype_sys == 8'h04) ||
+                          (ramtype_sys == 8'h05);
 
   always_comb begin
     save_size_bytes = 20'h00000;
 
-    if (ramtype == 8'h01) save_size_bytes = 20'h08000;
-    if (ramtype == 8'h02) save_size_bytes = 20'h08000;
-    if (ramtype == 8'h03) save_size_bytes = 20'h20000;
-    if (ramtype == 8'h04) save_size_bytes = 20'h40000;
-    if (ramtype == 8'h05) save_size_bytes = 20'h80000;
+    if (ramtype_mem == 8'h01) save_size_bytes = 20'h08000;
+    if (ramtype_mem == 8'h02) save_size_bytes = 20'h08000;
+    if (ramtype_mem == 8'h03) save_size_bytes = 20'h20000;
+    if (ramtype_mem == 8'h04) save_size_bytes = 20'h40000;
+    if (ramtype_mem == 8'h05) save_size_bytes = 20'h80000;
     // EEPROM sizes are exact bytes: 64, 1024, and 512 16-bit words.
-    if (ramtype == 8'h10) save_size_bytes = 20'h00080;
-    if (ramtype == 8'h20) save_size_bytes = 20'h00800;
-    if (ramtype == 8'h50) save_size_bytes = 20'h00400;
+    if (ramtype_mem == 8'h10) save_size_bytes = 20'h00080;
+    if (ramtype_mem == 8'h20) save_size_bytes = 20'h00800;
+    if (ramtype_mem == 8'h50) save_size_bytes = 20'h00400;
+  end
+
+  logic [19:0] save_size_bytes_sys;
+  always_comb begin
+    save_size_bytes_sys = 20'h00000;
+
+    if (ramtype_sys == 8'h01) save_size_bytes_sys = 20'h08000;
+    if (ramtype_sys == 8'h02) save_size_bytes_sys = 20'h08000;
+    if (ramtype_sys == 8'h03) save_size_bytes_sys = 20'h20000;
+    if (ramtype_sys == 8'h04) save_size_bytes_sys = 20'h40000;
+    if (ramtype_sys == 8'h05) save_size_bytes_sys = 20'h80000;
+    if (ramtype_sys == 8'h10) save_size_bytes_sys = 20'h00080;
+    if (ramtype_sys == 8'h20) save_size_bytes_sys = 20'h00800;
+    if (ramtype_sys == 8'h50) save_size_bytes_sys = 20'h00400;
   end
 
   apf_rtc_save_loader rtc_save_loader (
       .clk                 (clk_sys_36_864),
       .reset_title         (cart_download_sys),
-      .has_rtc             (has_rtc),
-      .legacy_padded_type  ((ramtype == 8'h10) || (ramtype == 8'h50)),
-      .save_size_bytes     (save_size_bytes),
+      .has_rtc             (has_rtc_sys),
+      .legacy_padded_type  ((ramtype_sys == 8'h10) || (ramtype_sys == 8'h50)),
+      .save_size_bytes     (save_size_bytes_sys),
       .sd_buff_wr          (sd_buff_wr),
       .sd_buff_addr        (sd_buff_addr),
       .sd_buff_dout        (sd_buff_dout),
@@ -1041,7 +1103,7 @@ module wonderswan (
   end
 
   wire [127:0] time_din_h = {32'd0, time_din, "RT"};
-  assign canonical_rtc_read = has_rtc && (rtc_data_offset < 21'd12);
+  assign canonical_rtc_read = has_rtc_sys && (rtc_data_offset < 21'd12);
   wire [2:0] rtc_read_word_index = canonical_rtc_read ? rtc_data_offset[3:1] : 3'd0;
   // Word addressing (3:1), clamped before the variable part select.
   wire [15:0] sd_buff_din_time = time_din_h[{rtc_read_word_index, 4'b0000}+:16];

@@ -41,10 +41,12 @@ SETTING_CONTRACT = {
     "orientation": (43, "list", "0x208", {0, 1, 2}),
     "landscape_180": (44, "check", "0x20C", {0, 1}),
     "color_profile": (45, "list", "0x210", {0, 1}),
+    "control_layout": (46, "list", "0x214", {0, 1, 2}),
     "fast_forward_audio": (81, "check", "0x300", {0, 1}),
 }
 
 ORIENTATION_VALUES = {"auto": 0, "horizontal": 1, "vertical": 2}
+CONTROL_LAYOUT_VALUES = {"auto": 0, "horizontal": 1, "vertical": 2}
 # "3-frame" remains an explicit compatibility alias for the old menu wording.
 # Mode 2 is a finite three-frame LCD-response model, not infinite persistence.
 FLICKER_VALUES = {"off": 0, "2-frame": 1, "persistence": 2, "3-frame": 2}
@@ -70,6 +72,7 @@ class PresetError(ValueError):
 @dataclass(frozen=True)
 class PresetOptions:
     orientation: str = "auto"
+    control_layout: str = "auto"
     landscape_180: str = "off"
     color_profile: str = "raw"
     triple_buffer: str = "on"
@@ -180,6 +183,7 @@ def build_interact_document(
         "triple_buffer": SWITCH_VALUES[options.triple_buffer],
         "flicker": FLICKER_VALUES[options.flicker],
         "orientation": ORIENTATION_VALUES[options.orientation],
+        "control_layout": CONTROL_LAYOUT_VALUES[options.control_layout],
         "landscape_180": SWITCH_VALUES[options.landscape_180],
         "color_profile": COLOR_PROFILE_VALUES[options.color_profile],
         "fast_forward_audio": SWITCH_VALUES[options.fast_forward_audio],
@@ -335,6 +339,7 @@ def generate_presets(
     # Validate enum-like dataclass fields even when called as a library.
     choices = {
         "orientation": ORIENTATION_VALUES,
+        "control_layout": CONTROL_LAYOUT_VALUES,
         "landscape_180": SWITCH_VALUES,
         "color_profile": COLOR_PROFILE_VALUES,
         "triple_buffer": SWITCH_VALUES,
@@ -391,6 +396,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--definitions", type=pathlib.Path, default=DEFAULT_DEFINITIONS)
     parser.add_argument("--core-id", default=DEFAULT_CORE_ID)
     parser.add_argument("--orientation", choices=ORIENTATION_VALUES, default="auto")
+    parser.add_argument(
+        "--control-layout",
+        choices=CONTROL_LAYOUT_VALUES,
+        default="auto",
+        help=(
+            "WonderSwan keypad mapping only; Auto follows the game's native "
+            "horizontal/vertical mode without changing display orientation"
+        ),
+    )
     parser.add_argument("--landscape-180", choices=SWITCH_VALUES, default="off")
     parser.add_argument(
         "--color-profile", choices=COLOR_PROFILE_VALUES, default="raw"
@@ -428,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     options = PresetOptions(
         orientation=arguments.orientation,
+        control_layout=arguments.control_layout,
         landscape_180=arguments.landscape_180,
         color_profile=arguments.color_profile,
         triple_buffer=arguments.triple_buffer,
