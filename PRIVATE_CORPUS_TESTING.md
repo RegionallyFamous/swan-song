@@ -16,7 +16,7 @@ outside the normal `Documents` tree:
 │   ├── roms/             # uncompressed regular .ws/.wsc files only
 │   ├── results/          # resumable, sanitized per-case certificates
 │   └── work/             # ephemeral private ROM/BIOS copies and RGB frames
-└── reports/              # sanitized inventory and run summaries
+└── reports/              # sanitized import, inventory, and run summaries
 ```
 
 Managed directories and a new local HMAC key are created with `0700`/`0600`
@@ -32,6 +32,45 @@ Compact non-power-of-two images also need a consistent declared mapper
 aperture.
 Any custom `--lab-root` that resolves inside this repository is rejected before
 the runner creates a directory or file.
+
+## Import owner-supplied ZIPs
+
+`scripts/import_private_corpus.py` safely stages No-Intro-style ZIP collections
+into the same lab. Dry-run is the default: it creates only the owner-only lab,
+local HMAC key, and sanitized `reports/corpus-import.json`. Add `--apply` only
+after reviewing its opaque counts. ROM and BIOS bytes are never written to the
+repository or sent over a network.
+
+Each ROM ZIP must contain exactly one regular `.ws` or `.wsc` member. The
+importer rejects source or archive symlinks, traversal names, encrypted
+members, duplicate member names, multiple regular members, unsupported
+compression, excessive entry counts, compressed or expanded size limits,
+unsafe expansion ratios, invalid cartridge footers, and bad cartridge
+checksums. Accepted ROMs are deduplicated using the lab's secret-keyed identity
+and stored under generic `rom-<opaque-id>.ws` or `.wsc` names. Reports contain
+no input path, member name, title, raw content hash, or bytes.
+
+Use explicit BIOS options to remove manual setup. The mono archive must contain
+one regular 4,096-byte member and the Color archive one regular 8,192-byte
+member. They are written only as `private/bios/bw.rom` and `color.rom`.
+
+```sh
+python3 scripts/import_private_corpus.py \
+  "$HOME/Owned ROMs/WonderSwan" \
+  "$HOME/Owned ROMs/WonderSwan Color" \
+  --bios-mono "$HOME/Owned ROMs/WonderSwan/mono-bios.zip" \
+  --bios-color "$HOME/Owned ROMs/WonderSwan Color/color-bios.zip"
+
+# Repeat the identical command with --apply after the dry-run succeeds.
+```
+
+For a small known-problem pass, `--select TEXT` may be repeated, `--exclude
+TEXT` removes matches, and `--limit N` caps the deterministic selection. The
+terms are used only in memory and the report records only how many were
+supplied. Applying is all-or-nothing when any source, archive, image, or
+existing destination is rejected. Existing byte-identical opaque ROM or exact
+BIOS files are accepted without rewriting; conflicting destinations fail
+closed.
 
 Inventory without executing any cartridge:
 
