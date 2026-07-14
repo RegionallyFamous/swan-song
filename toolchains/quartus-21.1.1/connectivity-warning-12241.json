@@ -1,0 +1,52 @@
+{
+  "allowlist": {
+    "path": "toolchains/quartus-21.1.1/connectivity-warning-12241.tsv",
+    "rows": 122,
+    "sha256": "ebb7439084df6d3e51c5d6cc026b12f2814bd9057e952f41407084d9f0ca300c"
+  },
+  "magic": "SWAN_SONG_QUARTUS_CONNECTIVITY_POLICY_V1",
+  "quartus_version": "21.1.1 Build 850 Lite Edition",
+  "reviewed_map_report_sha256": "ac60095e06f7ea842aa7e817282f22a7c46305db48876237913d85f7a3e4716a",
+  "reviewed_inventory": {
+    "allowed_rows": 122,
+    "excluded_defects": [
+      {
+        "details": "Input port expression (32 bits) is wider than the input port (1 bits) it drives.  The 31 most-significant bit(s) in the expression will be dangling if they have no other fanouts.",
+        "hierarchy": "core_top:ic|mf_pllbase:mp1",
+        "port": "rst",
+        "resolution": "PLL_AUTO_RESET ON with a sized inactive external reset input",
+        "type": "Input"
+      }
+    ],
+    "sha256": "4a3ea4278193ed20ad3690e0576983f2cf961a3a95f7425be377c8641dcfee7a",
+    "warning_rows": 123
+  },
+  "reviewed_source_commit": "206198b3d81baa0c5c3b08532de46cab33d7bec8",
+  "reviewed_workflow_run_id": 29316623082,
+  "source_bindings": {
+    "src/fpga/ap_core.qsf": "d6fbea6853319c9e33b7892d52225f5dcef4bfeb08387e3faf33025388a5c897",
+    "src/fpga/apf/apf.qip": "252741535c1572cb58c59ddcf245ad7bb707f7d1ed738bfef1d090b2729f4fb2",
+    "src/fpga/apf/apf_top.v": "7b7af3e30b8627463750cad80f6713fb7984358b45000b6100f58ec3ec6d5e95",
+    "src/fpga/apf/common.v": "118954fe6623fe67dea38fdde553c6c40412a5f3737c3f83c7d9282c8e1bc374",
+    "src/fpga/apf/io_bridge_peripheral.v": "fb9c13e0311ac6b01019898d0ca7786f370228380356fe618fc2b473f2add17d",
+    "src/fpga/apf/io_pad_controller.v": "bea73782a1fc07ab347b571f7130337da30543fcdaee55b84e46f966c6109946",
+    "src/fpga/apf/mf_datatable.qip": "ea4b6875e12a79823c709566c52a48ccfc61af68cc587b73f2249820d4abec5a",
+    "src/fpga/apf/mf_datatable.v": "626002917f9928ee50277d51493c376d00102ac1b0b6996aeabc0102a598ec96",
+    "src/fpga/apf/mf_ddio_bidir_12.qip": "32e946cba208d535d97e8b8ec4e8d4739a9241085da92374e4e677ce7aadd49e",
+    "src/fpga/apf/mf_ddio_bidir_12.v": "73674edb40a6314f9b00829942bedcad9e183515bcdbb327095f96401799c536",
+    "src/fpga/core/core_bridge_cmd.v": "118bdef20c036551a72353aa647176a2e0426bf67f89267d76e30bce913873c8",
+    "src/fpga/core/core_top.v": "bf2672315f92b27dc0156ad7b7e41d5ddd22e31c5ef8191dbf004574771bb283",
+    "src/fpga/core/data_loader.sv": "72c8266416058eefcca8fd7213bf229d3d1a9dbab1e555148a6eed685f6cf75b",
+    "src/fpga/core/mf_pllbase.qip": "5299a32bbc86fbf3448c39f57d4eb23c036ae177c1914b442aa9c06430979c6f",
+    "src/fpga/core/mf_pllbase.v": "9c1d8c815e6063a62479668aebd042d66e0d240bed1cc43ed90efb01514658be",
+    "src/fpga/core/mf_pllbase/mf_pllbase_0002.qip": "33230798f67fb4221a4d6f66fa4c98930817e221300c6495b3d8e42852a23ae0",
+    "src/fpga/core/mf_pllbase/mf_pllbase_0002.v": "51b46d3fa8d33f081c754922e571c7d8ab29da1f7176948ca78c66f50dcdc702",
+    "src/fpga/core/rtl/sdram.sv": "7d90d8eba2ac49abdd5fd6b6b96b44a0d3d480f9951eedf51a76bc571a1cecb1",
+    "src/fpga/core/rtl/swanTop.vhd": "17cab58d503b7e41db42e026e5f4bc8691c6b6b23bcfc19150992c19d9e10889",
+    "src/fpga/core/save_state_controller.sv": "7864d590773cf1028e0983b0518a029b74797c812af7e39c86f75c72ce74e434",
+    "src/fpga/core/sound_i2s.sv": "7772fee5af5291ea787b37a33313160cf1c001781e172e13c61fdd152a920c08",
+    "src/fpga/core/sync_fifo.sv": "c5b46682f8c50bac18ca4a8ceb5f91aa3fc08d5d54c0cff2057220b750fd24d0",
+    "src/fpga/core/wonderswan.sv": "3cc8b3ef7e65858aff8e20c20d9f4f532a8e05d550aa9f031f30d0250ac6901e"
+  },
+  "warning_id": 12241
+}
