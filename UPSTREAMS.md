@@ -97,13 +97,36 @@ The Pocket adaptation removed the clearest program-level notice, many files
 remain unheaded, and the top-level `LICENSE` is only a copy of the GPL v2 text.
 The FSF advises that merely putting a GPL copy in a repository does not clearly
 apply it to particular code
-([guidance](https://www.gnu.org/licenses/gpl-faq.en.html#CopyingLicense)). The
-tree also does not include the GPL v3 license text requested by the two explicit
-GPL v3-or-later file notices. Before publishing a new bitstream, obtain a
-maintainer/copyright-holder confirmation of the intended whole-project license,
-restore or normalize notices with their approval, include every required
-license text, and review the APF and Intel-generated-file terms. No inherited
-notice has been changed by this audit.
+([guidance](https://www.gnu.org/licenses/gpl-faq.en.html#CopyingLicense)).
+
+The 2026-07-14 package audit added the missing complete GPLv3 text, retained
+GPLv2 text, exact Adam Gastineau/Peter Lemon MIT notices, the complete APF
+header, and an Intel/Altera generated-material warning to every package. The
+strict `LICENSE-MANIFEST.json` binds those seven files by SHA-256 and records
+seven unresolved review IDs. Release mode now rejects an incomplete manifest
+even if the older policy authorization boolean is changed. This fixes missing
+notice mechanics; it does **not** make a license selection or authorize a
+release. The exact blockers and rights-holder request drafts are in
+[`LICENSING.md`](LICENSING.md).
+
+Analogue's official [developer overview](https://www.analogue.co/developer/docs/overview)
+describes an openFPGA core as an FPGA bitstream plus definitions and expressly
+describes packaging cores as SD-card ZIP files. The pinned APF header separately
+incorporates Analogue's
+[August 14, 2022 EULA](https://assets.analogue.co/pdf/43478bf701eb4905172acbecc3babae9/Analogue%2BEULA%2BAugust%2B14%2B2022.pdf)
+(SHA-256
+`1a2a6d89bbeefc37b5ebe8839daa77ed04d7f2e5b842e0169ca5c06bb392d173`)
+and says applicable MIT/GPL terms prevail where inconsistent. EULA section 2
+permits developers to market, sell, or distribute Developer Applications, but
+also restricts publishing, copying, or modifying the underlying Analogue
+Software. Those primary facts establish compiled-core distribution as an
+intended workflow while leaving modified APF source and combined terms for
+review. Intel's official
+[IP licensing page](https://www.intel.com/content/www/us/en/support/programmable/support-resources/intellectual-property/megacore-ip.html)
+likewise says the applicable Intel agreements govern Quartus and FPGA IP. The
+final release therefore still requires clarification of modified APF source,
+review of the Quartus Prime Lite 21.1.1 terms, and confirmation that the final
+assembler report contains no evaluation/time-limited IP.
 
 The Pocket `core.json` declares `chip32.bin`, but the source checkout does not
 carry that generated file. The official
@@ -118,11 +141,19 @@ The checked-in hexadecimal image preserves that exact output so packaging is
 offline and host-independent; the build verifies both the assembly and decoded
 image identities before including it.
 
-The checked-in `testroms/` tree is byte-identical to the pinned MiSTer
-`testroms/` directory. Those individual test files do not carry separate
-license headers or declarations; their only repository-level license material
-is MiSTer's top-level GPL v2 text, so their intended grant is not independently
-stated. The directory contains no commercial game ROM.
+The 19 checked-in files under `testroms/spritepriority`,
+`testroms/timingtest`, and `testroms/windowtest` are byte-identical to the
+same paths in pinned MiSTer commit
+`8f7a4d670b4635eda0e518e7fd9a17ef8610db79`. Robert Peip introduced the
+timing/window set in `30f74aa4c02856763721a2ed00c8feed55300893` and the
+sprite-priority set in `921240c3c4f67f545e52efe2050a288cfc2f4f2d`.
+Those files and commit messages do not carry separate license declarations;
+their only repository-level license material is MiSTer's top-level GPL v2
+text, so the manifest records `NOASSERTION` instead of inferring a grant.
+Every path, SHA-256, and introducing commit is recorded in the packaged
+`LICENSE-MANIFEST.json`. These legacy files contain no commercial game ROM
+and are not placed in the Pocket package, but they still require a grant or
+removal/replacement before a release source bundle includes them.
 
 The regression's bank and provenance probes are generated under `build/` and
 are never checked in. They contribute new minimal 80186 programs and copy only

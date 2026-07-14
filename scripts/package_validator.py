@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from license_manifest import validate_license_manifest
+
 
 CORE_RELATIVE = pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong")
 PLATFORM_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_]{0,14}\Z")
@@ -45,6 +47,16 @@ REQUIRED_FILES = {
     )),
     "Platforms/wonderswan.json",
     "Platforms/_images/wonderswan.bin",
+    *(f"{CORE_RELATIVE}/{name}" for name in (
+        "COPYING-GPL-2.0.txt",
+        "COPYING-GPL-3.0.txt",
+        "LICENSE-MANIFEST.json",
+        "LICENSE-MIT-Adam-Gastineau.txt",
+        "LICENSE-MIT-Peter-Lemon.txt",
+        "NOTICE-Analogue-APF.txt",
+        "NOTICE-Intel-FPGA.txt",
+        "THIRD-PARTY-NOTICES.txt",
+    )),
 }
 OPTIONAL_FILES = {
     "Assets/wonderswan/common/.gitkeep",
@@ -734,6 +746,7 @@ def validate_distribution(dist: pathlib.Path) -> ValidatedDistribution:
     _validate_video(documents["video"], JSON_FILES["video"])
     _validate_simple_documents(documents)
     _validate_assets(dist)
+    validate_license_manifest(dist)
 
     info_path = dist / CORE_RELATIVE / "info.txt"
     try:

@@ -17,6 +17,7 @@ from quartus_report_text import decode_quartus_report
 import quartus_fit_audit as fit_audit
 
 from build_chip32 import chip32_image, chip32_image_bytes
+from license_manifest import validate_license_manifest
 from package_validator import (
     StrictJsonError,
     ValidatedDistribution,
@@ -1262,6 +1263,11 @@ def create_package(
         if release
         else None
     )
+    verified_licensing = validate_license_manifest(
+        dist,
+        source_root=SOURCE_ROOT if release else None,
+        require_release_ready=release,
+    )
     if release and output.name != definition.recommended_archive_name:
         raise ValueError(
             "release package filename must be " + definition.recommended_archive_name
@@ -1375,6 +1381,7 @@ def create_package(
             },
             "entries": entries,
             "build_evidence": verified_evidence,
+            "license_manifest": verified_licensing,
         }
         if verified_policy is not None:
             package_provenance["release_policy"] = verified_policy

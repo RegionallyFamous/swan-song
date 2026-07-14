@@ -816,6 +816,23 @@ flip `distribution_and_licensing_authorized` without the required licensing,
 build, and hardware review; the core metadata, policy, evidence, and archive
 name must agree in one reviewed release change.
 
+Licensing is an independent fail-closed gate. Every development and release
+ZIP now includes `LICENSE-MANIFEST.json`, both applicable GNU GPL texts, the
+two inherited MIT notices, and the APF/Intel notice records. The manifest
+binds those package files and the 19 inherited MiSTer test assets by SHA-256.
+Release mode requires `licensing_review_complete: true` with no
+`review_required` item; changing only the policy boolean therefore cannot
+publish a package. Validate the current evidence and blocker set with:
+
+```sh
+python3 scripts/license_manifest.py
+python3 scripts/license_manifest_test.py
+```
+
+The checked-in result intentionally remains incomplete. See
+[`LICENSING.md`](LICENSING.md) for the seven exact blocker IDs and draft
+rights-holder requests.
+
 The evidence file is strict JSON with one `release_evidence` object. Release
 mode requires magic `SWAN_SONG_RELEASE_EVIDENCE_V2`; V1 can be parsed only for
 non-release evidence validation and cannot authorize `--release`. V2 records

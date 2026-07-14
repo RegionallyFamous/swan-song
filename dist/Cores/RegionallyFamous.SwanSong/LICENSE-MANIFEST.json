@@ -1,0 +1,494 @@
+{
+  "license_manifest": {
+    "magic": "SWAN_SONG_LICENSE_MANIFEST_V1",
+    "core_id": "RegionallyFamous.SwanSong",
+    "package_notice_files": [
+      {
+        "filename": "COPYING-GPL-2.0.txt",
+        "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+      },
+      {
+        "filename": "COPYING-GPL-3.0.txt",
+        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      },
+      {
+        "filename": "LICENSE-MIT-Adam-Gastineau.txt",
+        "sha256": "4ec6bea3d0f2eecc26874c9bdee7f6e8491191f895f441d4f9e7937fd1fdc0ca"
+      },
+      {
+        "filename": "LICENSE-MIT-Peter-Lemon.txt",
+        "sha256": "eab867517a958dfb849a05b1ed337098b97485f0ef134e3d6423981c3911d828"
+      },
+      {
+        "filename": "NOTICE-Analogue-APF.txt",
+        "sha256": "5cb03c48b7c6e8c16e060158f1e2255ef99e7d4a34ac3b3a9a0fbff1b65c8762"
+      },
+      {
+        "filename": "NOTICE-Intel-FPGA.txt",
+        "sha256": "15ba2be1728f5daeb2e6d5e47953c5706f0e61ac68b43ec4affa5ee0bdd22669"
+      },
+      {
+        "filename": "THIRD-PARTY-NOTICES.txt",
+        "sha256": "88269304a5d45779a1e08adf2916aea6e0d93772a0f583a4e900087d524d37f2"
+      }
+    ],
+    "components": [
+      {
+        "id": "wonderswan-program",
+        "scope": [
+          "src/fpga/core/wonderswan.sv",
+          "src/fpga/core/rtl/IRQ.vhd",
+          "src/fpga/core/rtl/bus_savestates.vhd",
+          "src/fpga/core/rtl/cpu.vhd",
+          "src/fpga/core/rtl/divider.vhd",
+          "src/fpga/core/rtl/dma.vhd",
+          "src/fpga/core/rtl/dpram.vhd",
+          "src/fpga/core/rtl/dummyregs.vhd",
+          "src/fpga/core/rtl/eeprom.vhd",
+          "src/fpga/core/rtl/export.vhd",
+          "src/fpga/core/rtl/gpu.vhd",
+          "src/fpga/core/rtl/gpu_bg.vhd",
+          "src/fpga/core/rtl/joypad.vhd",
+          "src/fpga/core/rtl/memorymux.vhd",
+          "src/fpga/core/rtl/reg_savestates.vhd",
+          "src/fpga/core/rtl/reg_swan.vhd",
+          "src/fpga/core/rtl/registerpackage.vhd",
+          "src/fpga/core/rtl/rtc.vhd",
+          "src/fpga/core/rtl/savestate_ui.sv",
+          "src/fpga/core/rtl/savestates.vhd",
+          "src/fpga/core/rtl/sound.vhd",
+          "src/fpga/core/rtl/sound_module1.vhd",
+          "src/fpga/core/rtl/sound_module2.vhd",
+          "src/fpga/core/rtl/sound_module3.vhd",
+          "src/fpga/core/rtl/sound_module4.vhd",
+          "src/fpga/core/rtl/sound_module5.vhd",
+          "src/fpga/core/rtl/sprites.vhd",
+          "src/fpga/core/rtl/statemanager.vhd",
+          "src/fpga/core/rtl/swanTop.vhd",
+          "src/fpga/core/rtl/swanbios.vhd",
+          "src/fpga/core/rtl/swanbioscolor.vhd"
+        ],
+        "origin": {
+          "repository": "https://github.com/MiSTer-devel/WonderSwan_MiSTer",
+          "commit": "8f7a4d670b4635eda0e518e7fd9a17ef8610db79",
+          "paths": [
+            "WonderSwan.sv",
+            "rtl/*.vhd",
+            "rtl/savestate_ui.sv"
+          ]
+        },
+        "license_expression": "GPL-2.0-or-later",
+        "notice_files": [
+          "COPYING-GPL-2.0.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "MiSTer WonderSwan.sv retains the GPL-2.0-or-later program notice",
+          "Pocket initial commit 8aee749 imported the RTL from MiSTer ccd8c2a"
+        ],
+        "review_status": "review_required",
+        "blocker": "Restore the omitted program notice in the Pocket-derived top level and record the final combined-work review."
+      },
+      {
+        "id": "sorgelig-memory-controllers",
+        "scope": [
+          "src/fpga/core/rtl/ddram.sv",
+          "src/fpga/core/rtl/sdram.sv"
+        ],
+        "origin": {
+          "repository": "https://github.com/MiSTer-devel/WonderSwan_MiSTer",
+          "commit": "8f7a4d670b4635eda0e518e7fd9a17ef8610db79",
+          "paths": [
+            "rtl/ddram.sv",
+            "rtl/sdram.sv"
+          ]
+        },
+        "license_expression": "GPL-3.0-or-later",
+        "notice_files": [
+          "COPYING-GPL-3.0.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "Both current files retain Sorgelig copyright and GPL-3.0-or-later headers"
+        ],
+        "review_status": "documented",
+        "blocker": null
+      },
+      {
+        "id": "agg23-pocket-adaptation",
+        "scope": [
+          "src/fpga/core/core_top.v",
+          "src/fpga/core/save_state_controller.sv",
+          "src/fpga/core/wonderswan.sv",
+          "src/support/chip32.asm"
+        ],
+        "origin": {
+          "repository": "https://github.com/agg23/openfpga-wonderswan",
+          "commit": "073213a2e5992cff23b174d17763cb6354ee862b",
+          "paths": [
+            "src/fpga/core/core_top.v",
+            "src/fpga/core/save_state_controller.sv",
+            "src/fpga/core/wonderswan.sv",
+            "src/support/chip32.asm"
+          ]
+        },
+        "license_expression": "NOASSERTION",
+        "notice_files": [
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "The pinned Pocket repository contains a GPLv2 license text but no project declaration applying it to these adaptation files",
+          "Pocket utility files use separate explicit MIT headers"
+        ],
+        "review_status": "review_required",
+        "blocker": "Obtain or record the copyright holder's intended grant for the Pocket-specific adaptation and preserve the inherited WonderSwan notice."
+      },
+      {
+        "id": "agg23-pocket-utilities",
+        "scope": [
+          "src/fpga/core/data_loader.sv",
+          "src/fpga/core/data_unloader.sv",
+          "src/fpga/core/sound_i2s.sv",
+          "src/fpga/core/sync_fifo.sv"
+        ],
+        "origin": {
+          "repository": "https://github.com/agg23/analogue-pocket-utils",
+          "commit": "78482d1b363606336f4535aa0adc2e957bc20558",
+          "paths": [
+            "ip/data_loader.sv",
+            "ip/data_unloader.sv",
+            "ip/sound_i2s.sv",
+            "ip/sync_fifo.sv"
+          ]
+        },
+        "license_expression": "MIT",
+        "notice_files": [
+          "LICENSE-MIT-Adam-Gastineau.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "Current files retain the complete Adam Gastineau MIT notice"
+        ],
+        "review_status": "documented",
+        "blocker": null
+      },
+      {
+        "id": "chip32-encoding",
+        "scope": [
+          "src/support/chip32.asm",
+          "src/support/chip32.bin.hex",
+          "Cores/RegionallyFamous.SwanSong/chip32.bin"
+        ],
+        "origin": {
+          "repository": "https://github.com/open-fpga/bass-chip32",
+          "commit": "f3ad17dfd541e67b527298808ebef131e979ded4",
+          "paths": [
+            "architectures/chip32.vm.arch"
+          ]
+        },
+        "license_expression": "MIT",
+        "notice_files": [
+          "LICENSE-MIT-Peter-Lemon.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "Pinned bass-chip32 LICENSE identifies Peter Lemon and grants MIT"
+        ],
+        "review_status": "documented",
+        "blocker": null
+      },
+      {
+        "id": "analogue-apf",
+        "scope": [
+          "src/fpga/apf/apf_top.v",
+          "src/fpga/apf/common.v",
+          "src/fpga/apf/io_bridge_peripheral.v",
+          "src/fpga/apf/io_pad_controller.v",
+          "src/fpga/core/core_bridge_cmd.v"
+        ],
+        "origin": {
+          "repository": "https://github.com/open-fpga/core-template",
+          "commit": "da3a021b1eaf742604d86d8dc9b33a6666263e6a",
+          "paths": [
+            "src/fpga/apf/apf_top.v",
+            "src/fpga/apf/common.v",
+            "src/fpga/apf/io_bridge_peripheral.v",
+            "src/fpga/apf/io_pad_controller.v",
+            "src/fpga/core/core_bridge_cmd.v"
+          ]
+        },
+        "license_expression": "LicenseRef-Analogue-APF",
+        "notice_files": [
+          "NOTICE-Analogue-APF.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "APF source headers retain Analogue's Software License Agreement and incorporated EULA reference",
+          "The linked official August 14, 2022 EULA has SHA-256 1a2a6d89bbeefc37b5ebe8839daa77ed04d7f2e5b842e0169ca5c06bb392d173",
+          "EULA section 2 permits marketing, sale, or distribution of Developer Applications while separately restricting publication, copying, and modification of Analogue Software",
+          "Official developer docs describe packaging a core as an SD-card ZIP"
+        ],
+        "review_status": "review_required",
+        "blocker": "Clarify public redistribution of modified APF source and record the final combined-license and notice treatment."
+      },
+      {
+        "id": "intel-altera-generated-material",
+        "scope": [
+          "src/fpga/ap_core.qsf",
+          "src/fpga/ap_core_assignment_defaults.qdf",
+          "src/fpga/apf/build_id_gen.tcl",
+          "src/fpga/apf/mf_datatable.*",
+          "src/fpga/apf/mf_ddio_bidir_12.*",
+          "src/fpga/core/mf_pllbase*",
+          "src/fpga/core/pin_ddio_clk.*"
+        ],
+        "origin": {
+          "repository": "https://github.com/open-fpga/core-template",
+          "commit": "da3a021b1eaf742604d86d8dc9b33a6666263e6a",
+          "paths": [
+            "src/fpga/**"
+          ]
+        },
+        "license_expression": "LicenseRef-Intel-FPGA-Applicable-Agreements",
+        "notice_files": [
+          "NOTICE-Intel-FPGA.txt",
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "Generated/reference files retain Intel or Altera notices referring to applicable agreements"
+        ],
+        "review_status": "review_required",
+        "blocker": "Review exact Quartus Prime Lite 21.1.1 terms and prove the final RBF has no evaluation or time-limited IP."
+      },
+      {
+        "id": "regionally-famous-original-work",
+        "scope": [
+          "Swan Song additions and modifications not covered by a retained third-party notice"
+        ],
+        "origin": {
+          "repository": "https://github.com/RegionallyFamous/swan-song",
+          "commit": null,
+          "paths": [
+            "**"
+          ]
+        },
+        "license_expression": "NOASSERTION",
+        "notice_files": [
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "No explicit Regionally Famous contribution grant is checked in"
+        ],
+        "review_status": "review_required",
+        "blocker": "The owner must declare terms for original contributions and a reviewer must approve the combined-work notice plan."
+      },
+      {
+        "id": "legacy-mister-test-assets",
+        "scope": [
+          "testroms/spritepriority/**",
+          "testroms/timingtest/**",
+          "testroms/windowtest/**"
+        ],
+        "origin": {
+          "repository": "https://github.com/MiSTer-devel/WonderSwan_MiSTer",
+          "commit": "8f7a4d670b4635eda0e518e7fd9a17ef8610db79",
+          "paths": [
+            "testroms/spritepriority/**",
+            "testroms/timingtest/**",
+            "testroms/windowtest/**"
+          ]
+        },
+        "license_expression": "NOASSERTION",
+        "notice_files": [
+          "THIRD-PARTY-NOTICES.txt"
+        ],
+        "evidence": [
+          "All 19 current files are byte-identical to the pinned MiSTer tree",
+          "The adding commits and files contain no separate license statement"
+        ],
+        "review_status": "review_required",
+        "blocker": "Obtain a grant from the rights holder or remove/replace these assets before distributing a release source bundle that contains them."
+      },
+      {
+        "id": "swan-song-explicit-gpl2-simulation",
+        "scope": [
+          "sim/rtl/console_eeprom_roundtrip_tb.vhd",
+          "sim/rtl/dma_gdma_tb.vhd",
+          "sim/rtl/dma_pending_tb.vhd",
+          "sim/rtl/dma_savestate_tb.vhd",
+          "sim/rtl/dpram_sim.vhd",
+          "sim/rtl/eeprom_state_tb.vhd",
+          "sim/rtl/external_eeprom_backing_tb.vhd",
+          "sim/rtl/external_eeprom_done_tb.vhd",
+          "sim/rtl/internal_eeprom_tb.vhd",
+          "sim/rtl/mapper_2003_alias_tb.vhd",
+          "sim/rtl/mapper_2003_flash_ce_tb.vhd",
+          "sim/rtl/rtc_state_tb.vhd",
+          "sim/verilator/input_script.hpp",
+          "sim/verilator/input_script_test.cpp",
+          "sim/verilator/sim_main.cpp",
+          "sim/verilator/trace_logger.hpp",
+          "sim/verilator/trace_logger_test.cpp"
+        ],
+        "origin": {
+          "repository": "https://github.com/RegionallyFamous/swan-song",
+          "commit": null,
+          "paths": [
+            "sim/**"
+          ]
+        },
+        "license_expression": "GPL-2.0-only",
+        "notice_files": [
+          "COPYING-GPL-2.0.txt"
+        ],
+        "evidence": [
+          "Every scoped file carries an SPDX-License-Identifier: GPL-2.0-only header",
+          "The Verilator executable source list excludes the GPL-3.0-or-later ddram.sv and sdram.sv controllers"
+        ],
+        "review_status": "documented",
+        "blocker": null
+      },
+      {
+        "id": "open-wonderful-test-assets",
+        "scope": [
+          "testroms/ws-test-suite/**",
+          "testroms/swan-song/**"
+        ],
+        "origin": {
+          "repository": "https://github.com/asiekierka/ws-test-suite",
+          "commit": "7dfa0e2e869d08386b685d6a56df0bcfaf181b47",
+          "paths": [
+            "src/**"
+          ]
+        },
+        "license_expression": "MIT AND Zlib AND CC0-1.0 AND LicenseRef-Misaki",
+        "notice_files": [],
+        "evidence": [
+          "Each checked-in third-party fixture carries its applicable MIT, zlib, CC0, AthenaOS MIT, or Misaki notice beside the source and binary"
+        ],
+        "review_status": "documented",
+        "blocker": null
+      }
+    ],
+    "requirements": [
+      {
+        "id": "corresponding-source-delivery",
+        "evidence": [
+          "Package provenance records an exact source commit",
+          "No reviewed release record yet proves that exact source is published and retrievable with the binary"
+        ],
+        "review_status": "review_required",
+        "blocker": "Publish and test retrieval of corresponding source for the exact release commit, with build instructions and notices."
+      }
+    ],
+    "release_gate": {
+      "licensing_review_complete": false,
+      "unresolved_ids": [
+        "agg23-pocket-adaptation",
+        "analogue-apf",
+        "corresponding-source-delivery",
+        "intel-altera-generated-material",
+        "legacy-mister-test-assets",
+        "regionally-famous-original-work",
+        "wonderswan-program"
+      ]
+    },
+    "legacy_test_assets": [
+      {
+        "path": "testroms/spritepriority/WonderSwan.inc",
+        "sha256": "29530c937410bb2d7de0c08a41ba6a89ac18ffdb0f01a8f9f909df57709b9321",
+        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
+      },
+      {
+        "path": "testroms/spritepriority/ascii.gfx",
+        "sha256": "1c46e31ebed1d2da208bcddce74a123c38a9411358a786461db0f40a281b47ed",
+        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
+      },
+      {
+        "path": "testroms/spritepriority/build.bat",
+        "sha256": "6d74491e79bc3d60bff99216f27b67981e3eca98c6a170cfeed6fdc2914407d0",
+        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
+      },
+      {
+        "path": "testroms/spritepriority/spritepriority.asm",
+        "sha256": "35327f35a958a9109bc74f7b4b794a0124a1507882e586a0494b24facce005aa",
+        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
+      },
+      {
+        "path": "testroms/spritepriority/spritepriority.ws",
+        "sha256": "a222ed50ae977bcd1ac9bbf66c35b57e589e49b7594a21d07a5eddf899335173",
+        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
+      },
+      {
+        "path": "testroms/timingtest/WonderSwan.inc",
+        "sha256": "b169f66dcc30be40da6cabb978c257a207b34563f8c3a74c6cd8225658d13851",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/ascii.gfx",
+        "sha256": "800e2d6ba4a915dc3cf6cd719f442ab1ad86789413b3af55bb840b1c812f0f3e",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/build.bat",
+        "sha256": "0a93349eee0359338e1f256a45a927215d3bb672a51eb471b6a19568835d80e3",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/testcalls.asm",
+        "sha256": "21909e7e7a78d684e63ca3c185996dab9ba9100b9e89c067f6d12e664e212670",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/tests_op.asm",
+        "sha256": "4178711b981714bb54f8909f059d4a95a2c068b8eec63518bf2046cf56cca4c6",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/tests_special.asm",
+        "sha256": "a333fc49a773a8395a392313c1aa049be82e370d9aad193f906dfe1a1b7b27ca",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/texts.asm",
+        "sha256": "8a8406d4d30abf7293ce67a11e2181a25c9942dc910675e4a6565c730fb3b7ed",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/timingtest.asm",
+        "sha256": "07eaddf5f5d2bc35fb59d0505c22ad0bc6db0aeb2da24f0e764aefb42ff58cda",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/timingtest/timingtest.ws",
+        "sha256": "0302350adbfdb1d758ca653fe63392b26f8fd56f3f565b994a71a285f11270a3",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/windowtest/WonderSwan.inc",
+        "sha256": "29530c937410bb2d7de0c08a41ba6a89ac18ffdb0f01a8f9f909df57709b9321",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/windowtest/ascii.gfx",
+        "sha256": "1c46e31ebed1d2da208bcddce74a123c38a9411358a786461db0f40a281b47ed",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/windowtest/build.bat",
+        "sha256": "8dbcf70009d5961168069cc51899b47474eb5b0f06189279ff969e6b543a01a5",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/windowtest/windowtest.asm",
+        "sha256": "c9f9943c8154dd7f6d2da90e3a701bc6ead932cfb33eb68dd6dd2b19eb7285d0",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      },
+      {
+        "path": "testroms/windowtest/windowtest.ws",
+        "sha256": "3a01f965bc89e3554a3aa4f1cc370d1158f5aeefc219095a04d1598bb189cb68",
+        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
+      }
+    ]
+  }
+}
