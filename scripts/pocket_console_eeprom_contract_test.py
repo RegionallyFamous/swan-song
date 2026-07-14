@@ -72,8 +72,10 @@ def contract_errors(data_document: dict, sources: dict[str, str]) -> list[str]:
             errors.append(f"slot {slot_id} fixed console EEPROM metadata mismatch")
 
     save = slots.get(11, {})
-    if number(save.get("parameters", -1)) != 0x84 or save.get("filename") is not None:
-        errors.append("cartridge slot 11 must remain independent and filename-cloned")
+    if number(save.get("parameters", -1)) != 0x86 or save.get("filename") is not None:
+        errors.append(
+            "cartridge slot 11 must remain core-specific and filename-cloned"
+        )
     if number(save.get("address", -1)) != 0x20000000:
         errors.append("cartridge slot 11 address changed")
 

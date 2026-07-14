@@ -745,6 +745,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
         save = next(slot for slot in slots if number(slot["id"]) == 11)
         parameters = number(save["parameters"])
         self.assertTrue(save["nonvolatile"])
+        self.assertEqual(parameters & (1 << 1), 1 << 1)  # core-specific
         self.assertEqual(parameters & (1 << 2), 1 << 2)  # clone slot-0 filename
         self.assertEqual(parameters & (1 << 3), 0)  # writable
         self.assertEqual(parameters & (1 << 7), 1 << 7)  # safe full restart

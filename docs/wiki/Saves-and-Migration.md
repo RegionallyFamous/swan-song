@@ -14,9 +14,10 @@ copy of a valued save.
 
 Swan Song keeps different data in different places:
 
-1. **Cartridge saves** belong to the selected game. Their Pocket path is
-   mirrored below `/Saves/wonderswan/common/` and is shared by cores using the
-   same WonderSwan platform asset.
+1. **Cartridge saves** belong to the selected game. Swan Song mirrors them
+   below `/Saves/wonderswan/RegionallyFamous.SwanSong/`, preserving the path
+   relative to `/Assets/wonderswan/common/`. The core-specific namespace keeps
+   corrected Swan Song layouts from silently replacing an older core's save.
 2. **Console owner data** belongs to the emulated machine. Swan Song uses
    `/Saves/wonderswan/RegionallyFamous.SwanSong/mono.eeprom` and
    `color.eeprom` for the mono and Color profiles.
@@ -30,9 +31,9 @@ ordinary reset does not intentionally erase either kind of data.
 ## Using Swan Song beside the upstream Pocket core
 
 `RegionallyFamous.SwanSong` and `agg23.WonderSwan` can be installed side by
-side. Their core-owned console data and settings are separate, but their
-platform-common cartridge saves may refer to the same file. Back up before
-opening the same title in both cores, because either core may flush that save.
+side. Their cartridge saves, console data, and settings are separate. A legacy
+save below `/Saves/wonderswan/common/` is not loaded automatically by Swan
+Song. Back up first and use the ROM-aware helper below; do not copy it by hand.
 
 Do not rename one core directory to imitate the other. Do not manually copy a
 Pocket Memories blob between the two identities.
@@ -63,13 +64,21 @@ Read the complete [core-ID migration
 guide](https://github.com/RegionallyFamous/swan-song/blob/main/CORE_ID_MIGRATION.md)
 before applying anything.
 
-## Legacy cartridge-save conversion
+## Legacy cartridge-save migration
 
-Some older Pocket saves used padded or noncanonical lengths. Swan Song's
-developer tooling provides non-destructive conversion commands and keeps
-supported legacy EEPROM reads separate from canonical writes. Do not trim a
-save by hand. See [Building and testing: save
-migration](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md#migrating-legacy-type-01-pocket-saves).
+Some older Pocket saves used padded or noncanonical lengths. Preview the
+ROM-aware, no-clobber migration tool for one game before using `--all`:
+
+```sh
+python3 scripts/migrate_cartridge_save_namespace.py \
+  --sd-root "/Volumes/POCKET" \
+  --select "Folder/Game.wsc"
+```
+
+It validates the matching ROM footer/checksum and recognized save layout,
+leaves the shared source unchanged, and never overwrites a destination. See
+the complete [Cartridge Save Migration
+guide](https://github.com/RegionallyFamous/swan-song/blob/main/CARTRIDGE_SAVE_MIGRATION.md).
 
 ## Memories and Sleep/Wake
 
