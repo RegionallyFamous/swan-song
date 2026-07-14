@@ -37,6 +37,7 @@ from stage_pocket_sd import (
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSEMBLY = ROOT / "src/support/chip32.asm"
 ENCODED_IMAGE = ROOT / "src/support/chip32.bin.hex"
+EXPECTED_PLAN_FILE_COUNT = 23
 
 
 class StagePocketSDTest(unittest.TestCase):
@@ -113,10 +114,35 @@ class StagePocketSDTest(unittest.TestCase):
     def release_fixture(
         self,
     ) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, str, str, str, str]:
-        definition = validate_distribution(ROOT / "dist")
+        release_dist = self.root / "release-dist"
+        shutil.copytree(ROOT / "dist", release_dist)
+        manifest_path = (
+            release_dist
+            / "Cores/RegionallyFamous.SwanSong/LICENSE-MANIFEST.json"
+        )
+        manifest_document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = manifest_document["license_manifest"]
+        for component in manifest["components"]:
+            if component["review_status"] == "review_required":
+                component["review_status"] = "documented"
+                component["blocker"] = None
+                if component["license_expression"] == "NOASSERTION":
+                    component["license_expression"] = "LicenseRef-Test-Reviewed"
+        for requirement in manifest["requirements"]:
+            requirement["review_status"] = "documented"
+            requirement["blocker"] = None
+        manifest["release_gate"] = {
+            "licensing_review_complete": True,
+            "unresolved_ids": [],
+        }
+        manifest_path.write_text(
+            json.dumps(manifest_document, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        definition = validate_distribution(release_dist)
         package = self.root / definition.recommended_archive_name
         create_package(
-            dist=ROOT / "dist",
+            dist=release_dist,
             rbf=self.rbf,
             output=package,
             chip32_assembly=ASSEMBLY,
@@ -177,8 +203,8 @@ class StagePocketSDTest(unittest.TestCase):
         }
         tracked: dict[str, dict[str, object]] = {}
         directories: list[str] = []
-        for path in sorted((ROOT / "dist").rglob("*")):
-            relative = "dist/" + path.relative_to(ROOT / "dist").as_posix()
+        for path in sorted(release_dist.rglob("*")):
+            relative = "dist/" + path.relative_to(release_dist).as_posix()
             if path.is_dir():
                 directories.append(relative)
                 continue
@@ -285,7 +311,7 @@ class StagePocketSDTest(unittest.TestCase):
 
     def test_apply_rolls_back_after_every_atomic_write_boundary(self) -> None:
         original_atomic_write = staging._atomic_write_at
-        for fail_at in range(1, 16):
+        for fail_at in range(1, EXPECTED_PLAN_FILE_COUNT + 1):
             with self.subTest(fail_at=fail_at):
                 stage = self.root / f"transaction-{fail_at}"
                 managed_parent = stage / "Cores/RegionallyFamous.SwanSong"
@@ -301,7 +327,7 @@ class StagePocketSDTest(unittest.TestCase):
                     )
                 before = self.tree_snapshot(stage)
                 plan = self.plan(staging_dir=stage)
-                self.assertEqual(len(plan.files), 15)
+                self.assertEqual(len(plan.files), EXPECTED_PLAN_FILE_COUNT)
                 calls = 0
 
                 def fail_after_replace(
@@ -413,7 +439,7 @@ class StagePocketSDTest(unittest.TestCase):
                 expected_identity=expected_identity,
                 on_replace=on_replace,
             )
-            if not replaced:
+            if not replaced and name == "audio.json":
                 replacement_identity = original_atomic_write(
                     directory,
                     name,
@@ -821,6 +847,15 @@ class StagePocketSDTest(unittest.TestCase):
         with self.assertRaisesRegex(StagingError, "inventory"):
             self.plan(provenance=inventory)
 
+        document = json.loads(self.provenance.read_text(encoding="utf-8"))
+        document["package_provenance"]["license_manifest"][
+            "component_count"
+        ] += 1
+        license_mismatch = self.root / "license-mismatch.json"
+        license_mismatch.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(StagingError, "license manifest provenance"):
+            self.plan(provenance=license_mismatch)
+
     def test_stale_checkout_definitions_and_foreign_identity_are_rejected(self) -> None:
         stale_dist = self.root / "stale-dist"
         shutil.copytree(ROOT / "dist", stale_dist)
@@ -1042,6 +1077,27 @@ class StagePocketSDTest(unittest.TestCase):
                         "provenance": malformed,
                         "expected_provenance_sha256": hashlib.sha256(
                             malformed.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+            license_document = json.loads(provenance.read_text(encoding="utf-8"))
+            license_document["package_provenance"]["license_manifest"][
+                "requirement_count"
+            ] += 1
+            license_mismatch = self.root / "release-license-mismatch.json"
+            license_mismatch.write_text(
+                json.dumps(license_document), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                StagingError, "release license manifest provenance"
+            ):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": license_mismatch,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            license_mismatch.read_bytes()
                         ).hexdigest(),
                     }
                 )
