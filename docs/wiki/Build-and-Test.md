@@ -66,6 +66,11 @@ The private corpus stays outside the repository in a permission-restricted
 folder. Public summaries use opaque identifiers and exclude filenames, raw
 hashes, ROM bytes, screenshots, traces, and logs.
 
+The local ZIP importer is dry-run by default, validates and deduplicates ROMs,
+and can safely install exact-size owner-supplied mono and Color BIOS archives.
+Only an explicit `--apply` writes bytes, and then only under the private lab;
+no ROM or BIOS is uploaded.
+
 Do not upload a commercial ROM or BIOS to GitHub, DigitalOcean, Railway, CI,
 or a collaborator. The local runner's purpose, checks, privacy model, and
 limitations are documented in [Private local ROM-corpus
