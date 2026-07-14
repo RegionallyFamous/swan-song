@@ -1,9 +1,9 @@
 # Per-game Pocket presets
 
 Swan Song can use Analogue Platform Framework (APF) per-asset overrides to give
-each WonderSwan ROM its own video, performance, and audio defaults plus a
-path-mirrored Controls description. Swan Song is maintained by Regionally
-Famous and the generator defaults to APF core ID
+each WonderSwan ROM its own video, control-layout, performance, and audio
+defaults plus a path-mirrored Controls description. Swan Song is maintained by
+Regionally Famous and the generator defaults to APF core ID
 `RegionallyFamous.SwanSong`.
 The repository includes a deterministic generator:
 
@@ -12,6 +12,7 @@ python3 scripts/pocket_per_game_preset.py \
   --sd-root /Volumes/POCKET \
   --asset "Vertical/Example.wsc" \
   --orientation vertical \
+  --control-layout vertical \
   --color-profile ares \
   --triple-buffer on \
   --lcd-response persistence \
@@ -75,6 +76,7 @@ only these `defaultval` fields changed:
 | Setting | CLI option | Choices |
 | --- | --- | --- |
 | Display Orientation | `--orientation` | `auto`, `horizontal`, `vertical` |
+| Control Layout | `--control-layout` | `auto`, `horizontal`, `vertical` |
 | Landscape 180 degrees | `--landscape-180` | `off`, `on` |
 | Color profile | `--color-profile` | `raw`, `ares` |
 | Triple Buffer | `--triple-buffer` | `off`, `on` |
@@ -91,6 +93,37 @@ Triple Buffer is off. Forced
 vertical presentation takes precedence over Landscape 180 degrees, so the tool
 rejects that ineffective combination instead of silently accepting it.
 
+### Control Layout is controls-only
+
+**Control Layout** and **Display Orientation** are independent settings:
+
+- `auto` follows the running game's native horizontal or vertical orientation;
+- `horizontal` keeps the horizontal face/shoulder-button arrangement; and
+- `vertical` keeps the portrait-style face/shoulder-button arrangement.
+
+Control Layout changes only how Pocket or normalized Dock A, B, X, Y, L, and R
+feed the WonderSwan keypad. Start, Fast Forward, and the game-native D-pad path
+do not change. It does not rotate or mirror the picture, alter the emulated
+game's orientation, or react to how the player physically turns Pocket. Use
+**Display Orientation** and **Landscape 180 degrees** for presentation.
+
+To choose a default layout for one title while leaving omitted settings at the
+generator defaults, run:
+
+```sh
+python3 scripts/pocket_per_game_preset.py \
+  --sd-root /Volumes/POCKET \
+  --asset "Vertical/Example.wsc" \
+  --control-layout vertical
+```
+
+This writes a complete per-asset Interact definition, not a one-field patch.
+That is required because APF replaces the core's entire `interact.json` when a
+matching per-asset file exists. An older per-game Interact file created before
+Control Layout was added also replaces the current core menu and therefore
+cannot expose the new setting. Regenerate it with `--force` after reviewing the
+other defaults you want to preserve.
+
 ## Per-game Controls
 
 By default, the generator also creates the path-mirrored `Input` definition.
@@ -102,6 +135,14 @@ Controls** as read-only, while firmware 2.4 describes beta Dock remapping.
 Generating this file does not itself remap a button or make the screen
 editable. The tool neither invents nor modifies an undocumented remap store,
 and actual PocketOS 2.6.0 behavior remains a hardware gate.
+
+The `Input` definition and the **Control Layout** Interact setting have separate
+jobs. `input.json` supplies the eight labels and APF keycodes shown under
+**Core Settings > Controls**; it does not select Horizontal or Vertical. The
+`--control-layout` option sets the per-title default for Swan Song's runtime
+button mapper. Consequently, `--controls inherit` still allows a per-title
+Control Layout through the generated Interact file; it only suppresses the
+per-asset `Input` file.
 
 Use `--controls inherit` to create no Input override and retain the core-wide
 Controls definition. This option does not delete a per-game Input file that is
@@ -115,7 +156,7 @@ over newly generated defaults. Choose **Reset all to defaults** in Core Settings
 to apply the new `defaultval` values for that game.
 
 The generator refuses to overwrite either preset by default. Pass `--force` to
-replace both after reviewing the command. It also rejects parent traversal,
+replace the generated outputs after reviewing the command. It also rejects parent traversal,
 wrong platform roots, malformed extensions, injected core IDs, and symlinks in
 the destination tree. The two outputs are preflighted together so a normal
 conflict cannot leave only half a preset pair.
@@ -147,9 +188,9 @@ Prefer regenerating presets with this tool
 so they match the current definitions; copy host-owned settings only when you
 intentionally want the old persistent values, then launch each affected title
 and verify its menu before removing any source copy. This namespace copy is
-unrelated to cartridge saves, which remain shared under the mirrored
-`/Saves/wonderswan/common/...` path, and it must never be used to migrate
-Memories.
+unrelated to cartridge saves. Swan Song's cartridge slot is core-specific, and
+legacy shared `.sav` files require the separate ROM-aware cartridge-save
+migrator; it must never be used to migrate Memories.
 
 ## Privacy and release packaging
 
