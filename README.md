@@ -147,10 +147,11 @@ folder and run:
 python3 scripts/swan_song_doctor.py --sd-root "/Volumes/POCKET"
 ```
 
-Replace `/Volumes/POCKET` with the card's actual path. Swan Song Doctor is
-read-only by default. It checks the installation, BIOS filenames and sizes,
-game and per-game settings locations, older WonderSwan data, and unsafe SD-card
-paths. It never uploads ROMs, BIOS files, or saves. See the player-friendly
+Replace `/Volumes/POCKET` with the card's actual path. By default Swan Song
+Doctor performs no content or namespace writes (filesystem reads may update
+access times). It checks the installation, BIOS filenames and sizes, game and
+per-game settings locations, older WonderSwan data, and unsafe SD-card paths.
+It never uploads ROMs, BIOS files, or saves. See the player-friendly
 [troubleshooting guide](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
 or the [complete Doctor reference](SWAN_SONG_DOCTOR.md) for help reading the
 result and for carefully previewing optional repairs.
