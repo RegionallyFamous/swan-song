@@ -1064,6 +1064,13 @@ module core_top (
   wire ss_save;
   wire ss_load;
 
+  // The owner-grade runtime pause boundary is compiled into SwanTop, but no
+  // APF command can request it until the complete fixed-v2 serializer,
+  // validator, and staging data plane exist.  Keep this explicit tie-off next
+  // to the compile-time capability gate.
+  wire memories_pause_request = 1'b0;
+  wire memories_pause_ack;
+
   wire [31:0] save_state_bridge_read_data;
 
   generate
@@ -1617,6 +1624,9 @@ module core_top (
       .ss_req (ss_req),
       .ss_be  (ss_be),
       .ss_ack (ss_ack),
+
+      .memories_pause_request(memories_pause_request),
+      .memories_pause_ack(memories_pause_ack),
 
       // SDRAM
       .dram_a(dram_a),

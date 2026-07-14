@@ -701,7 +701,9 @@ static int run_main(int argc, char** argv) {
     // jump through the cartridge reset vector at FFFF:0000. This is not a
     // replacement firmware implementation.
     bios.assign(color_cartridge ? 8192 : 4096, 0x90);
-    const uint8_t bootstrap[] = {0xb0, 0x01, 0xe6, 0xa0, 0xea,
+    // Enable the 16-bit cartridge ROM bus as the physical Color boot ROM does;
+    // generated GDMA probes require this before accessing cartridge sources.
+    const uint8_t bootstrap[] = {0xb0, 0x05, 0xe6, 0xa0, 0xea,
                                  0x00, 0x00, 0xff, 0xff};
     std::copy(std::begin(bootstrap), std::end(bootstrap), bios.end() - 16);
   }
@@ -730,6 +732,10 @@ static int run_main(int argc, char** argv) {
   top->clk_ram = 0;
   top->reset_in = 1;
   top->pause_in = 0;
+  // SwanTop's VHDL default is not an initialization contract at the generated
+  // Verilator C++ boundary.  Keep the future Memories path explicitly inert
+  // in the direct harness, matching core_top's production hard-disable.
+  top->memories_pause_request = 0;
   // The direct SwanTop harness retains the legacy deterministic cold-reset
   // seed. The Pocket wrapper drives this high and supplies both persistent
   // model banks through the dedicated second port instead.

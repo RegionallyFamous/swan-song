@@ -44,6 +44,7 @@ def disabled_transport_violations(top_text: str) -> list[str]:
         "assignss_load=1'b0;",
         "assignss_dout=64'd0;",
         "assignss_ack=1'b0;",
+        "wirememories_pause_request=1'b0;",
     )
     failures = [token for token in required if token not in top]
 
@@ -159,6 +160,10 @@ class PocketSavestateContract(unittest.TestCase):
             ("assign ss_load = 1'b0;", "assign ss_load = savestate_load;"),
             ("assign ss_dout = 64'd0;", "assign ss_dout = ss_din;"),
             ("assign ss_ack = 1'b0;", "assign ss_ack = ss_req;"),
+            (
+                "wire memories_pause_request = 1'b0;",
+                "wire memories_pause_request = savestate_start;",
+            ),
         )
         for original, replacement in mutations:
             with self.subTest(replacement=replacement):
@@ -193,6 +198,60 @@ class PocketSavestateContract(unittest.TestCase):
         self.assertIn('"$ROOT/sim/rtl/run_apf_savestate_staging_tb.sh"', regression)
         self.assertIn('"$ROOT/sim/rtl/run_savestate_disabled_reset_tb.sh"', regression)
         self.assertIn('python3 "$ROOT/scripts/pocket_savestate_contract_test.py"', regression)
+
+    def test_runtime_pause_boundary_is_compiled_but_unreachable(self) -> None:
+        pause = compact(source("src/fpga/core/rtl/memories_pause.vhd"))
+        self.assertIn("elsifsafe_boundary='1'", pause)
+        self.assertIn(
+            "pause_gate<=pause_gate_heldor(requestandsafe_boundary)whenstate=WAIT_BOUNDARYelsepause_gate_held;",
+            pause,
+        )
+        self.assertIn("pause_gate_held<='1';state<=ARM_ACK;", pause)
+        self.assertIn("whenARM_ACK=>", pause)
+        self.assertIn("whenWAIT_RESUME=>", pause)
+        self.assertIn("ifresume_ready='1'thenpause_ack<='0';", pause)
+
+        swantop = compact(source("src/fpga/core/rtl/swanTop.vhd"))
+        self.assertIn("imemories_pause:entitywork.memories_pause", swantop)
+        self.assertIn("request=>memories_pause_request", swantop)
+        self.assertIn("pause_ack=>memories_pause_ack", swantop)
+        self.assertIn("pause_in='1'ormemories_pause_gate='1'", swantop)
+        self.assertIn(
+            "system_idle='1'andce='0'andce_cpu='0'andce_4x='0'",
+            swantop,
+        )
+
+        wrapper = compact(source("src/fpga/core/wonderswan.sv"))
+        self.assertIn(".memories_pause_request(memories_pause_request)", wrapper)
+        self.assertIn(".memories_pause_ack(memories_pause_ack)", wrapper)
+
+        harness = compact(source("sim/verilator/sim_main.cpp"))
+        self.assertIn("top->memories_pause_request=0;", harness)
+
+        top = compact(source("src/fpga/core/core_top.v"))
+        self.assertIn("wirememories_pause_request=1'b0;", top)
+        self.assertIn(".memories_pause_request(memories_pause_request)", top)
+        self.assertIn(".memories_pause_ack(memories_pause_ack)", top)
+        self.assertEqual(disabled_transport_violations(source("src/fpga/core/core_top.v")), [])
+
+        qsf = source("src/fpga/ap_core.qsf")
+        pause_qsf = (
+            "set_global_assignment -name VHDL_FILE core/rtl/memories_pause.vhd"
+        )
+        swantop_qsf = "set_global_assignment -name VHDL_FILE core/rtl/swanTop.vhd"
+        self.assertIn(pause_qsf, qsf)
+        self.assertLess(qsf.index(pause_qsf), qsf.index(swantop_qsf))
+
+        translation = source("sim/verilator/translate_vhdl.sh")
+        pause_translate = "src/fpga/core/rtl/memories_pause.vhd"
+        swantop_translate = "src/fpga/core/rtl/swanTop.vhd"
+        self.assertIn(pause_translate, translation)
+        self.assertLess(
+            translation.index(pause_translate), translation.index(swantop_translate)
+        )
+
+        regression = source("scripts/regression.sh")
+        self.assertIn('"$ROOT/sim/rtl/run_memories_pause_tb.sh"', regression)
 
     def test_v2_crc_primitive_remains_isolated(self) -> None:
         crc = compact(source("src/fpga/core/apf_crc64_ecma32.sv"))

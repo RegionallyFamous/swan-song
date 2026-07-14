@@ -48,6 +48,7 @@ architecture tb of gpu_vtotal_timing_tb is
    signal fetch_valid : std_logic;
    signal fetch_role  : std_logic_vector(2 downto 0);
    signal color_dataread : std_logic_vector(15 downto 0) := x"0123";
+   signal video_mode : std_logic_vector(2 downto 0) := "000";
 
    signal pixel_addr : integer range 0 to 32255;
    signal pixel_data : std_logic_vector(11 downto 0);
@@ -64,6 +65,7 @@ begin
          ce => ce,
          reset => reset,
          isColor => '1',
+         video_mode => video_mode,
          IRQ_LineComp => irq_line_compare,
          IRQ_VBlankTmr => irq_vblank_timer,
          IRQ_VBlank => irq_vblank,
@@ -443,7 +445,7 @@ begin
       -- while line1 publishes A it simultaneously overwrites every cache slot
       -- with B. Every observed output must retain OLD_DATA A.
       write_reg(16#16#, 1);
-      write_reg(16#60#, 16#C0#);
+      video_mode <= "110";
       color_dataread <= x"0135";
       restore_raster(0, 0);
       ce <= '1';
@@ -471,7 +473,7 @@ begin
       -- after entering VBlank. The line-144 flush must read only the cached
       -- row and the background engines must stay idle while OAM sync runs.
       write_reg(16#16#, 144);
-      write_reg(16#60#, 16#C0#);
+      video_mode <= "110";
       color_dataread <= x"0123";
       restore_raster(0, 0);
       ce <= '1';

@@ -49,6 +49,7 @@ architecture tb of gpu_sprite_dma_timing_tb is
    signal sprite_row_table_value : std_logic_vector(31 downto 0);
    signal sprite_row_meta        : std_logic_vector(16 downto 0);
    signal table_variant          : natural range 0 to 3 := 0;
+   signal video_mode             : std_logic_vector(2 downto 0) := "000";
 
    function table_word(
       address : std_logic_vector(15 downto 0);
@@ -113,6 +114,7 @@ begin
          ce => ce,
          reset => reset,
          isColor => '1',
+         video_mode => video_mode,
          IRQ_LineComp => open,
          IRQ_VBlankTmr => open,
          IRQ_VBlank => open,
@@ -362,7 +364,7 @@ begin
          restore_raster(142, 250);
 
          -- Initial values deliberately differ from the late line-143 values.
-         write_reg(16#60#, 16#80#); -- Color 2bpp: six-bit SPR_BASE
+         video_mode <= "100"; -- Color 2bpp: six-bit SPR_BASE
          write_reg(16#04#, 16#01#);
          write_reg(16#05#, 16#00#);
          write_reg(16#06#, 16#01#);
@@ -467,7 +469,7 @@ begin
       requested_phase := 3;
       case_fetch_count := 0;
       restore_raster(143, 255);
-      write_reg(16#60#, 16#80#);
+      video_mode <= "100";
       write_reg(16#04#, 16#09#);
       write_reg(16#05#, 16#7F#);
       write_reg(16#06#, 16#02#);
@@ -515,7 +517,7 @@ begin
       shadow_final := 144;
       table_variant <= 1;
       write_reg(16#16#, 144);
-      write_reg(16#60#, 16#80#);
+      video_mode <= "100";
       write_reg(16#04#, 1);
       write_reg(16#05#, 0);
       write_reg(16#06#, 128);

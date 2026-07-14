@@ -38,6 +38,14 @@ def validate(source: str) -> None:
         re.DOTALL,
     )
     assert "dma_active   <= dmaOn or bus_write;" in source
+    assert "RegBus_wren_color <= RegBus_wren when isColor = '1' else '0';" in source
+    assert source.count("RegBus_wren_color, RegBus_rst") == 15
+    assert re.search(
+        r"if \(isColor = '1' or sleep_savestate = '1'\) then\s+"
+        r"RegBus_Dout <= wired_or;\s+else\s+"
+        r"RegBus_Dout <= \(others => '0'\);",
+        source,
+    )
     assert re.search(
         r"gdma_start_accepted := true;.*?when IDLE =>\s+"
         r"if \(gdma_start_accepted\) then\s+.*?null;\s+elsif \(SDMA_CTRL_written",
@@ -103,6 +111,16 @@ def main() -> None:
             "dma_active   <= dmaOn or bus_write;",
             "dma_active   <= dmaOn;",
         ),
+        "disabled Color DMA writes accepted": mutate_once(
+            source,
+            "RegBus_wren_color <= RegBus_wren when isColor = '1' else '0';",
+            "RegBus_wren_color <= RegBus_wren;",
+        ),
+        "disabled Color DMA reads exposed": mutate_once(
+            source,
+            "if (isColor = '1' or sleep_savestate = '1') then",
+            "if (true) then",
+        ),
         "pending SDMA displaces accepted GDMA": mutate_once(
             source,
             "if (gdma_start_accepted) then",
@@ -144,7 +162,7 @@ def main() -> None:
 
     print(
         "PASS GDMA source/start/revalidation/final-write/timing contract and "
-        "nine mutants"
+        "eleven mutants"
     )
 
 

@@ -15,6 +15,11 @@ entity memorymux is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       isColor              : in  std_logic;
+      -- Physical model identity and software-enabled Color mode are distinct.
+      -- Keep the former for BIOS/EEPROM geometry; $60 bit 7 controls whether
+      -- the upper 48 KiB of Color work RAM is currently accessible.
+      color_enabled        : in  std_logic := '1';
+      boot_rom_locked      : in  std_logic := '0';
       preserve_internal_eeprom : in std_logic;
       
       maskAddr             : in  std_logic_vector(23 downto 0);
@@ -106,10 +111,6 @@ architecture arch of memorymux is
    signal mapper_RegBus_Adr : std_logic_vector(BUS_busadr-1 downto 0);
    signal flash_enable     : std_logic := '0';
    
-   signal HW_FLAGS_read    : std_logic_vector(REG_HW_FLAGS.upper downto REG_HW_FLAGS.lower);
-   signal HW_FLAGS_written : std_logic;
-   signal HW_FLAGS_set     : std_logic;
-   
    type t_reg_wired_or is array(0 to 8) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
   
@@ -183,7 +184,9 @@ begin
    iREG_BANK_ROM0   : entity work.eReg generic map ( REG_BANK_ROM0   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 2), BANK_ROM0    , BANK_ROM0);
    iREG_BANK_ROM1   : entity work.eReg generic map ( REG_BANK_ROM1   ) port map (clk, RegBus_Din, mapper_RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 3), BANK_ROM1    , BANK_ROM1);
                                                                                                                                                      
-   iREG_HW_FLAGS    : entity work.eReg generic map ( REG_HW_FLAGS    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 4), HW_FLAGS_read, open, HW_FLAGS_written); 
+   -- $A0 is owned centrally by soc_control.  The memory mapper consumes only
+   -- its sticky boot-ROM lock and contributes no data at that register slot.
+   reg_wired_or(4) <= (others => '0');
 
    -- These mapper-owned registers deliberately use the normal register bus
    -- rather than a private save-state field. The existing 256-port register
@@ -268,20 +271,6 @@ begin
                    x"07FFFF" when ramtype = x"05" else     
                    x"000000";
    
-   -- 
-   HW_FLAGS_read <= "100001" & isColor & HW_FLAGS_set;
-    
-   process (clk)
-   begin
-      if rising_edge(clk) then
-         if (SSBUS_rst = '1') then
-            HW_FLAGS_set <= '0';
-         elsif (HW_FLAGS_written = '1' and RegBus_Din(0) = '1') then
-            HW_FLAGS_set <= '1';
-         end if;
-      end if;
-   end process;
-               
    RAM_addressCPU   <= SSMEM_Addr(15 downto 1) when sleep_savestate = '1' else 
                        std_logic_vector(cpu_addr(15 downto 1));
                 
@@ -440,12 +429,12 @@ begin
       
       BiosAccess := '0';
       if (isColor) then
-         if (HW_FLAGS_set = '0' and cpu_addr >= 16#100000# - 8192) then
+         if (boot_rom_locked = '0' and cpu_addr >= 16#100000# - 8192) then
             BiosAccess       := '1'; 
             MemAccessTypeNew <= BIOSCOLOR;
          end if;
       else
-         if (HW_FLAGS_set = '0' and cpu_addr >= 16#100000# - 4096) then
+         if (boot_rom_locked = '0' and cpu_addr >= 16#100000# - 4096) then
             BiosAccess       := '1'; 
             MemAccessTypeNew <= BIOS;
          end if;
@@ -488,7 +477,7 @@ begin
                   RAM_dataWriteEnable <= (cpu_be(0) & cpu_be(1)) and (cpu_write & cpu_write);
                end if;
                MemAccessTypeNew    <= RAMACC;
-               if (isColor = '0' and cpu_addr(15 downto 14) /= "00") then
+               if (color_enabled = '0' and cpu_addr(15 downto 14) /= "00") then
                   MemAccessTypeNew <= UNMAPPED;
                   RAM_dataWriteEnable <= "00";
                   debug_mem_space        <= x"7";

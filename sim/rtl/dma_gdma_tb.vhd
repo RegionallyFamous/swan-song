@@ -274,6 +274,83 @@ begin
     variable source_address : natural;
     variable expected_valid : boolean;
   begin
+    -- On Color hardware with $60 bit 7 clear the ports remain decoded, but
+    -- Mesen/ares return zero and ignore all DMA/SDMA writes.  Enabling Color
+    -- afterwards reveals the prior live state, not values written while
+    -- access was disabled.
+    reset_dut;
+    is_color <= '1';
+    program_gdma(16#00420#, 16#1020#, 4);
+    is_color <= '0';
+    wait for 1 ns;
+    expect_port(16#40#, 0, "disabled Color hides prior GDMA state");
+    write_port(16#40#, 16#FE#);
+    is_color <= '1';
+    wait for 1 ns;
+    expect_gdma_registers(16#00420#, 16#1020#, 4, 0,
+                          "disabled Color write did not replace prior state");
+
+    reset_dut;
+    is_color <= '0';
+    program_gdma(16#00420#, 16#1020#, 4);
+    write_port(16#4A#, 16#34#);
+    write_port(16#4B#, 16#12#);
+    write_port(16#4E#, 16#08#);
+    start_gdma(false);
+    expect_port(16#40#, 0, "disabled Color GDMA read");
+    expect_port(16#4A#, 0, "disabled Color SDMA read");
+    assert dma_active = '0' and sdma_active = '0'
+      report "disabled Color mode accepted a DMA start" severity failure;
+    is_color <= '1';
+    wait for 1 ns;
+    expect_gdma_registers(0, 0, 0, 0, "disabled Color writes remained ignored");
+    expect_port(16#4A#, 0, "disabled Color SDMA source remained ignored");
+    expect_port(16#4E#, 0, "disabled Color SDMA length remained ignored");
+
+    -- Clearing $60 bit 7 hides the ports but does not erase or cancel a
+    -- Sound-DMA channel that was already enabled.  Mesen's ProcessSoundDma
+    -- likewise keys continued service from the latched enable bit alone.
+    cpu_idle <= '0';
+    write_port(16#4A#, 16#00#);
+    write_port(16#4B#, 16#03#);
+    write_port(16#4C#, 16#00#);
+    write_port(16#4E#, 16#01#);
+    write_port(16#4F#, 16#00#);
+    write_port(16#50#, 16#00#);
+    write_port(16#52#, 16#83#);
+    ce <= '1';
+    for step in 0 to 159 loop
+      tick;
+      exit when sdma_request = '1';
+    end loop;
+    assert sdma_request = '1'
+      report "live Color transition case did not establish SDMA request"
+      severity failure;
+    is_color <= '0';
+    wait for 1 ns;
+    expect_port(16#52#, 0, "disabled Color hides enabled SDMA control");
+    cpu_idle <= '1';
+    tick;
+    assert sdma_request = '1' and sdma_active = '0' and bus_read = '0'
+      report "disabled Color canceled pending SDMA before its read phase"
+      severity failure;
+    tick;
+    assert sdma_active = '1' and bus_read = '1' and
+           bus_addr = to_unsigned(16#00300#, bus_addr'length)
+      report "disabled Color prevented latched SDMA source read"
+      severity failure;
+    tick;
+    assert sdma_request = '0' and sdma_active = '0' and
+           sound_dma_ch2 = '1' and sound_dma_value = x"5A"
+      report "disabled Color prevented latched SDMA completion"
+      severity failure;
+    is_color <= '1';
+    wait for 1 ns;
+    expect_port(16#4A#, 16#01#, "completed hidden SDMA source");
+    expect_port(16#4B#, 16#03#, "completed hidden SDMA source middle");
+    expect_port(16#4E#, 0, "completed hidden SDMA length");
+    expect_port(16#52#, 16#03#, "completed hidden SDMA control");
+
     -- Exhaust every source segment and both ROM-width/wait configurations.
     -- Segment 0 is always valid, segment 1 never is, and 2-F require word=1,
     -- slow=0.  Invalid starts must not enter setup or issue any bus access.

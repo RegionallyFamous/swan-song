@@ -746,6 +746,8 @@ set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
 set_global_assignment -name SYSTEMVERILOG_FILE core/save_state_controller.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/apf_savestate_envelope.sv
+set_global_assignment -name VHDL_FILE core/rtl/memories_pause.vhd
+set_global_assignment -name VHDL_FILE core/rtl/soc_control.vhd
 set_global_assignment -name VHDL_FILE core/rtl/swanTop.vhd
 set_global_assignment -name VHDL_FILE core/rtl/swanbioscolor.vhd
 set_global_assignment -name VHDL_FILE core/rtl/swanbios.vhd

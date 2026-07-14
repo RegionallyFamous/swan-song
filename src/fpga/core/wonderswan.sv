@@ -105,6 +105,12 @@ module wonderswan (
 
     output wire ss_busy,
 
+    // Cooperative runtime-pause boundary for the future Memories v2 owner.
+    // The production wrapper keeps request low until the complete data plane
+    // and validators are integrated.
+    input  wire memories_pause_request,
+    output wire memories_pause_ack,
+
     // SDRAM
     output wire [12:0] dram_a,
     output wire [ 1:0] dram_ba,
@@ -570,6 +576,8 @@ module wonderswan (
       .reset_in(reset),
       .pause_in(paused),
       .preserve_internal_eeprom(1'b1),
+      .memories_pause_request(memories_pause_request),
+      .memories_pause_ack(memories_pause_ack),
 
       // rom
       .EXTRAM_doRefresh(EXTRAM_doRefresh),

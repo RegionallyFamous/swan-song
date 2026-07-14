@@ -18,8 +18,10 @@ files=(
   sim/rtl/dpram_sim.vhd
   src/fpga/core/rtl/registerpackage.vhd
   src/fpga/core/rtl/reg_swan.vhd
+  src/fpga/core/rtl/soc_control.vhd
   src/fpga/core/rtl/bus_savestates.vhd
   src/fpga/core/rtl/reg_savestates.vhd
+  src/fpga/core/rtl/memories_pause.vhd
   build/sim/ghdl/statemanager.vhd
   src/fpga/core/rtl/savestates.vhd
   src/fpga/core/rtl/swanbios.vhd
