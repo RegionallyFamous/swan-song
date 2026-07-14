@@ -39,9 +39,10 @@ module apf_input_blocked_cdc (
   reg acknowledge_toggle_destination = 1'b0;
   reg request_seen_destination = 1'b0;
 
-  // Four APF trigger bits are intentionally unused by WonderSwan today. Keep
-  // the whole destination register bank so the fitted netlist and its exact
-  // SDC cardinality continue to enforce one complete 17-bit capture.
+  // Four APF trigger bits are intentionally unused by WonderSwan today and
+  // Quartus may prune those destination bits. Preserve the thirteen
+  // user-visible destination bits; the complete 17-bit source payload remains
+  // frozen until this atomic capture has been acknowledged.
   (* preserve, noprune *) reg [16:0] payload_destination = SAFE_PAYLOAD;
   assign {input_blocked_destination, buttons_destination} =
       payload_destination;

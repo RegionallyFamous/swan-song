@@ -115,7 +115,7 @@ def verify_contract(sources: dict[str, str]) -> None:
         "ic|input_state_system_cdc|payload_hold_source[*]",
         "ic|input_state_system_cdc|payload_destination[*]",
         "if{$input_state_source_count!=17}",
-        "if{$input_state_destination_count!=17}",
+        "if{$input_state_destination_count!=13}",
     ):
         if fragment not in constraints:
             raise ValueError(f"atomic input-state SDC is missing {fragment}")
@@ -234,6 +234,11 @@ def main() -> None:
             "constraints",
             "if {$input_state_source_count != 17}",
             "if {$input_state_source_count != 16}",
+        ),
+        (
+            "constraints",
+            "if {$input_state_destination_count != 13}",
+            "if {$input_state_destination_count != 12}",
         ),
         (
             "constraints",
