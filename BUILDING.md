@@ -358,11 +358,19 @@ and [bus communication](https://www.analogue.co/developer/docs/bus-communication
 
 ROM support is intentionally narrower than the most permissive hardware
 interpretation. [WSdev's ROM-header table](https://ws.nesdev.org/wiki/ROM_header)
-documents known values through 16 MiB, while its [mapper
-documentation](https://ws.nesdev.org/wiki/Mapper) shows six 1 MiB linear-bank
-bits for the later Bandai 2003 mapper, implying 64 MiB of theoretical address
-capacity. This core implements a 24-bit ROM address and therefore rejects
-anything above 16 MiB. The [Wonderful WonderSwan target
+documents known values through 16 MiB, while its [Bandai 2003
+documentation](https://ws.nesdev.org/wiki/Bandai_2003) defines 10-bit D0/D2/D4
+bank registers and therefore a theoretical 64 MiB ROM address. Swan Song now
+models their D1/D3/D5 high-byte read/write/reset/save semantics, including the
+documented zero upper bits, but still implements only a 24-bit ROM address and
+therefore rejects anything above 16 MiB. Widening the resolver alone would be
+unsafe: ROM above 16 MiB currently overlaps the Pocket SDRAM ranges reserved
+for cartridge SRAM and save-state staging. Pocket exposes one [64 MiB
+SDRAM](https://www.analogue.co/developer/docs/external-hardware), so a full
+64 MiB ROM cannot coexist there with those writable regions; the loader, APF
+slot policy, memory layout, trace ABI, simulator, and persistence paths must
+move together around an explicit capacity policy.
+The [Wonderful WonderSwan target
 documentation](https://wonderful.asie.pl/docs/target/wswan/) is the modern
 toolchain reference used by the open generated-ROM validation; it does not
 raise the core's implemented limit.

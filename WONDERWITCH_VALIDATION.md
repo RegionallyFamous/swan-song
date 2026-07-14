@@ -63,7 +63,8 @@ Not yet verified or implemented:
 - Quartus fit/timing or Pocket/Dock execution of this image;
 - direct selection of a standalone `.fx` from APF;
 - writable Freya/Athena filesystem persistence;
-- Bandai 2003 high mapper bytes beyond the current 16 MiB APF limit;
+- Bandai 2003 high-bank storage addressing beyond the current 16 MiB APF limit
+  (D1/D3/D5 register semantics are mapper-tested separately);
 - MBM29DL400TC flash command state or erase/program persistence (`CEh` bit 0
   and its volatile byte-wide ROM window are now mapper-tested separately); and
 - serial/XMODEM development workflows on Pocket's link port.

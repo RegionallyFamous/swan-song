@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-2.0-only
--- Black-box coverage for the Bandai 2003 low-byte mapper aliases.
+-- Black-box coverage for the Bandai 2003 low aliases and high bank bytes.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -27,6 +27,7 @@ architecture test of mapper_2003_alias_tb is
   signal debug_space : std_logic_vector(3 downto 0);
   signal debug_off   : std_logic_vector(23 downto 0);
   signal debug_valid : std_logic;
+  signal sleep_state : std_logic := '0';
 begin
   clk <= not clk after CLK_PERIOD / 2;
 
@@ -82,7 +83,7 @@ begin
       EXTRAM_addr            => open,
       EXTRAM_datawrite       => open,
       EXTRAM_dataread        => (others => '0'),
-      sleep_savestate        => '0',
+      sleep_savestate        => sleep_state,
       SSBus_Din              => (others => '0'),
       SSBus_Adr              => (others => '0'),
       SSBus_wren             => '0',
@@ -151,8 +152,14 @@ begin
     -- Bandai 2001 must retain the inherited C0-C3-only decode.
     write_port(16#C0#, 1);
     write_port(16#CF#, 2);
+    write_port(16#D1#, 16#FF#);
+    write_port(16#D3#, 16#FF#);
+    write_port(16#D5#, 16#FF#);
     expect_port(16#C0#, 1);
     expect_port(16#CF#, 0);
+    expect_port(16#D1#, 0);
+    expect_port(16#D3#, 0);
+    expect_port(16#D5#, 0);
     expect_mapping(16#40000#, 5, 16#140000#);
 
     -- Unknown footer values are not permission to decode Bandai 2003 ports.
@@ -165,8 +172,14 @@ begin
     tick;
     write_port(16#C0#, 3);
     write_port(16#CF#, 4);
+    write_port(16#D1#, 16#FF#);
+    write_port(16#D3#, 16#FF#);
+    write_port(16#D5#, 16#FF#);
     expect_port(16#C0#, 3);
     expect_port(16#CF#, 0);
+    expect_port(16#D1#, 0);
+    expect_port(16#D3#, 0);
+    expect_port(16#D5#, 0);
     expect_mapping(16#40000#, 5, 16#340000#);
 
     -- Select Bandai 2003 through the footer byte, then prove each alias has
@@ -185,6 +198,9 @@ begin
     expect_port(16#D2#, 16#FF#);
     expect_port(16#C3#, 16#FF#);
     expect_port(16#D4#, 16#FF#);
+    expect_port(16#D1#, 3);
+    expect_port(16#D3#, 3);
+    expect_port(16#D5#, 3);
 
     write_port(16#CF#, 5);
     expect_port(16#CF#, 5);
@@ -222,7 +238,90 @@ begin
     expect_port(16#D2#, 10);
     expect_port(16#D4#, 11);
 
-    report "PASS Bandai 2003 low-byte mapper aliases" severity note;
+    -- WSdev specifies all three extended registers as 10-bit values. Prove
+    -- every possible byte write: only D1/D3/D5 bits 1:0 are retained, their
+    -- upper six bits always read zero, and none of the low-byte aliases move.
+    for value in 0 to 255 loop
+      write_port(16#D1#, value);
+      expect_port(16#D1#, value mod 4);
+      expect_port(16#C1#, 2);
+    end loop;
+    for value in 0 to 255 loop
+      write_port(16#D3#, value);
+      expect_port(16#D3#, value mod 4);
+      expect_port(16#C2#, 10);
+    end loop;
+    for value in 0 to 255 loop
+      write_port(16#D5#, value);
+      expect_port(16#D5#, value mod 4);
+      expect_port(16#C3#, 11);
+    end loop;
+
+    -- Independence is bidirectional: changing either spelling of a low byte
+    -- cannot disturb its paired high latch.
+    write_port(16#D1#, 1);
+    write_port(16#D3#, 2);
+    write_port(16#D5#, 3);
+    write_port(16#C1#, 16#12#);
+    write_port(16#D2#, 16#34#);
+    write_port(16#C3#, 16#56#);
+    expect_port(16#D1#, 1);
+    expect_port(16#D3#, 2);
+    expect_port(16#D5#, 3);
+    write_port(16#C1#, 2);
+    write_port(16#D2#, 10);
+    write_port(16#C3#, 11);
+
+    -- The production mask is intentionally 24-bit today. High bank latches
+    -- must neither corrupt nor escape that supported aperture: 16 MiB ROM and
+    -- 512 KiB SRAM images wrap exactly as before while preserving readback.
+    write_port(16#D1#, 1);
+    write_port(16#D3#, 2);
+    write_port(16#D5#, 3);
+    expect_mapping(16#10000#, 2, 16#020000#);
+    expect_mapping(16#20000#, 3, 16#0A0000#);
+    expect_mapping(16#30000#, 4, 16#0B0000#);
+
+    -- Save states already preserve a 256-byte register image. Reproduce its
+    -- reset-then-port-replay sequence under the sleep override and prove that
+    -- the new mapper bytes require no state-format or address-layout change.
+    reg_rst <= '1';
+    tick;
+    reg_rst <= '0';
+    sleep_state <= '1';
+    write_port(16#D0#, 16#21#);
+    write_port(16#D1#, 1);
+    write_port(16#D2#, 16#43#);
+    write_port(16#D3#, 2);
+    write_port(16#D4#, 16#65#);
+    write_port(16#D5#, 3);
+    sleep_state <= '0';
+    tick;
+    expect_port(16#D0#, 16#21#);
+    expect_port(16#D1#, 1);
+    expect_port(16#D2#, 16#43#);
+    expect_port(16#D3#, 2);
+    expect_port(16#D4#, 16#65#);
+    expect_port(16#D5#, 3);
+
+    -- Mapper-specific state cannot leak into a Bandai 2001/unknown title or
+    -- resurrect if metadata changes without a separate register reset. A
+    -- later 2003 selection exposes the hardware's all-ones reset bank.
+    romtype <= x"00";
+    tick;
+    expect_port(16#D1#, 0);
+    expect_port(16#D3#, 0);
+    expect_port(16#D5#, 0);
+    write_port(16#D1#, 3);
+    write_port(16#D3#, 3);
+    write_port(16#D5#, 3);
+    romtype <= x"01";
+    tick;
+    expect_port(16#D1#, 3);
+    expect_port(16#D3#, 3);
+    expect_port(16#D5#, 3);
+
+    report "PASS Bandai 2003 low aliases, exhaustive high bytes, and save replay" severity note;
     stop;
     wait;
   end process;

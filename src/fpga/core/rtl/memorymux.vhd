@@ -99,6 +99,9 @@ architecture arch of memorymux is
    signal BANK_SRAM        : std_logic_vector(REG_BANK_SRAM.upper downto REG_BANK_SRAM.lower);
    signal BANK_ROM0        : std_logic_vector(REG_BANK_ROM0.upper downto REG_BANK_ROM0.lower);
    signal BANK_ROM1        : std_logic_vector(REG_BANK_ROM1.upper downto REG_BANK_ROM1.lower);
+   signal BANK_SRAM_HI     : std_logic_vector(1 downto 0) := (others => '1');
+   signal BANK_ROM0_HI     : std_logic_vector(1 downto 0) := (others => '1');
+   signal BANK_ROM1_HI     : std_logic_vector(1 downto 0) := (others => '1');
    signal mapper_2003_selected : std_logic;
    signal mapper_RegBus_Adr : std_logic_vector(BUS_busadr-1 downto 0);
    signal flash_enable     : std_logic := '0';
@@ -107,7 +110,7 @@ architecture arch of memorymux is
    signal HW_FLAGS_written : std_logic;
    signal HW_FLAGS_set     : std_logic;
    
-   type t_reg_wired_or is array(0 to 7) of std_logic_vector(7 downto 0);
+   type t_reg_wired_or is array(0 to 8) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
   
    -- masks from header
@@ -160,10 +163,10 @@ begin
                           else '0';
 
    -- Bandai 2003 mirrors the standard byte-wide mapper registers at CF/D0,
-   -- D2, and D4. D0/D2/D4 are the low bytes of wider registers; their upper
-   -- bytes select ROM above this core's explicitly unsupported 16 MiB
-   -- aperture. Keep the inherited C0-C3 path exact for Bandai 2001 and only
-   -- expose the aliases when the cartridge footer selects the 2003 mapper.
+   -- D2, and D4. D0/D2/D4 are the low bytes of 10-bit registers; D1/D3/D5
+   -- hold the two high bits and read their upper six bits as zero. Keep the
+   -- inherited C0-C3 path exact for Bandai 2001 and only expose the extended
+   -- interface when the cartridge footer selects the 2003 mapper.
    -- romtype carries footer RTC byte -3, despite its inherited name. Existing
    -- ROM metadata uses canonical value 01 as the Bandai 2003 selector. Keep
    -- this signal name stable because the checked-in SignalTap setup refers to
@@ -182,6 +185,36 @@ begin
                                                                                                                                                      
    iREG_HW_FLAGS    : entity work.eReg generic map ( REG_HW_FLAGS    ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 4), HW_FLAGS_read, open, HW_FLAGS_written); 
 
+   -- These mapper-owned registers deliberately use the normal register bus
+   -- rather than a private save-state field. The existing 256-port register
+   -- image therefore saves and restores them at D1/D3/D5 without changing the
+   -- state-file layout. Resetting or deselecting the mapper restores the
+   -- documented all-ones bank default. The current physical ROM path
+   -- remains 24-bit: on every supported <=16 MiB image these extra address
+   -- lines are absent and the resolver continues to wrap through rommask.
+   process (clk)
+   begin
+      if rising_edge(clk) then
+         if (RegBus_rst = '1' or mapper_2003_selected = '0') then
+            BANK_SRAM_HI <= (others => '1');
+            BANK_ROM0_HI <= (others => '1');
+            BANK_ROM1_HI <= (others => '1');
+         elsif (RegBus_wren = '1') then
+            case RegBus_Adr is
+               when x"D1" => BANK_SRAM_HI <= RegBus_Din(1 downto 0);
+               when x"D3" => BANK_ROM0_HI <= RegBus_Din(1 downto 0);
+               when x"D5" => BANK_ROM1_HI <= RegBus_Din(1 downto 0);
+               when others => null;
+            end case;
+         end if;
+      end if;
+   end process;
+
+   reg_wired_or(7) <= "000000" & BANK_SRAM_HI when mapper_2003_selected = '1' and RegBus_Adr = x"D1" else
+                      "000000" & BANK_ROM0_HI when mapper_2003_selected = '1' and RegBus_Adr = x"D3" else
+                      "000000" & BANK_ROM1_HI when mapper_2003_selected = '1' and RegBus_Adr = x"D5" else
+                      x"00";
+
    -- Bandai 2003 self-flash control, port CEh. Only bit 0 exists: zero keeps
    -- the 10000h-1FFFFh window on SRAM, while one exposes the ROM/flash path.
    -- The mapper selector is exact so Bandai 2001 and unknown footer values do
@@ -199,7 +232,7 @@ begin
       end if;
    end process;
 
-   reg_wired_or(7) <= x"01" when mapper_2003_selected = '1' and
+   reg_wired_or(8) <= x"01" when mapper_2003_selected = '1' and
                                   RegBus_Adr = x"CE" and
                                   flash_enable = '1'
                       else x"00";

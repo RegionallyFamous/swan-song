@@ -487,11 +487,14 @@ struct DebugTapAdapter<
     }
     const bool common_bank_port =
         top.debug_reg_addr >= 0xc0 && top.debug_reg_addr <= 0xc3;
-    const bool mapper_2003_alias =
+    const bool mapper_2003_bank_port =
         top.romtype == 0x01 &&
-        (top.debug_reg_addr == 0xcf || top.debug_reg_addr == 0xd0 ||
-         top.debug_reg_addr == 0xd2 || top.debug_reg_addr == 0xd4);
-    if (top.debug_reg_write && (common_bank_port || mapper_2003_alias)) {
+        (top.debug_reg_addr == 0xce || top.debug_reg_addr == 0xcf ||
+         top.debug_reg_addr == 0xd0 ||
+         top.debug_reg_addr == 0xd1 || top.debug_reg_addr == 0xd2 ||
+         top.debug_reg_addr == 0xd3 || top.debug_reg_addr == 0xd4 ||
+         top.debug_reg_addr == 0xd5);
+    if (top.debug_reg_write && (common_bank_port || mapper_2003_bank_port)) {
       logger.bank(
           cycle, top.debug_reg_addr, top.debug_reg_data,
           top.debug_reg_instruction_id, top.debug_reg_origin_pc,

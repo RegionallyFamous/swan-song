@@ -69,9 +69,10 @@ In Verilator it proves:
 - Keep mapper assumptions explicit. Bandai 2001 C0-C3 banking is covered. For
   canonical footer RTC value `01h` (used as the Bandai 2003 selector), the
   `CFh`, `D0h`, `D2h`, and `D4h` low-byte aliases resolve through the same bank
-  registers. The core accepts
-  at most 16 MiB, does not implement the high bytes at `D1h`/`D3h`/`D5h`, and
-  therefore does not claim the 2003 mapper's wider ROM range.
+  registers. `D1h`, `D3h`, and `D5h` implement the documented two high bits,
+  zero upper readback, mapper gating, reset, and save-state replay. The core
+  still accepts at most 16 MiB, so those latches do not grant access to the
+  2003 mapper's wider ROM range.
 - Do not target PocketChallenge v2 (`.pc2`). Its pinstrap boot, keypad matrix,
   absent internal EEPROM, and asset path are not implemented.
 - Test both orientations and the real keypad matrix. Pocket display forcing
@@ -132,7 +133,7 @@ The mapper audit is intentionally narrower than an emulator feature list:
 | Bandai 2001 external EEPROM | Implemented | Controller/backing simulation and Pocket save contracts |
 | Bandai 2003 RTC | Implemented | Deterministic RTC/save regressions; Pocket timing remains hardware-gated |
 | Bandai 2003 CF/D0/D2/D4 low aliases | Implemented for canonical footer RTC/2003 selector `01h` | Black-box VHDL readback plus resolved ROM/RAM offsets |
-| Bandai 2003 D1/D3/D5 high bank bytes | Not implemented | Requires widening the core's 24-bit ROM path and APF limit |
+| Bandai 2003 D1/D3/D5 high bank bytes | Register semantics implemented for canonical selector `01h`; storage above 16 MiB is not | Exhaustive black-box byte writes, mapper/reset gating, upper-bit masking, and unchanged save-image replay; wider addressing requires a coordinated SDRAM/APF layout change |
 | Bandai 2003 CE self-flash window | Volatile routing implemented for canonical selector `01h` | Black-box reset/readback, mapper rejection, ROM/SRAM masks, even/odd byte lanes, ordinary ROM write protection, and `cart_flash` trace labeling |
 | MBM29DL400 command state and persistence | Not implemented | Unlock/program/erase semantics plus a title-bound APF backing file are required before a writable WonderWitch cartridge claim |
 | Bandai 2003 GPO | Not implemented | No current Pocket-facing cartridge peripheral use case |
@@ -148,6 +149,7 @@ PocketChallenge-specific timer/ADPCM path. Current ares independently models
 the same split in its pinned
 [I/O mapper](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/io.cpp),
 [memory mapper](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/memory.cpp),
+[all-ones bank reset state](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/cartridge.hpp#L149-L156),
 and [WonderWitch detector](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/mia/medium/wonderswan.cpp).
 
 The first responsible milestone is complete: a pinned AthenaOS package, a

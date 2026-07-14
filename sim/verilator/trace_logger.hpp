@@ -63,7 +63,7 @@ constexpr uint8_t kAllVramRoles = (1u << 6) - 1;
 
 constexpr bool is_mapper_bank_port(uint8_t address) {
   return (address >= 0xc0 && address <= 0xc3) || address == 0xce || address == 0xcf ||
-         address == 0xd0 || address == 0xd2 || address == 0xd4;
+         (address >= 0xd0 && address <= 0xd5);
 }
 
 struct PcRange {
