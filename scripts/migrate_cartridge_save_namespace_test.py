@@ -220,18 +220,27 @@ class CartridgeSaveNamespaceTests(unittest.TestCase):
         destination_b = (
             self.root / "Saves/wonderswan/RegionallyFamous.SwanSong/B.sav"
         )
-        original_writer = migration._atomic_write_new
+        original_writer = migration._atomic_write_new_at
         calls = 0
 
-        def conflict_on_second(destination: Path, payload: bytes) -> None:
+        def conflict_on_second(
+            parent_descriptor: int, name: str, payload: bytes
+        ) -> tuple[int, int]:
             nonlocal calls
             calls += 1
             if calls == 2:
-                destination.write_bytes(b"late independent destination")
-            original_writer(destination, payload)
+                descriptor = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=parent_descriptor,
+                )
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(b"late independent destination")
+            return original_writer(parent_descriptor, name, payload)
 
         with mock.patch.object(
-            migration, "_atomic_write_new", side_effect=conflict_on_second
+            migration, "_atomic_write_new_at", side_effect=conflict_on_second
         ):
             with self.assertRaisesRegex(migration.MigrationError, "no-clobber"):
                 migration.apply_migration(plan, all_roms=True)
@@ -239,6 +248,93 @@ class CartridgeSaveNamespaceTests(unittest.TestCase):
         self.assertFalse(destination_a.exists())
         self.assertEqual(destination_b.read_bytes(), b"late independent destination")
         self.assertEqual(self.snapshot(source_a, source_b), source_before)
+
+    def test_parent_symlink_swap_cannot_redirect_apply_outside_sd_root(self) -> None:
+        rom, source = self.add_case("Game.ws", 0x10, b"A" * 128)
+        before = self.snapshot(rom, source)
+        plan = migration.plan_migration(self.root, selected=("Game.ws",))
+        destination_parent = (
+            self.root / "Saves/wonderswan/RegionallyFamous.SwanSong"
+        )
+        outside = Path(self.temporary.name) / "outside"
+        detached = Path(self.temporary.name) / "detached-original-parent"
+        outside.mkdir()
+        original_writer = migration._atomic_write_new_at
+
+        def swap_parent_then_write(
+            parent_descriptor: int, name: str, payload: bytes
+        ) -> tuple[int, int]:
+            destination_parent.rename(detached)
+            destination_parent.symlink_to(outside, target_is_directory=True)
+            return original_writer(parent_descriptor, name, payload)
+
+        with mock.patch.object(
+            migration, "_atomic_write_new_at", side_effect=swap_parent_then_write
+        ):
+            with self.assertRaisesRegex(
+                migration.MigrationError, "unsafe|identity|symlink"
+            ):
+                migration.apply_migration(plan, selected=("Game.ws",))
+
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(list(detached.iterdir()), [])
+        self.assertTrue(destination_parent.is_symlink())
+        self.assertEqual(self.snapshot(rom, source), before)
+
+    def test_rollback_never_deletes_an_inode_that_replaced_its_created_file(self) -> None:
+        self.add_case("A.ws", 0x10, b"A" * 128)
+        self.add_case("B.ws", 0x10, b"B" * 128)
+        plan = migration.plan_migration(self.root, all_roms=True)
+        destination_parent = (
+            self.root / "Saves/wonderswan/RegionallyFamous.SwanSong"
+        )
+        destination_a = destination_parent / "A.sav"
+        destination_b = destination_parent / "B.sav"
+        independent = b"independent replacement"
+        original_writer = migration._atomic_write_new_at
+        calls = 0
+
+        def replace_first_then_conflict_second(
+            parent_descriptor: int, name: str, payload: bytes
+        ) -> tuple[int, int]:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                os.unlink("A.sav", dir_fd=parent_descriptor)
+                a_descriptor = os.open(
+                    "A.sav",
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=parent_descriptor,
+                )
+                with os.fdopen(a_descriptor, "wb") as stream:
+                    stream.write(independent)
+                b_descriptor = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=parent_descriptor,
+                )
+                with os.fdopen(b_descriptor, "wb") as stream:
+                    stream.write(b"late conflict")
+            return original_writer(parent_descriptor, name, payload)
+
+        with mock.patch.object(
+            migration,
+            "_atomic_write_new_at",
+            side_effect=replace_first_then_conflict_second,
+        ):
+            with self.assertRaisesRegex(
+                migration.MigrationError, "rollback left.*A.sav"
+            ):
+                migration.apply_migration(plan, all_roms=True)
+
+        self.assertEqual(destination_a.read_bytes(), independent)
+        self.assertEqual(destination_b.read_bytes(), b"late conflict")
+        self.assertEqual(
+            sorted(path.name for path in destination_parent.iterdir()),
+            ["A.sav", "B.sav"],
+        )
 
     def test_malformed_rom_and_unrecognized_save_sizes_fail(self) -> None:
         rom, source = self.add_case("Bad.ws", 0x03, b"x")
