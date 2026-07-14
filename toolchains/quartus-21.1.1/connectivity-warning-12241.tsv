@@ -1,0 +1,123 @@
+provenance	hierarchy	port	type	details
+swan-song-sync	core_top:ic|synch_3:displaymode_grayscale_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:displaymode_grayscale_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:displaymode_grayscale_to_video	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:displaymode_grayscale_to_video	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|sound_i2s:sound_i2s|sync_fifo:sync_fifo	write_en_s	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	increasessheadercount	Input	Input port expression (32 bits) is wider than the input port (1 bits) it drives.  The 31 most-significant bit(s) in the expression will be dangling if they have no other fanouts.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	savestate_number	Input	Input port expression (32 bits) is wider than the input port (2 bits) it drives.  The 30 most-significant bit(s) in the expression will be dangling if they have no other fanouts.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	eepromwrite	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	state_loaded	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	rewind_on	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	rewind_active	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_cpu_done	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_cpu_cs	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_cpu_ip	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_cpu_pc	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_write	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_data	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_instruction_id	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_origin_pc	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_reg_origin_status	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_gpu_vram_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_gpu_vram_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_gpu_vram_role	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_gpu_vram_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_gpu_vram_collision	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_map_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_map_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_row_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_row_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg0_cell_meta	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_map_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_map_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_row_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_row_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_bg1_cell_meta	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_table_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_table_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_table_generation	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_line_epoch	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_addr	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_sprite_row_meta	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_write	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_initiator	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_address	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_value	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_byte_enable	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_space	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_offset	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_offset_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_instruction_id	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_origin_pc	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_origin_status	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch2_addr	Input	Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) "ch2_addr[26..25]" will be connected to GND.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch3_addr	Input	Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) "ch3_addr[26..25]" will be connected to GND.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	SDRAM_nCS	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|wonderswan:wonderswan|synch_3:rom_prepare_to_system	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|wonderswan:wonderswan|synch_3:rom_prepare_to_system	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan	use_rewind_capture	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|synch_3:cont1_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|synch_3:cont1_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|data_loader:bios_data_loader	write_complete	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_out	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_out	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_in	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_in	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:execution_ready_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:execution_ready_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:save_initialization_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:save_initialization_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:dataslot_complete_to_memory	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:dataslot_complete_to_memory	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:metadata_busy_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+swan-song-sync	core_top:ic|synch_3:metadata_busy_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb|mf_datatable:idt	address_a	Input	Input port expression (10 bits) is wider than the input port (8 bits) it drives.  The 2 most-significant bit(s) in the expression will be dangling if they have no other fanouts.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb|mf_datatable:idt	address_b	Input	Input port expression (10 bits) is wider than the input port (8 bits) it drives.  The 2 most-significant bit(s) in the expression will be dangling if they have no other fanouts.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb|synch_3:s01	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb|synch_3:s01	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_read	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_write	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_ack	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_done	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_err	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_id	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_slotoffset	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_bridgeaddr	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	core_top:ic|core_bridge_cmd:icb	target_dataslot_length	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	io_bridge_peripheral:ibs|synch_3:s03	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_bridge_peripheral:ibs|synch_3:s01	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_bridge_peripheral:ibs|synch_3:s01	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_bridge_peripheral:ibs|synch_3:s00	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_bridge_peripheral:ibs|synch_3:s00	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_bridge_peripheral:ibs	pmp_addr_valid	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_pad_controller:ipm|synch_3:s00	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_pad_controller:ipm|synch_3:s00	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	io_pad_controller:ipm	rx_timed_out	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:isclk	datain_h	Input	Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_h[11..1]" will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:isclk	datain_l	Input	Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_l[11..1]" will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:isclk	padio	Bidir	Output or bidir port (12 bits) is wider than the port expression (1 bits) it drives; bit(s) "padio[11..1]" have no fanouts
+agg23-predecessor	mf_ddio_bidir_12:isclk	inclock	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:isclk	dataout_h	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:isclk	dataout_l	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:iscc	datain_h	Input	Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_h[11..4]" will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:iscc	datain_l	Input	Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_l[11..4]" will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:iscc	padio	Bidir	Output or bidir port (12 bits) is wider than the port expression (4 bits) it drives; bit(s) "padio[11..4]" have no fanouts
+agg23-predecessor	mf_ddio_bidir_12:iscc	inclock	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:iscc	dataout_h	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:iscc	dataout_l	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:isco	inclock	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
+agg23-predecessor	mf_ddio_bidir_12:isco	dataout_h	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
+agg23-predecessor	mf_ddio_bidir_12:isco	dataout_l	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
