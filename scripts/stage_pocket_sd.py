@@ -35,6 +35,7 @@ from package_core import (
     RELEASE_SOURCE_INPUTS_V1,
     validate_release_policy,
 )
+from license_manifest import validate_license_manifest
 from package_validator import (
     StrictJsonError,
     ValidatedDistribution,
@@ -602,6 +603,7 @@ def _validate_release_provenance(
     package_payload: bytes,
     payloads: dict[pathlib.PurePosixPath, bytes],
     definition: ValidatedDistribution,
+    license_manifest: dict[str, object],
     bitstream_name: str,
     chip32_name: str,
     *,
@@ -650,6 +652,7 @@ def _validate_release_provenance(
             "chip32",
             "entries",
             "build_evidence",
+            "license_manifest",
             "release_policy",
             "source_inputs",
         },
@@ -658,6 +661,15 @@ def _validate_release_provenance(
         raise StagingError("release package provenance magic is invalid")
     if body["release"] is not True:
         raise StagingError("release package provenance must explicitly identify a release")
+    if body["license_manifest"] != license_manifest:
+        raise StagingError(
+            "release license manifest provenance does not match the packaged manifest"
+        )
+    if (
+        license_manifest.get("licensing_review_complete") is not True
+        or license_manifest.get("unresolved_ids") != []
+    ):
+        raise StagingError("release license manifest review is not complete")
 
     archive = _identity_record(body["archive"], "release provenance archive")
     if archive != {
@@ -732,6 +744,7 @@ def _validate_provenance(
     package: pathlib.Path,
     package_payload: bytes,
     payloads: dict[pathlib.PurePosixPath, bytes],
+    license_manifest: dict[str, object],
 ) -> None:
     document = _json(
         _safe_input(path, "package provenance", MAX_PROVENANCE_SIZE),
@@ -739,11 +752,29 @@ def _validate_provenance(
     )
     if set(document) != {"package_provenance"}:
         raise StagingError("package provenance has an unexpected envelope")
-    body = _object(document["package_provenance"], "package provenance body")
+    body = _exact_members(
+        document["package_provenance"],
+        "package provenance body",
+        {
+            "magic",
+            "release",
+            "archive",
+            "raw_rbf",
+            "packaged_bitstream",
+            "chip32",
+            "entries",
+            "build_evidence",
+            "license_manifest",
+        },
+    )
     if body.get("magic") != "SWAN_SONG_PACKAGE_PROVENANCE_V1":
         raise StagingError("package provenance magic is invalid")
     if body.get("release") is not False:
         raise StagingError("this staging workflow accepts development packages only")
+    if body["license_manifest"] != license_manifest:
+        raise StagingError(
+            "license manifest provenance does not match the packaged manifest"
+        )
     archive = _object(body.get("archive"), "package provenance archive")
     if archive.get("filename") != package.name:
         raise StagingError("package filename does not match its provenance")
@@ -798,7 +829,7 @@ def _materialize_source_snapshot(
     directories: Iterable[pathlib.PurePosixPath],
     bitstream_name: str,
     chip32_name: str,
-) -> ValidatedDistribution:
+) -> tuple[ValidatedDistribution, dict[str, object]]:
     generated = {CORE_DIRECTORY / bitstream_name, CORE_DIRECTORY / chip32_name}
     with tempfile.TemporaryDirectory(prefix="swan-song-stage-validate-") as temporary:
         root = pathlib.Path(temporary)
@@ -811,7 +842,8 @@ def _materialize_source_snapshot(
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(payload)
         try:
-            return validate_distribution(root)
+            definition = validate_distribution(root)
+            return definition, validate_license_manifest(root)
         except ValueError as error:
             raise StagingError(f"development package definition validation failed: {error}") from error
 
@@ -955,7 +987,7 @@ def plan_staging(
     package_payload = _safe_input(package, "Swan Song package", MAX_PACKAGE_SIZE)
     payloads, directories = _read_archive(package, package_payload)
     bitstream_name, chip32_name = _core_generated_names(payloads)
-    definition = _materialize_source_snapshot(
+    definition, license_manifest = _materialize_source_snapshot(
         payloads, directories, bitstream_name, chip32_name
     )
     source_commit: str | None = None
@@ -977,6 +1009,7 @@ def plan_staging(
             package_payload,
             payloads,
             definition,
+            license_manifest,
             bitstream_name,
             chip32_name,
             expected_package_sha256=expected_package_sha256,
@@ -999,7 +1032,13 @@ def plan_staging(
             raise StagingError(
                 "development staging requires both --bw-bios and --color-bios"
             )
-        _validate_provenance(provenance, package, package_payload, payloads)
+        _validate_provenance(
+            provenance,
+            package,
+            package_payload,
+            payloads,
+            license_manifest,
+        )
         _validate_current_checkout(payloads, definition, bitstream_name, chip32_name)
     _validate_bios_contract(payloads)
 
