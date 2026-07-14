@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
+import pocket_per_game_preset as preset
 from pocket_per_game_preset import (
     DEFAULT_DEFINITIONS,
     PresetError,
@@ -206,6 +209,274 @@ class PocketPerGamePresetTests(unittest.TestCase):
                 ).exists()
             )
             self.assertEqual(existing_input.read_text(encoding="utf-8"), "mine")
+
+    def test_concurrent_destination_creation_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            original = preset._rename_noreplace_at
+            actor_payload = b"concurrent owner"
+            actor_path: pathlib.Path | None = None
+
+            def create_before_publish(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                nonlocal actor_path
+                if actor_path is None and source.endswith(".tmp"):
+                    descriptor = os.open(
+                        destination,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=destination_directory,
+                    )
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(actor_payload)
+                    actor_path = (
+                        root
+                        / "Presets/RegionallyFamous.SwanSong/Interact/"
+                        "wonderswan/common/Game.json"
+                    )
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            with mock.patch.object(
+                preset, "_rename_noreplace_at", create_before_publish
+            ):
+                with self.assertRaisesRegex(PresetError, "concurrently"):
+                    generate_presets(sd_root=root, asset="Game.ws")
+            self.assertIsNotNone(actor_path)
+            self.assertEqual(actor_path.read_bytes(), actor_payload)
+            self.assertFalse(
+                (
+                    root
+                    / "Presets/RegionallyFamous.SwanSong/Input/"
+                    "wonderswan/common/Game.json"
+                ).exists()
+            )
+
+    def test_pair_failure_rolls_back_first_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            original = preset._rename_noreplace_at
+            publishes = 0
+
+            def fail_second_publish(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                nonlocal publishes
+                if source.endswith(".tmp"):
+                    publishes += 1
+                    if publishes == 2:
+                        raise OSError("injected second-preset failure")
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            with mock.patch.object(
+                preset, "_rename_noreplace_at", fail_second_publish
+            ):
+                with self.assertRaisesRegex(OSError, "second-preset"):
+                    generate_presets(sd_root=root, asset="Game.ws")
+            self.assertEqual(list(root.rglob("*.json")), [])
+            self.assertEqual(list(root.rglob("*.tmp")), [])
+            self.assertEqual(list(root.rglob("*.original")), [])
+
+    def test_force_failure_restores_original_pair_inodes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            result = generate_presets(sd_root=root, asset="Game.ws")
+            result.interact_path.write_bytes(b"original interact")
+            result.input_path.write_bytes(b"original input")
+            before = {
+                path: (path.read_bytes(), path.stat().st_ino)
+                for path in (result.interact_path, result.input_path)
+            }
+            original = preset._rename_noreplace_at
+
+            def fail_input_publish(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                if source.endswith(".tmp"):
+                    # Parent descriptors do not expose their path portably;
+                    # Input is the second temporary publication.
+                    fail_input_publish.publishes += 1
+                    if fail_input_publish.publishes == 2:
+                        raise OSError("injected forced-pair failure")
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            fail_input_publish.publishes = 0
+            with mock.patch.object(
+                preset, "_rename_noreplace_at", fail_input_publish
+            ):
+                with self.assertRaisesRegex(OSError, "forced-pair"):
+                    generate_presets(sd_root=root, asset="Game.ws", force=True)
+            for path, identity in before.items():
+                self.assertEqual((path.read_bytes(), path.stat().st_ino), identity)
+
+    def test_force_detects_and_preserves_concurrent_replacement_inode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            result = generate_presets(sd_root=root, asset="Game.ws")
+            original = preset._rename_noreplace_at
+            actor_payload = b"concurrent replacement"
+            actor_identity: tuple[int, int] | None = None
+            replaced = False
+
+            def replace_before_backup(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                nonlocal actor_identity, replaced
+                if not replaced and destination.endswith(".original"):
+                    os.unlink(source, dir_fd=source_directory)
+                    descriptor = os.open(
+                        source,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=source_directory,
+                    )
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(actor_payload)
+                        metadata = os.fstat(stream.fileno())
+                    actor_identity = (metadata.st_dev, metadata.st_ino)
+                    replaced = True
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            with mock.patch.object(
+                preset, "_rename_noreplace_at", replace_before_backup
+            ):
+                with self.assertRaisesRegex(PresetError, "changed after preflight"):
+                    generate_presets(sd_root=root, asset="Game.ws", force=True)
+            self.assertTrue(replaced)
+            self.assertEqual(result.interact_path.read_bytes(), actor_payload)
+            metadata = result.interact_path.stat()
+            self.assertEqual((metadata.st_dev, metadata.st_ino), actor_identity)
+
+    def test_root_swap_during_publish_never_writes_outside_and_rolls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            root = self._root(directory)
+            detached = base / "detached"
+            outside = base / "outside"
+            outside.mkdir()
+            original = preset._rename_noreplace_at
+            swapped = False
+
+            def swap_root(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                nonlocal swapped
+                if not swapped and source.endswith(".tmp"):
+                    root.rename(detached)
+                    root.symlink_to(outside, target_is_directory=True)
+                    swapped = True
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            with mock.patch.object(preset, "_rename_noreplace_at", swap_root):
+                with self.assertRaisesRegex(PresetError, "root identity changed"):
+                    generate_presets(sd_root=root, asset="Game.ws")
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.rglob("*.json")), [])
+            self.assertEqual(list(detached.rglob("*.json")), [])
+
+    def test_root_swap_during_validation_is_rejected_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            root = self._root(directory)
+            detached = base / "validation-detached"
+            outside = base / "validation-outside"
+            outside.mkdir()
+            original_resolve = pathlib.Path.resolve
+            swapped = False
+
+            def swap_before_resolve(
+                path: pathlib.Path, *args: object, **kwargs: object
+            ) -> pathlib.Path:
+                nonlocal swapped
+                if path == root and not swapped:
+                    root.rename(detached)
+                    root.symlink_to(outside, target_is_directory=True)
+                    swapped = True
+                return original_resolve(path, *args, **kwargs)
+
+            with mock.patch.object(pathlib.Path, "resolve", swap_before_resolve):
+                with self.assertRaisesRegex(PresetError, "identity changed"):
+                    generate_presets(sd_root=root, asset="Game.ws")
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertEqual(list(detached.rglob("*.json")), [])
+
+    def test_parent_swap_during_publish_never_follows_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            root = self._root(directory)
+            outside = base / "outside"
+            outside.mkdir()
+            detached = base / "detached-presets"
+            original = preset._rename_noreplace_at
+            swapped = False
+
+            def swap_parent(
+                source_directory: int,
+                source: str,
+                destination_directory: int,
+                destination: str,
+            ) -> None:
+                nonlocal swapped
+                if not swapped and source.endswith(".tmp"):
+                    (root / "Presets").rename(detached)
+                    (root / "Presets").symlink_to(
+                        outside, target_is_directory=True
+                    )
+                    swapped = True
+                original(
+                    source_directory,
+                    source,
+                    destination_directory,
+                    destination,
+                )
+
+            with mock.patch.object(preset, "_rename_noreplace_at", swap_parent):
+                with self.assertRaisesRegex(PresetError, "parent"):
+                    generate_presets(sd_root=root, asset="Game.ws")
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.rglob("*.json")), [])
+            self.assertEqual(list(detached.rglob("*.json")), [])
 
     def test_rejects_traversal_wrong_roots_and_malformed_paths(self) -> None:
         invalid = (

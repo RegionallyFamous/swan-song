@@ -3,6 +3,33 @@
 > Swan Song has no verified release yet. If you are using a development build,
 > say so clearly and include the exact source commit and FPGA artifact identity.
 
+## Run Swan Song Doctor first
+
+Swan Song Doctor can spot the most common SD-card setup problems before you
+change files or open a bug report. With the Pocket SD card mounted, open
+Terminal in a downloaded Swan Song source folder and run:
+
+```bash
+python3 scripts/swan_song_doctor.py --sd-root "/Volumes/POCKET"
+```
+
+Replace `/Volumes/POCKET` with the card's actual path. On macOS, you can drag
+the mounted card from Finder into Terminal to paste its path.
+
+By default the Doctor performs no content or namespace writes; filesystem reads
+may still update access-time metadata. It checks the Swan Song installation,
+required definitions, BIOS filenames and sizes, game and per-game settings
+locations, older WonderSwan data, and unsafe SD-card paths. It never uploads
+ROMs, BIOS files, or saves. It does not open or hash game or BIOS contents, but
+it locally enumerates their filenames and inspects file type and size.
+
+The result begins with `READY`, `READY WITH NOTES`, or `NEEDS ATTENTION`, and
+each finding includes a suggested next step. The Doctor changes nothing unless
+you deliberately select a repair and add `--apply`. Read the [complete Swan
+Song Doctor
+reference](https://github.com/RegionallyFamous/swan-song/blob/main/SWAN_SONG_DOCTOR.md)
+before using an optional repair.
+
 ## Common setup problems
 
 ### Swan Song is not in an updater
@@ -42,9 +69,10 @@ Action and host-owned Recent category.
 ### A save looks wrong
 
 Stop using the affected file and back up the entire SD card before doing more.
-If you alternate between Swan Song and another WonderSwan core, remember that
-the platform-common cartridge save may be shared. Do not hand-trim or rename a
-save-state or EEPROM file.
+Swan Song uses a core-specific cartridge-save namespace. If an older save is
+still below `/Saves/wonderswan/common/`, do not hand-copy, trim, or rename it;
+use the ROM-aware migration helper, which validates the game's footer and save
+layout before an atomic no-overwrite copy.
 
 ## Before opening an issue
 
