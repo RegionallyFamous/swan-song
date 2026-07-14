@@ -28,6 +28,7 @@ ARCHIVE_NAME = "Quartus-lite-21.1.1.850-linux.tar"
 ARCHIVE_SHA1 = "789c1133d99fde7146fdb99c1f5dcb4d2e5cc0cc"
 IMAGE = "swan-song-quartus:21.1.1-850-cyclonev"
 LABELS = ["self-hosted", "linux", "x64", "swan-song-quartus-21-1-1"]
+JOB_LABEL_PREFIX = "swan-song-job-"
 OUTBOUND_RULES = (
     "protocol:tcp,ports:0,address:0.0.0.0/0 "
     "protocol:udp,ports:0,address:0.0.0.0/0 "
@@ -122,6 +123,72 @@ def validate_commit(value: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", value):
         raise LabError("the lab source ref must resolve to a full lowercase 40-hex commit")
     return value
+
+
+def validate_lab_nonce(value: Any) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
+        raise LabError("lab nonce must be exactly 32 lowercase hexadecimal characters")
+    return value
+
+
+def new_lab_nonce(previous: str | None = None) -> str:
+    nonce = validate_lab_nonce(uuid.uuid4().hex)
+    if previous is not None and nonce == validate_lab_nonce(previous):
+        raise LabError("refusing to reuse the prior one-job lab nonce")
+    return nonce
+
+
+def install_lab_nonce(state: dict[str, Any], nonce: str) -> None:
+    nonce = validate_lab_nonce(nonce)
+    resource_names = state.setdefault("resource_names", {})
+    if not isinstance(resource_names, dict):
+        raise LabError("recorded resource names are invalid")
+    state["lab_nonce"] = nonce
+    resource_names["workflow_run"] = nonce
+
+
+def state_lab_nonce(state: dict[str, Any]) -> str:
+    nonce = validate_lab_nonce(state.get("lab_nonce"))
+    resource_names = state.get("resource_names")
+    if not isinstance(resource_names, dict):
+        raise LabError("recorded resource names are invalid")
+    if resource_names.get("workflow_run") != nonce:
+        raise LabError("recorded lab nonce and workflow-run nonce do not match")
+    return nonce
+
+
+def jit_labels(state: dict[str, Any]) -> list[str]:
+    return [*LABELS, f"{JOB_LABEL_PREFIX}{state_lab_nonce(state)}"]
+
+
+def runner_label_names(runner: dict[str, Any]) -> list[str]:
+    labels = runner.get("labels")
+    if not isinstance(labels, list):
+        raise LabError("GitHub runner response has no valid labels")
+    names: list[str] = []
+    for label in labels:
+        name = label.get("name") if isinstance(label, dict) else label
+        if not isinstance(name, str) or not name:
+            raise LabError("GitHub runner response has an invalid label")
+        names.append(name)
+    return names
+
+
+def validate_runner_identity(runner: Any, state: dict[str, Any]) -> int:
+    if not isinstance(runner, dict) or not isinstance(runner.get("id"), int):
+        raise LabError("GitHub runner response has no runner ID")
+    if runner.get("name") != state.get("runner_name"):
+        raise LabError("GitHub runner response does not match the planned runner name")
+    expected = jit_labels(state)
+    names = runner_label_names(runner)
+    dynamic = [name for name in names if name.startswith(JOB_LABEL_PREFIX)]
+    if dynamic != [expected[-1]]:
+        raise LabError("GitHub runner response does not have the exact one-job nonce label")
+    if len(names) != len(expected) or {name.casefold() for name in names} != {
+        name.casefold() for name in expected
+    }:
+        raise LabError("GitHub runner response does not have the exact planned labels")
+    return runner["id"]
 
 
 def state_path(args: argparse.Namespace) -> Path:
@@ -406,7 +473,10 @@ def plan(args: argparse.Namespace) -> None:
     print(f"  SSH ingress: TCP/22 from {cidr} only; all other public ingress denied")
     print(f"  Quartus input: {archive} (pinned SHA-1 {ARCHIVE_SHA1})")
     print(f"  required local Docker image before runner registration: {IMAGE}")
-    print(f"  GitHub JIT labels: {', '.join(LABELS)}")
+    print(
+        f"  GitHub JIT labels: {', '.join(LABELS)}, "
+        f"{JOB_LABEL_PREFIX}<fresh 32-lowercase-hex nonce>"
+    )
     print("  ROM/BIOS policy: never uploaded by this launcher")
     print("  lifecycle: launch --apply, dispatch --apply, destroy --apply --confirm NAME")
     print("BILLING WARNING: apply creates a billable Droplet and volume until destroy succeeds.")
@@ -502,11 +572,14 @@ chown -R runner:runner /opt/actions-runner /srv/swan-song-data/runner-work
 
 
 def register_runner(state: dict[str, Any], path: Path) -> None:
+    if state.get("runner_id") or "runner" in state.get("pending_resources", []):
+        raise LabError("refusing to reuse or retry a recorded or uncertain JIT runner registration")
+    labels = jit_labels(state)
     mark_pending(state, path, "runner")
     request = {
         "name": state["runner_name"],
         "runner_group_id": 1,
-        "labels": LABELS,
+        "labels": labels,
         "work_folder": "_work",
     }
     response = one_object(
@@ -518,11 +591,10 @@ def register_runner(state: dict[str, Any], path: Path) -> None:
     )
     runner = response.get("runner")
     config = response.get("encoded_jit_config")
-    if not isinstance(runner, dict) or not isinstance(runner.get("id"), int):
-        raise LabError("GitHub JIT response has no runner ID")
+    runner_id = validate_runner_identity(runner, state)
     if not isinstance(config, str) or not config or len(config) > 65536:
         raise LabError("GitHub JIT response has no bounded encoded configuration")
-    state["runner_id"] = runner["id"]
+    state["runner_id"] = runner_id
     clear_pending(state, path, "runner")
     save_state(path, state)
     remote = f"""set -euo pipefail
@@ -655,9 +727,12 @@ def recover_pending(state: dict[str, Any], path: Path) -> None:
                 raise LabError(
                     f"uncertain runner {name} is not visible yet; retry destroy before removing local state"
                 )
-            found_identifier = matches[0].get("id")
+            found_identifier = validate_runner_identity(matches[0], state)
             state["runner_id"] = found_identifier
         elif kind == "workflow_run":
+            nonce = state_lab_nonce(state)
+            if name != nonce:
+                raise LabError("cannot reconcile workflow run with a mismatched lab nonce")
             body = json_command([
                 "gh", "api",
                 f"repos/{state['repo']}/actions/workflows/quartus-fit.yml/runs?event=workflow_dispatch&per_page=100",
@@ -668,8 +743,10 @@ def recover_pending(state: dict[str, Any], path: Path) -> None:
             matches = [
                 item for item in runs
                 if isinstance(item, dict)
-                and item.get("display_title") == f"Quartus fit candidate {name}"
+                and item.get("display_title") == f"Quartus fit candidate {nonce}"
                 and item.get("head_sha") == state["commit"]
+                and item.get("head_branch") == state["default_branch"]
+                and item.get("event") == "workflow_dispatch"
             ]
             if len(matches) > 1:
                 raise LabError(f"cannot reconcile uncertain workflow run: multiple nonce matches {name}")
@@ -692,8 +769,12 @@ def wait_runner_online(state: dict[str, Any]) -> None:
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         runner = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runners/{state['runner_id']}"])
-        if runner is not None and runner.get("status") == "online":
-            return
+        if runner is not None:
+            runner_id = validate_runner_identity(runner, state)
+            if runner_id != state["runner_id"]:
+                raise LabError("online runner ID does not match the recorded JIT runner")
+            if runner.get("status") == "online":
+                return
         time.sleep(5)
     raise LabError("bounded wait expired before the JIT runner became online")
 
@@ -724,6 +805,7 @@ def launch(args: argparse.Namespace) -> None:
     tag = f"swan-song-lab-{suffix}"
     volume_name = f"{args.name}-{suffix}-data"
     firewall_name = f"{args.name}-{suffix}-ssh"
+    nonce = new_lab_nonce()
     state: dict[str, Any] = {
         "magic": MAGIC,
         "phase": "creating",
@@ -739,6 +821,7 @@ def launch(args: argparse.Namespace) -> None:
         "identity_file": args.identity_file,
         "tag": tag,
         "runner_name": f"{args.name}-{suffix}",
+        "lab_nonce": nonce,
         "known_hosts_file": str(path.parent / "known_hosts"),
         "resource_names": {
             "tag": tag,
@@ -746,6 +829,7 @@ def launch(args: argparse.Namespace) -> None:
             "volume": volume_name,
             "droplet": f"{args.name}-{suffix}",
             "runner": f"{args.name}-{suffix}",
+            "workflow_run": nonce,
         },
         "pending_resources": [],
     }
@@ -1009,6 +1093,13 @@ test "$(git rev-parse HEAD)" = {state['commit']}
 docker image inspect --format '{{{{.Id}}}}' {shlex.quote(IMAGE)}
 """
     run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=900)
+    resource_names = state.get("resource_names")
+    has_top_nonce = "lab_nonce" in state
+    has_workflow_nonce = isinstance(resource_names, dict) and "workflow_run" in resource_names
+    if has_top_nonce or has_workflow_nonce:
+        state_lab_nonce(state)
+    else:
+        install_lab_nonce(state, new_lab_nonce())
     state["phase"] = "installing-runner"
     state.pop("failure", None)
     save_state(path, state)
@@ -1121,19 +1212,16 @@ def rearm(args: argparse.Namespace) -> None:
     runner_id = state.get("runner_id")
     if not isinstance(run_id, int) or not isinstance(runner_id, int):
         raise LabError("rearm requires the exact prior workflow and JIT runner IDs")
+    old_nonce = state_lab_nonce(state)
     require_tools()
     workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
-    nonce = state.get("resource_names", {}).get("workflow_run")
-    accepted_titles = {"Quartus fit candidate"}
-    if isinstance(nonce, str) and nonce:
-        accepted_titles.add(f"Quartus fit candidate {nonce}")
     if (
         workflow is None
         or workflow.get("status") != "completed"
         or workflow.get("head_sha") != state.get("commit")
         or workflow.get("head_branch") != state.get("default_branch")
         or workflow.get("event") != "workflow_dispatch"
-        or workflow.get("display_title") not in accepted_titles
+        or workflow.get("display_title") != f"Quartus fit candidate {old_nonce}"
     ):
         raise LabError("the prior workflow is not an exact completed run for this lab")
     if resource_get(["gh", "api", f"repos/{state['repo']}/actions/runners/{runner_id}"]) is not None:
@@ -1177,11 +1265,12 @@ trap - EXIT
         "url": state.get("workflow_run_url"),
     })
     state["completed_workflow_runs"] = history[-20:]
+    nonce = new_lab_nonce(old_nonce)
     suffix = uuid.uuid4().hex[:8]
     state["runner_name"] = f"swan-rearm-{target_commit[:8]}-{suffix}"
     state["resource_names"] = resource_names
     resource_names["runner"] = state["runner_name"]
-    resource_names.pop("workflow_run", None)
+    install_lab_nonce(state, nonce)
     state["commit"] = target_commit
     state["phase"] = "installing-runner"
     state.pop("runner_id", None)
@@ -1211,21 +1300,18 @@ def dispatch(args: argparse.Namespace) -> None:
         print(f"Would dispatch .github/workflows/quartus-fit.yml on {state['repo']} default branch.")
         print("No workflow was dispatched. Re-run with --apply after status shows the runner online.")
         return
+    nonce = state_lab_nonce(state)
     if state.get("phase") != "ready" or not state.get("runner_id"):
         raise LabError("the prepared JIT runner is not ready")
     if state.get("workflow_run_id"):
         run_id = state["workflow_run_id"]
         workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
-        nonce = state.get("resource_names", {}).get("workflow_run")
-        accepted_titles = {"Quartus fit candidate"}
-        if isinstance(nonce, str) and nonce:
-            accepted_titles.add(f"Quartus fit candidate {nonce}")
         if (
             workflow is None
             or workflow.get("head_sha") != state["commit"]
             or workflow.get("head_branch") != state["default_branch"]
             or workflow.get("event") != "workflow_dispatch"
-            or workflow.get("display_title") not in accepted_titles
+            or workflow.get("display_title") != f"Quartus fit candidate {nonce}"
         ):
             raise LabError("the recorded workflow run does not match this prepared lab")
         state["phase"] = "dispatched"
@@ -1244,8 +1330,6 @@ def dispatch(args: argparse.Namespace) -> None:
         raise LabError("default-branch head moved after image preparation; destroy and relaunch at the new head")
     proven_regression = prove_hosted_regression(state)
     state["hosted_regression_run_id"] = proven_regression["id"]
-    nonce = f"swan-lab-{uuid.uuid4().hex}"
-    state.setdefault("resource_names", {})["workflow_run"] = nonce
     mark_pending(state, path, "workflow_run")
     response = one_object(
         json_command(
@@ -1275,10 +1359,7 @@ def dispatch(args: argparse.Namespace) -> None:
         or workflow.get("head_sha") != state["commit"]
         or workflow.get("head_branch") != state["default_branch"]
         or workflow.get("event") != "workflow_dispatch"
-        or workflow.get("display_title") not in {
-            "Quartus fit candidate",
-            f"Quartus fit candidate {nonce}",
-        }
+        or workflow.get("display_title") != f"Quartus fit candidate {nonce}"
     ):
         cancel_workflow_run(state)
         raise LabError("dispatched workflow did not bind the prepared commit, branch, event, and nonce")

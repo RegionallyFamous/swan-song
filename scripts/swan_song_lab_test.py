@@ -145,22 +145,51 @@ class SwanSongLabTest(unittest.TestCase):
         self.assertEqual(calls[1][2], lab.BUILD_TIMEOUT)
 
     def test_jit_request_has_exact_workflow_labels_and_state_has_no_config(self) -> None:
+        nonce = "a" * 32
+        expected_labels = [*lab.LABELS, f"{lab.JOB_LABEL_PREFIX}{nonce}"]
         state = {
             "magic": lab.MAGIC,
             "repo": lab.DEFAULT_REPO,
             "public_ip": "192.0.2.10",
             "runner_name": "runner-name",
+            "lab_nonce": nonce,
+            "resource_names": {"workflow_run": nonce},
         }
-        response = {"runner": {"id": 7}, "encoded_jit_config": "short-lived-secret"}
+        response = {
+            "runner": {
+                "id": 7,
+                "name": "runner-name",
+                "labels": [{"name": name} for name in expected_labels],
+            },
+            "encoded_jit_config": "short-lived-secret",
+        }
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
             with mock.patch.object(lab, "json_command", return_value=response) as request:
                 with mock.patch.object(lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as remote:
                     lab.register_runner(state, path)
             body = request.call_args.kwargs["input_body"]
-            self.assertEqual(body["labels"], lab.LABELS)
+            self.assertEqual(body["labels"], expected_labels)
             self.assertNotIn("short-lived-secret", path.read_text())
             self.assertIn("--jitconfig", remote.call_args.kwargs["input_text"])
+
+    def test_jit_registration_refuses_reuse_or_uncertain_retry(self) -> None:
+        nonce = "a" * 32
+        base = {
+            "magic": lab.MAGIC,
+            "repo": lab.DEFAULT_REPO,
+            "runner_name": "runner-name",
+            "lab_nonce": nonce,
+            "resource_names": {"workflow_run": nonce},
+        }
+        for addition in ({"runner_id": 7}, {"pending_resources": ["runner"]}):
+            with self.subTest(addition=addition), tempfile.TemporaryDirectory() as temporary:
+                state = {**base, **addition}
+                with mock.patch.object(
+                    lab, "json_command", side_effect=AssertionError("retried JIT registration")
+                ):
+                    with self.assertRaisesRegex(lab.LabError, "reuse or retry"):
+                        lab.register_runner(state, Path(temporary) / "state.json")
 
     def test_destroy_is_preview_only_without_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -276,17 +305,30 @@ class SwanSongLabTest(unittest.TestCase):
                         lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")
                     ) as command:
                         with mock.patch.object(lab, "install_runner") as install:
-                            with mock.patch.object(lab, "register_runner") as register:
+                            def record_nonce(state: dict[str, object], unused_path: Path) -> None:
+                                self.assertEqual(state["lab_nonce"], "c" * 32)
+                                self.assertEqual(
+                                    lab.jit_labels(state)[-1],
+                                    f"{lab.JOB_LABEL_PREFIX}{'c' * 32}",
+                                )
+
+                            with mock.patch.object(lab, "register_runner", side_effect=record_nonce) as register:
                                 with mock.patch.object(lab, "wait_runner_online") as wait:
-                                    with mock.patch("builtins.print"):
-                                        lab.resume(args)
+                                    with mock.patch.object(
+                                        lab.uuid, "uuid4", return_value=mock.Mock(hex="c" * 32)
+                                    ):
+                                        with mock.patch("builtins.print"):
+                                            lab.resume(args)
             remote = command.call_args.kwargs["input_text"]
             self.assertIn("quartus_docker.sh check-image", remote)
             self.assertNotIn(lab.ARCHIVE_NAME, remote)
             install.assert_called_once()
             register.assert_called_once()
             wait.assert_called_once()
-            self.assertEqual(lab.load_state(path)["phase"], "ready")
+            persisted = lab.load_state(path)
+            self.assertEqual(persisted["phase"], "ready")
+            self.assertEqual(persisted["lab_nonce"], "c" * 32)
+            self.assertEqual(persisted["resource_names"]["workflow_run"], "c" * 32)
 
     def test_warm_storage_moves_containerd_and_requires_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -318,6 +360,8 @@ class SwanSongLabTest(unittest.TestCase):
             path = Path(temporary) / "state.json"
             old_commit = "a" * 40
             new_commit = "b" * 40
+            old_nonce = "1" * 32
+            new_nonce = "2" * 32
             lab.save_state(path, {
                 "magic": lab.MAGIC,
                 "phase": "dispatched",
@@ -328,9 +372,10 @@ class SwanSongLabTest(unittest.TestCase):
                 "runner_id": 4,
                 "workflow_run_id": 55,
                 "workflow_run_url": "https://github.com/example/run/55",
+                "lab_nonce": old_nonce,
                 "resource_names": {
                     "runner": "old-runner",
-                    "workflow_run": "swan-lab-old",
+                    "workflow_run": old_nonce,
                 },
                 "pending_resources": [],
             })
@@ -340,11 +385,15 @@ class SwanSongLabTest(unittest.TestCase):
                 "head_sha": old_commit,
                 "head_branch": "main",
                 "event": "workflow_dispatch",
-                "display_title": "Quartus fit candidate swan-lab-old",
+                "display_title": f"Quartus fit candidate {old_nonce}",
             }
             args = argparse.Namespace(state=str(path), apply=True, ref="new-main")
 
             def record_runner(state: dict[str, object], unused_path: Path) -> None:
+                self.assertEqual(state["lab_nonce"], new_nonce)
+                self.assertEqual(
+                    lab.jit_labels(state)[-1], f"{lab.JOB_LABEL_PREFIX}{new_nonce}"
+                )
                 state["runner_id"] = 99
 
             with mock.patch.object(lab, "require_tools"):
@@ -359,7 +408,14 @@ class SwanSongLabTest(unittest.TestCase):
                                 with mock.patch.object(lab, "install_runner") as install:
                                     with mock.patch.object(lab, "register_runner", side_effect=record_runner) as register:
                                         with mock.patch.object(lab, "wait_runner_online") as wait:
-                                            with mock.patch.object(lab.uuid, "uuid4", return_value=mock.Mock(hex="12345678")):
+                                            with mock.patch.object(
+                                                lab.uuid,
+                                                "uuid4",
+                                                side_effect=[
+                                                    mock.Mock(hex=new_nonce),
+                                                    mock.Mock(hex="12345678" + "0" * 24),
+                                                ],
+                                            ):
                                                 with mock.patch("builtins.print"):
                                                     lab.rearm(args)
             local.assert_called_once_with("new-main")
@@ -376,6 +432,9 @@ class SwanSongLabTest(unittest.TestCase):
             self.assertEqual(persisted["commit"], new_commit)
             self.assertEqual(persisted["runner_id"], 99)
             self.assertEqual(persisted["runner_name"], "swan-rearm-bbbbbbbb-12345678")
+            self.assertEqual(persisted["lab_nonce"], new_nonce)
+            self.assertEqual(persisted["resource_names"]["workflow_run"], new_nonce)
+            self.assertNotEqual(persisted["lab_nonce"], old_nonce)
             self.assertNotIn("workflow_run_id", persisted)
             self.assertEqual(persisted["completed_workflow_runs"][0]["id"], 55)
 
@@ -383,6 +442,7 @@ class SwanSongLabTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
             commit = "a" * 40
+            nonce = "1" * 32
             state = {
                 "magic": lab.MAGIC,
                 "phase": "dispatched",
@@ -391,7 +451,8 @@ class SwanSongLabTest(unittest.TestCase):
                 "commit": commit,
                 "runner_id": 4,
                 "workflow_run_id": 55,
-                "resource_names": {},
+                "lab_nonce": nonce,
+                "resource_names": {"workflow_run": nonce},
                 "pending_resources": [],
             }
             lab.save_state(path, state)
@@ -401,7 +462,7 @@ class SwanSongLabTest(unittest.TestCase):
                 "head_sha": commit,
                 "head_branch": "main",
                 "event": "workflow_dispatch",
-                "display_title": "Quartus fit candidate",
+                "display_title": f"Quartus fit candidate {nonce}",
             }
             with mock.patch.object(lab, "require_tools"):
                 with mock.patch.object(lab, "resource_get", return_value=workflow):
@@ -466,6 +527,7 @@ class SwanSongLabTest(unittest.TestCase):
     def test_dispatch_records_exact_api_run_and_commit_binding(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
+            nonce = "f" * 32
             state = {
                 "magic": lab.MAGIC,
                 "name": "swan-song-quartus-lab",
@@ -474,7 +536,8 @@ class SwanSongLabTest(unittest.TestCase):
                 "commit": "a" * 40,
                 "default_branch": "main",
                 "runner_id": 4,
-                "resource_names": {},
+                "lab_nonce": nonce,
+                "resource_names": {"workflow_run": nonce},
                 "pending_resources": [],
             }
             lab.save_state(path, state)
@@ -537,14 +600,13 @@ class SwanSongLabTest(unittest.TestCase):
                 "head_sha": "a" * 40,
                 "head_branch": "main",
                 "event": "workflow_dispatch",
-                "display_title": "Quartus fit candidate swan-lab-fixed",
+                "display_title": f"Quartus fit candidate {nonce}",
             }
             with mock.patch.object(lab, "require_tools"):
-                with mock.patch.object(lab.uuid, "uuid4", return_value=mock.Mock(hex="fixed")):
-                    with mock.patch.object(lab, "json_command", side_effect=responses) as api:
-                        with mock.patch.object(lab, "resource_get", return_value=workflow):
-                            with mock.patch("builtins.print"):
-                                lab.dispatch(args)
+                with mock.patch.object(lab, "json_command", side_effect=responses) as api:
+                    with mock.patch.object(lab, "resource_get", return_value=workflow):
+                        with mock.patch("builtins.print"):
+                            lab.dispatch(args)
             persisted = lab.load_state(path)
             self.assertEqual(persisted["workflow_run_id"], 55)
             self.assertEqual(persisted["hosted_regression_run_id"], 44)
@@ -556,12 +618,13 @@ class SwanSongLabTest(unittest.TestCase):
                 self.assertIn("X-GitHub-Api-Version: 2026-03-10", proof_call.args[0])
             payload = api.call_args_list[4].kwargs["input_body"]
             self.assertEqual(payload["ref"], "main")
-            self.assertEqual(payload["inputs"]["lab_nonce"], "swan-lab-fixed")
+            self.assertEqual(payload["inputs"]["lab_nonce"], nonce)
             self.assertIs(payload["return_run_details"], True)
 
     def test_dispatch_refuses_without_exact_hosted_regression_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
+            nonce = "f" * 32
             state = {
                 "magic": lab.MAGIC,
                 "name": "swan-song-quartus-lab",
@@ -570,7 +633,8 @@ class SwanSongLabTest(unittest.TestCase):
                 "commit": "a" * 40,
                 "default_branch": "main",
                 "runner_id": 4,
-                "resource_names": {},
+                "lab_nonce": nonce,
+                "resource_names": {"workflow_run": nonce},
                 "pending_resources": [],
             }
             lab.save_state(path, state)
@@ -594,10 +658,11 @@ class SwanSongLabTest(unittest.TestCase):
                             lab.dispatch(argparse.Namespace(state=str(path), apply=True))
             self.assertEqual(lab.load_state(path), state)
 
-    def test_dispatch_adopts_exact_recorded_run_with_github_base_title(self) -> None:
+    def test_dispatch_rejects_recorded_run_with_github_base_title(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
             commit = "a" * 40
+            nonce = "f" * 32
             lab.save_state(path, {
                 "magic": lab.MAGIC,
                 "name": "swan-song-quartus-lab",
@@ -607,7 +672,8 @@ class SwanSongLabTest(unittest.TestCase):
                 "default_branch": "main",
                 "runner_id": 4,
                 "workflow_run_id": 55,
-                "resource_names": {"workflow_run": "swan-lab-fixed"},
+                "lab_nonce": nonce,
+                "resource_names": {"workflow_run": nonce},
                 "pending_resources": [],
             })
             workflow = {
@@ -620,9 +686,95 @@ class SwanSongLabTest(unittest.TestCase):
                 with mock.patch.object(
                     lab, "json_command", side_effect=AssertionError("dispatched twice")
                 ):
-                    with mock.patch("builtins.print"):
+                    with self.assertRaisesRegex(lab.LabError, "does not match"):
                         lab.dispatch(argparse.Namespace(state=str(path), apply=True))
-            self.assertEqual(lab.load_state(path)["phase"], "dispatched")
+            self.assertEqual(lab.load_state(path)["phase"], "ready")
+
+    def test_dispatch_rejects_mismatched_persisted_nonce_before_network(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "phase": "ready",
+                "runner_id": 4,
+                "lab_nonce": "a" * 32,
+                "resource_names": {"workflow_run": "b" * 32},
+            })
+            with mock.patch.object(
+                lab, "require_tools", side_effect=AssertionError("network preflight ran")
+            ):
+                with self.assertRaisesRegex(lab.LabError, "do not match"):
+                    lab.dispatch(argparse.Namespace(state=str(path), apply=True))
+
+    def test_rearm_rejects_nonce_reuse_before_runner_registration(self) -> None:
+        old_nonce = "a" * 32
+        with mock.patch.object(lab.uuid, "uuid4", return_value=mock.Mock(hex=old_nonce)):
+            with self.assertRaisesRegex(lab.LabError, "reuse"):
+                lab.new_lab_nonce(old_nonce)
+
+    def test_uncertain_runner_recovery_requires_exact_dynamic_label(self) -> None:
+        nonce = "a" * 32
+        state = {
+            "magic": lab.MAGIC,
+            "repo": lab.DEFAULT_REPO,
+            "runner_name": "exact-runner",
+            "lab_nonce": nonce,
+            "resource_names": {"runner": "exact-runner", "workflow_run": nonce},
+            "pending_resources": ["runner"],
+        }
+        wrong = {
+            "id": 7,
+            "name": "exact-runner",
+            "labels": [*lab.LABELS, f"{lab.JOB_LABEL_PREFIX}{'b' * 32}"],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            lab.save_state(path, state)
+            with mock.patch.object(lab, "json_command", return_value={"runners": [wrong]}):
+                with self.assertRaisesRegex(lab.LabError, "exact one-job nonce label"):
+                    lab.recover_pending(state, path)
+            self.assertEqual(lab.load_state(path)["pending_resources"], ["runner"])
+
+    def test_uncertain_workflow_recovery_requires_nonce_branch_commit_and_event(self) -> None:
+        nonce = "a" * 32
+        commit = "b" * 40
+        state = {
+            "magic": lab.MAGIC,
+            "repo": lab.DEFAULT_REPO,
+            "default_branch": "main",
+            "commit": commit,
+            "lab_nonce": nonce,
+            "resource_names": {"workflow_run": nonce},
+            "pending_resources": ["workflow_run"],
+        }
+        matching = {
+            "id": 55,
+            "display_title": f"Quartus fit candidate {nonce}",
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            lab.save_state(path, state)
+            wrong_branch = {**matching, "head_branch": "other"}
+            with mock.patch.object(
+                lab, "json_command", return_value={"workflow_runs": [wrong_branch]}
+            ):
+                with self.assertRaisesRegex(lab.LabError, "no nonce match"):
+                    lab.recover_pending(state, path)
+            with mock.patch.object(
+                lab, "json_command", return_value={"workflow_runs": [matching]}
+            ):
+                lab.recover_pending(state, path)
+            self.assertEqual(state["workflow_run_id"], 55)
+            self.assertEqual(state["pending_resources"], [])
+
+    def test_nonce_validation_rejects_noncanonical_values(self) -> None:
+        self.assertEqual(lab.validate_lab_nonce("a" * 32), "a" * 32)
+        for value in (None, "", "a" * 31, "a" * 33, "A" * 32, "swan-lab-" + "a" * 32):
+            with self.subTest(value=value), self.assertRaises(lab.LabError):
+                lab.validate_lab_nonce(value)
 
     def test_state_file_is_private_and_rejects_wrong_magic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

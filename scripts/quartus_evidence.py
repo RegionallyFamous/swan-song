@@ -18,6 +18,11 @@ import quartus_fit_audit as fit_audit
 
 CHUNK_SIZE = 1024 * 1024
 MAX_EVIDENCE_BYTES = 512 * 1024 * 1024
+MAX_CONNECTIVITY_REFRESH_BYTES = 72 * 1024 * 1024
+MAX_CONNECTIVITY_POLICY_DRAFT_BYTES = 2 * 1024 * 1024
+MAX_CONNECTIVITY_ALLOWLIST_DRAFT_BYTES = 2 * 1024 * 1024
+CANDIDATE_PROFILE = "candidate"
+CONNECTIVITY_REFRESH_PROFILE = "connectivity-refresh"
 
 
 class EvidenceError(RuntimeError):
@@ -39,7 +44,7 @@ class EvidenceFile:
     max_bytes: int
 
 
-EVIDENCE_FILES = (
+CANDIDATE_EVIDENCE_FILES = (
     EvidenceFile(Path("quartus-audit-candidate.json"), 8 * 1024 * 1024),
     EvidenceFile(Path("quartus.log"), 128 * 1024 * 1024),
     EvidenceFile(Path("ap_core.rbf.sha256"), 64 * 1024),
@@ -57,6 +62,41 @@ EVIDENCE_FILES = (
     EvidenceFile(Path("output_files/ap_core.sta.rpt"), 64 * 1024 * 1024),
     EvidenceFile(Path("output_files/ap_core.flow.rpt"), 64 * 1024 * 1024),
 )
+
+# A connectivity refresh is discovery evidence, never a fit candidate.  Keep
+# only enough material to bind the exact synthesis report to its source and
+# toolchain.  In particular, this profile must not distribute an RBF, Quartus
+# log, fitter report, or TimeQuest report that could be mistaken for signoff.
+CONNECTIVITY_REFRESH_EVIDENCE_FILES = (
+    EvidenceFile(Path("build-metadata.txt"), 1024 * 1024),
+    EvidenceFile(Path("toolchain-version.txt"), 1024 * 1024),
+    EvidenceFile(Path("container-provenance.json"), 64 * 1024),
+    EvidenceFile(Path("container-packages.tsv"), 2 * 1024 * 1024),
+    EvidenceFile(Path("output_files/ap_core.map.rpt"), 64 * 1024 * 1024),
+)
+
+CONNECTIVITY_REFRESH_DRAFT_FILES = (
+    EvidenceFile(
+        Path("connectivity-warning-12241.draft.json"),
+        MAX_CONNECTIVITY_POLICY_DRAFT_BYTES,
+    ),
+    EvidenceFile(
+        Path("connectivity-warning-12241.draft.tsv"),
+        MAX_CONNECTIVITY_ALLOWLIST_DRAFT_BYTES,
+    ),
+)
+
+EVIDENCE_PROFILES = {
+    CANDIDATE_PROFILE: (CANDIDATE_EVIDENCE_FILES, MAX_EVIDENCE_BYTES),
+    CONNECTIVITY_REFRESH_PROFILE: (
+        CONNECTIVITY_REFRESH_EVIDENCE_FILES,
+        MAX_CONNECTIVITY_REFRESH_BYTES,
+    ),
+}
+
+# Preserve the original import surface for callers that inspect the candidate
+# allowlist directly.  collect_evidence defaults to this same candidate lane.
+EVIDENCE_FILES = CANDIDATE_EVIDENCE_FILES
 
 
 def _require_plain_directory(path: Path, label: str) -> None:
@@ -224,11 +264,88 @@ def _clear_output(output: Path) -> None:
             path.unlink()
 
 
-def collect_evidence(artifacts: Path, output: Path) -> list[Path]:
+def validate_connectivity_refresh_bundle(output: Path) -> list[Path]:
+    """Validate the exact, total-bounded refresh tree immediately before upload."""
+
+    _require_plain_directory(output, "connectivity refresh evidence root")
+    limits = {
+        item.relative: item.max_bytes
+        for item in (
+            *CONNECTIVITY_REFRESH_EVIDENCE_FILES,
+            *CONNECTIVITY_REFRESH_DRAFT_FILES,
+        )
+    }
+    expected_files = set(limits)
+    expected_directories = {Path("output_files")}
+    observed_files: set[Path] = set()
+    observed_directories: set[Path] = set()
+    total_bytes = 0
+
+    for path in output.rglob("*"):
+        relative = path.relative_to(output)
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise EvidenceError(
+                f"connectivity refresh bundle contains a symlink: {relative}"
+            )
+        if stat.S_ISDIR(metadata.st_mode):
+            observed_directories.add(relative)
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise EvidenceError(
+                "connectivity refresh bundle contains a non-regular member: "
+                f"{relative}"
+            )
+        observed_files.add(relative)
+        maximum = limits.get(relative)
+        if maximum is None:
+            raise EvidenceError(
+                f"connectivity refresh bundle contains an unknown file: {relative}"
+            )
+        if metadata.st_size <= 0:
+            raise EvidenceError(
+                f"connectivity refresh bundle contains an empty file: {relative}"
+            )
+        if metadata.st_size > maximum:
+            raise EvidenceError(
+                f"connectivity refresh bundle member exceeds {maximum} bytes: "
+                f"{relative}"
+            )
+        total_bytes += metadata.st_size
+
+    missing = sorted(expected_files - observed_files)
+    unknown_directories = sorted(observed_directories - expected_directories)
+    missing_directories = sorted(expected_directories - observed_directories)
+    if missing or unknown_directories or missing_directories:
+        raise EvidenceError(
+            "connectivity refresh bundle members are not exact: "
+            f"missing={missing!r}, unknown_directories={unknown_directories!r}, "
+            f"missing_directories={missing_directories!r}"
+        )
+    if total_bytes > MAX_CONNECTIVITY_REFRESH_BYTES:
+        raise EvidenceError(
+            "connectivity refresh bundle exceeds its total size bound: "
+            f"{total_bytes} > {MAX_CONNECTIVITY_REFRESH_BYTES}"
+        )
+    return sorted(observed_files)
+
+
+def collect_evidence(
+    artifacts: Path,
+    output: Path,
+    *,
+    profile: str = CANDIDATE_PROFILE,
+) -> list[Path]:
     """Copy only present allowlisted files; missing files are valid after a failed fit."""
 
-    if sum(item.max_bytes for item in EVIDENCE_FILES) > MAX_EVIDENCE_BYTES:
-        raise EvidenceError("Quartus evidence allowlist exceeds its total size bound")
+    try:
+        evidence_files, maximum_bytes = EVIDENCE_PROFILES[profile]
+    except KeyError as error:
+        raise EvidenceError(f"unknown Quartus evidence profile: {profile}") from error
+    if sum(item.max_bytes for item in evidence_files) > maximum_bytes:
+        raise EvidenceError(
+            f"Quartus {profile} evidence allowlist exceeds its total size bound"
+        )
     _require_plain_directory(artifacts, "artifact root")
     _require_plain_directory(output, "evidence output")
     if os.path.samefile(artifacts, output):
@@ -238,10 +355,18 @@ def collect_evidence(artifacts: Path, output: Path) -> list[Path]:
 
     opened: list[tuple[EvidenceFile, int]] = []
     try:
-        for item in EVIDENCE_FILES:
+        for item in evidence_files:
             descriptor = _open_source(artifacts, item)
             if descriptor is not None:
                 opened.append((item, descriptor))
+        if profile == CONNECTIVITY_REFRESH_PROFILE:
+            present = {item.relative for item, _ in opened}
+            required = {item.relative for item in evidence_files}
+            if present != required:
+                raise EvidenceError(
+                    "connectivity refresh requires complete discovery evidence: "
+                    f"missing={sorted(required - present)!r}"
+                )
 
         collected: list[Path] = []
         try:
@@ -264,15 +389,40 @@ def collect_evidence(artifacts: Path, output: Path) -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifacts", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--profile",
+        choices=tuple(EVIDENCE_PROFILES),
+        default=CANDIDATE_PROFILE,
+    )
+    parser.add_argument("--artifacts", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--validate-connectivity-refresh-bundle", type=Path)
     args = parser.parse_args(argv)
     try:
-        collected = collect_evidence(args.artifacts, args.output)
+        if args.validate_connectivity_refresh_bundle is not None:
+            if args.artifacts is not None or args.output is not None:
+                raise EvidenceError(
+                    "bundle validation cannot be combined with evidence collection"
+                )
+            collected = validate_connectivity_refresh_bundle(
+                args.validate_connectivity_refresh_bundle
+            )
+            print(
+                "validated exact bounded connectivity-refresh bundle "
+                f"({len(collected)} files)"
+            )
+            return 0
+        if args.artifacts is None or args.output is None:
+            raise EvidenceError(
+                "evidence collection requires --artifacts and --output"
+            )
+        collected = collect_evidence(args.artifacts, args.output, profile=args.profile)
     except (EvidenceError, OSError) as error:
         print(f"quartus_evidence.py: {error}", file=sys.stderr)
         return 1
-    print(f"collected {len(collected)} bounded Quartus evidence file(s)")
+    print(
+        f"collected {len(collected)} bounded {args.profile} Quartus evidence file(s)"
+    )
     return 0
 
 

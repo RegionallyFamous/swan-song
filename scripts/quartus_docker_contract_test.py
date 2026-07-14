@@ -302,6 +302,7 @@ esac
         docker_context: str | None = None,
         docker_host: str | None = None,
         missing_command: str | None = None,
+        lab_nonce: str | None = "a" * 32,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -374,6 +375,7 @@ esac
                 "find",
                 "sed",
                 "grep",
+                "sha256sum",
             ):
                 commands[name] = "#!/bin/bash\nexit 0\n"
             if missing_command is not None:
@@ -392,6 +394,10 @@ esac
                     "FAKE_DOCKER_FREE_KIB": str(docker_free_kib),
                 }
             )
+            if lab_nonce is not None:
+                environment["SWAN_SONG_JOB_NONCE"] = lab_nonce
+            else:
+                environment.pop("SWAN_SONG_JOB_NONCE", None)
             environment.pop("DOCKER_HOST", None)
             environment.pop("DOCKER_CONTEXT", None)
             if docker_context is not None:
@@ -637,17 +643,152 @@ esac
         ):
             self.assertNotIn(forbidden_trigger, workflow)
         self.assertIn("permissions:\n  contents: read\n", workflow)
+        for runner_label in (
+            "- self-hosted",
+            "- linux",
+            "- x64",
+            "- swan-song-quartus-21-1-1",
+            '- "swan-song-job-${{ inputs.lab_nonce }}"',
+        ):
+            self.assertIn(runner_label, workflow)
+        lab_nonce = workflow.index("      lab_nonce:")
+        lab_nonce_end = workflow.index("\npermissions:", lab_nonce)
+        lab_nonce_input = workflow[lab_nonce:lab_nonce_end]
+        self.assertIn("required: true", lab_nonce_input)
+        self.assertNotIn("default:", lab_nonce_input)
+        self.assertIn("inputs.lab_nonce != ''", workflow)
+        self.assertIn("SWAN_SONG_JOB_NONCE: ${{ inputs.lab_nonce }}", workflow)
         self.assertIn(
-            "runs-on: [self-hosted, linux, x64, swan-song-quartus-21-1-1]",
+            '[[ ! "$SWAN_SONG_JOB_NONCE" =~ ^[0-9a-f]{32}$ ]]',
             workflow,
         )
-        self.assertIn("    environment: quartus-fit\n", workflow)
+        self.assertIn("default: candidate", workflow)
+        self.assertIn("- connectivity-refresh", workflow)
         self.assertIn(
-            "if: ${{ github.ref == format('refs/heads/{0}', "
-            "github.event.repository.default_branch) }}",
+            "environment: ${{ inputs.profile == 'candidate' && "
+            "'quartus-fit' || 'quartus-connectivity-refresh' }}",
             workflow,
         )
         self.assertIn("persist-credentials: false", workflow)
+
+    def test_connectivity_refresh_profile_is_exactly_guarded(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for guard in (
+            "github.repository == 'RegionallyFamous/swan-song'",
+            "github.event_name == 'workflow_dispatch'",
+            "github.ref_type == 'branch'",
+            "github.workflow_sha == github.sha",
+            "github.actor_id == '158918'",
+            "github.triggering_actor == 'nickhamze'",
+        ):
+            self.assertIn(guard, workflow)
+        self.assertIn("inputs.profile == 'candidate'", workflow)
+        self.assertIn("inputs.connectivity_refresh_sha == ''", workflow)
+        self.assertIn(
+            "github.ref == format('refs/heads/{0}', "
+            "github.event.repository.default_branch)",
+            workflow,
+        )
+        self.assertIn("inputs.profile == 'connectivity-refresh'", workflow)
+        self.assertIn(
+            "startsWith(github.ref, "
+            "'refs/heads/codex/connectivity-refresh-')",
+            workflow,
+        )
+        self.assertIn(
+            "github.sha == inputs.connectivity_refresh_sha",
+            workflow,
+        )
+        hosted_step = workflow.index(
+            "- name: Verify exact-commit hosted regression success"
+        )
+        hosted_body = workflow[hosted_step : workflow.index("      - name:", hosted_step + 8)]
+        self.assertIn("if: ${{ inputs.profile == 'candidate' }}", hosted_body)
+        self.assertIn('--profile "${{ inputs.profile }}"', workflow)
+
+        fit_start = workflow.index("      - name: Fit and audit exact commit")
+        fit_end = workflow.index("      - name:", fit_start + 8)
+        fit_body = workflow[fit_start:fit_end]
+        self.assertIn("id: fit", fit_body)
+        self.assertIn(
+            "continue-on-error: ${{ inputs.profile == 'connectivity-refresh' }}",
+            fit_body,
+        )
+        self.assertEqual(workflow.count("continue-on-error:"), 1)
+
+        audit_start = workflow.index(
+            "      - name: Audit refresh build except exact connectivity policy drift"
+        )
+        audit_end = workflow.index("      - name:", audit_start + 8)
+        refresh_audit = workflow[audit_start:audit_end]
+        for required in (
+            "scripts/quartus_connectivity_refresh_gate.py",
+            '--artifacts "$ARTIFACT_DIR"',
+            '--source-root "$GITHUB_WORKSPACE"',
+            "toolchains/quartus-21.1.1/connectivity-warning-12241.json",
+        ):
+            self.assertIn(required, refresh_audit)
+
+        draft_start = workflow.index(
+            "      - name: Prepare connectivity policy refresh drafts"
+        )
+        draft_end = workflow.index("      - name:", draft_start + 8)
+        draft = workflow[draft_start:draft_end]
+        for required in (
+            "steps.collect.outcome == 'success'",
+            "steps.refresh_audit.outcome == 'success'",
+            "build-metadata.txt",
+            "output_files/ap_core.map.rpt",
+            'grep -Fx "source_commit=$GITHUB_SHA"',
+            'baseline_sha256="$(sha256sum "$baseline"',
+            'map_sha256="$(sha256sum "$map_report"',
+            "scripts/quartus_connectivity_policy_refresh.py",
+            '--reviewed-source-commit "$GITHUB_SHA"',
+            '--reviewed-workflow-run-id "$GITHUB_RUN_ID"',
+            '--reviewed-map-report-sha256 "$map_sha256"',
+            'connectivity-warning-12241.draft.json',
+            'connectivity-warning-12241.draft.tsv',
+        ):
+            self.assertIn(required, draft)
+        self.assertNotIn("--output-summary", draft)
+
+        bundle_start = workflow.index(
+            "      - name: Validate exact bounded connectivity refresh bundle"
+        )
+        bundle_end = workflow.index("      - name:", bundle_start + 8)
+        bundle = workflow[bundle_start:bundle_end]
+        self.assertIn("steps.refresh_draft.outcome == 'success'", bundle)
+        self.assertIn("--validate-connectivity-refresh-bundle", bundle)
+        self.assertIn('"$EVIDENCE_DIR"', bundle)
+
+        upload_start = workflow.index(
+            "      - name: Preserve bounded Quartus evidence"
+        )
+        upload = workflow[upload_start:]
+        self.assertIn("steps.refresh_bundle.outcome == 'success'", upload)
+        self.assertIn("path: ${{ env.EVIDENCE_DIR }}", upload)
+        self.assertNotIn("path: ${{ env.ARTIFACT_DIR }}", upload)
+        self.assertIn(
+            "name: quartus-${{ inputs.profile == 'candidate' && 'fit' || "
+            "'connectivity-refresh' }}-${{ github.sha }}-${{ github.run_attempt }}",
+            upload,
+        )
+
+        evidence_source = (ROOT / "scripts/quartus_evidence.py").read_text()
+        refresh_start = evidence_source.index(
+            "CONNECTIVITY_REFRESH_EVIDENCE_FILES = ("
+        )
+        refresh_end = evidence_source.index("\n)\n", refresh_start)
+        refresh_allowlist = evidence_source[refresh_start:refresh_end]
+        self.assertIn("output_files/ap_core.map.rpt", refresh_allowlist)
+        for forbidden in (
+            "quartus.log",
+            "ap_core.rbf",
+            "ap_core.fit.rpt",
+            "ap_core.sta.rpt",
+            "build_id.mif",
+        ):
+            self.assertNotIn(forbidden, refresh_allowlist)
 
     def test_vm_fit_workflow_checks_x86_guest_before_checkout(self) -> None:
         workflow = WORKFLOW.read_text()
@@ -664,7 +805,7 @@ esac
             "minimum_cpus=8",
             "minimum_memory_kib=$((30 * 1024 * 1024))",
             "minimum_free_disk_kib=$((80 * 1024 * 1024))",
-            "for command in docker nproc awk df make python3 tclsh perl cmp find sed grep",
+            "for command in docker nproc awk df make python3 tclsh perl cmp find sed grep sha256sum",
             "docker info >/dev/null",
             "docker info --format '{{.OSType}}'",
             "docker info --format '{{.Architecture}}'",
@@ -682,6 +823,11 @@ esac
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertIn("container-layer free (overlay2, sha256:", accepted.stdout)
 
+        for nonce in (None, "", "A" * 32, "a" * 31, "a" * 33):
+            with self.subTest(lab_nonce=nonce):
+                rejected = self.run_fake_preflight(lab_nonce=nonce)
+                self.assertNotEqual(rejected.returncode, 0)
+
         remote = self.run_fake_preflight(endpoint="tcp://builder.example:2376")
         self.assertNotEqual(remote.returncode, 0)
         self.assertIn("local Unix-socket endpoint", remote.stderr)
@@ -698,7 +844,17 @@ esac
         self.assertNotEqual(starved.returncode, 0)
         self.assertIn("at least 80 GiB free for the Docker container layer", starved.stderr)
 
-        for command in ("make", "python3", "tclsh", "perl", "cmp", "find", "sed", "grep"):
+        for command in (
+            "make",
+            "python3",
+            "tclsh",
+            "perl",
+            "cmp",
+            "find",
+            "sed",
+            "grep",
+            "sha256sum",
+        ):
             with self.subTest(missing_command=command):
                 missing = self.run_fake_preflight(missing_command=command)
                 self.assertNotEqual(missing.returncode, 0)

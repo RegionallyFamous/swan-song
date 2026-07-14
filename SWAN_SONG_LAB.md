@@ -9,8 +9,10 @@ This is not a Railway service or a ChatGPT server. Codex can operate the same
 local CLI through the Mac terminal after `doctl`, `gh`, and SSH are configured.
 No OpenAI credential is needed or stored. The lab is a one-job GitHub JIT
 self-hosted runner for `.github/workflows/quartus-fit.yml`; it has the exact
-`self-hosted`, `linux`, `x64`, and `swan-song-quartus-21-1-1` labels required by
-that workflow.
+`self-hosted`, `linux`, `x64`, and `swan-song-quartus-21-1-1` labels plus one
+per-job `swan-song-job-<nonce>` label required by that workflow. The nonce is
+exactly 32 lowercase hexadecimal characters and changes for every fresh JIT
+runner.
 
 If desired, add a local Action in Codex desktop Settings that invokes
 `Swan Song Lab.command status`; the Action and authenticated clients stay on
@@ -86,7 +88,8 @@ $20/month if forgotten. Check current pricing before apply.
 Every wait and transfer is bounded. A partial failure is retained in the local
 `.swan-song-lab/state.json` so exact resource IDs can be inspected and deleted.
 That private-mode file contains IDs and status, never DigitalOcean, GitHub, or
-JIT tokens.
+JIT tokens. It also contains the non-secret raw job nonce used to bind one
+runner to one dispatch.
 
 Cloud-init installs rootful Docker, disables password and interactive SSH,
 limits both the DigitalOcean firewall and UFW to TCP/22 from the supplied `/32`,
@@ -103,8 +106,9 @@ authentication. The launcher then:
 4. verifies the archive again, builds and checks the required local-only
    `swan-song-quartus:21.1.1-850-cyclonev` image, and deletes the remote archive;
 5. downloads a checksum-bound official Linux x64 Actions runner; and
-6. generates a repository JIT configuration locally and starts an ephemeral
-   runner that automatically deregisters after one job.
+6. generates and persists one raw job nonce before registration, requests that
+   nonce as the JIT runner's unique fifth label, and starts an ephemeral runner
+   that automatically deregisters after one job.
 
 The Quartus archive and image are never pushed to a registry. The launcher does
 not read, catalogue, or upload ROMs or BIOS files. Commercial ROM testing belongs
@@ -127,8 +131,11 @@ default branch has not moved and requires a completed successful hosted
 workflow path and workflow ID. The exact run attempt must also contain the
 single successful GitHub-hosted regression job and all three required checkout,
 toolchain, and full-regression steps; skipped jobs or steps are not accepted. It
-then records the exact Quartus workflow-run ID returned by GitHub and verifies
-that run's branch, commit, event, and unique dispatch nonce. The Quartus job
+then dispatches the same raw nonce already bound to the runner, records the
+exact Quartus workflow-run ID returned by GitHub, and verifies that run's
+branch, commit, event, and exact nonce-bearing title. A missing, malformed,
+reused, or mismatched nonce fails closed instead of selecting a generic warm
+runner. The Quartus job
 independently repeats the hosted-regression proof with the read-only Actions API
 before fitting, so manual dispatch cannot bypass the gate. This reuses
 already-completed test evidence instead of spending another full regression
@@ -137,6 +144,11 @@ The protected `quartus-fit` GitHub environment can still require approval before
 the job reaches the runner.
 GitHub is the durable place for workflow logs and candidate evidence; the
 Droplet remains disposable.
+
+After a completed run, `rearm --apply` reuses the verified warm Quartus image
+but rotates both the JIT runner and its nonce label before another dispatch. It
+will not retry an uncertain registration or accept a prior runner/run whose
+recorded name, labels, branch, commit, event, or nonce does not match.
 
 Destroy immediately after the job and evidence review. The first command is a
 preview; the second deletes the recorded GitHub runner, Droplet, attached
