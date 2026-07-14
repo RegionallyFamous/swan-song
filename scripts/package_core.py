@@ -8,10 +8,15 @@ import json
 import pathlib
 import re
 import shutil
+import stat
+import subprocess
 import tempfile
 import zipfile
 
-from build_chip32 import chip32_image
+from quartus_report_text import decode_quartus_report
+import quartus_fit_audit as fit_audit
+
+from build_chip32 import chip32_image, chip32_image_bytes
 from package_validator import (
     StrictJsonError,
     ValidatedDistribution,
@@ -36,6 +41,28 @@ QUARTUS_REPORT_VERSION_PATTERN = re.compile(
 MIF_ASSIGNMENT_PATTERN = re.compile(
     r"^\s*([0-9A-Fa-f]+)\s*:\s*([0-9A-Fa-f]+)\s*;\s*(?:--.*)?$"
 )
+RELEASE_EVIDENCE_V1 = "SWAN_SONG_RELEASE_EVIDENCE_V1"
+RELEASE_EVIDENCE_V2 = "SWAN_SONG_RELEASE_EVIDENCE_V2"
+RELEASE_SOURCE_INPUTS_V1 = "SWAN_SONG_RELEASE_SOURCE_INPUTS_V1"
+SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+QUARTUS_AUDIT_FILENAME = "quartus-audit-candidate.json"
+AUDIT_REQUIRED_TRUE_GATES = {
+    "assembly_success",
+    "connectivity_warnings_reviewed",
+    "fit_success",
+    "flow_success",
+    "hold_timing",
+    "io_delay_constraints_preserved",
+    "no_critical_warnings",
+    "no_unconstrained_paths",
+    "pll_self_reset_configured",
+    "ram_block_headroom",
+    "recovery_timing",
+    "removal_timing",
+    "setup_timing",
+    "timing_analysis_success",
+}
 
 
 def package_filename(value: object, description: str) -> str:
@@ -89,11 +116,250 @@ def evidence_sha256(value: object, description: str) -> str:
     return value
 
 
+def _git(source_root: pathlib.Path, *arguments: str) -> bytes:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(source_root), *arguments],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = ""
+        if isinstance(error, subprocess.CalledProcessError):
+            detail = error.stderr.decode("utf-8", errors="replace").strip()
+        raise ValueError(
+            "release packaging requires a readable exact Git checkout"
+            + (f": {detail}" if detail else "")
+        ) from error
+    return result.stdout
+
+
+def _relative_source_file(
+    source_root: pathlib.Path, path: pathlib.Path, expected: pathlib.PurePosixPath
+) -> pathlib.Path:
+    resolved = path.resolve()
+    expected_path = source_root / pathlib.Path(*expected.parts)
+    if resolved != expected_path.resolve():
+        raise ValueError(
+            f"release input must be the exact checked-out {expected.as_posix()}: {path}"
+        )
+    return resolved
+
+
+def validate_release_source_checkout(
+    *,
+    source_root: pathlib.Path,
+    dist: pathlib.Path,
+    chip32_assembly: pathlib.Path,
+    chip32_encoded_image: pathlib.Path,
+    rbf_filename: str,
+    rbf_bytes: bytes,
+    source_commit: str,
+) -> dict[str, object]:
+    """Bind every release input to one clean, exact source commit.
+
+    The raw RBF is generated rather than tracked, so its identity is bound to
+    the same commit by the independently validated V2 build evidence. All
+    source-controlled package inputs are additionally compared byte-for-byte
+    with their blobs at that commit.
+    """
+
+    source_root = source_root.resolve()
+    repository_root = pathlib.Path(
+        _git(source_root, "rev-parse", "--show-toplevel")
+        .decode("utf-8")
+        .strip()
+    ).resolve()
+    if repository_root != source_root:
+        raise ValueError("release source root is not the exact Git checkout root")
+    head = _git(source_root, "rev-parse", "HEAD").decode("ascii").strip()
+    if head != source_commit:
+        raise ValueError(
+            "release build evidence source commit does not match checkout HEAD"
+        )
+    tree = _git(source_root, "rev-parse", "HEAD^{tree}").decode("ascii").strip()
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        raise ValueError("release checkout tree identity is malformed")
+    status = _git(
+        source_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    if status:
+        first = status.decode("utf-8", errors="replace").splitlines()[0]
+        raise ValueError(
+            "release packaging requires a clean exact source checkout; "
+            f"first dirty path: {first}"
+        )
+
+    dist = _relative_source_file(
+        source_root, dist, pathlib.PurePosixPath("dist")
+    )
+    assembly = _relative_source_file(
+        source_root,
+        chip32_assembly,
+        pathlib.PurePosixPath("src/support/chip32.asm"),
+    )
+    encoded_image = _relative_source_file(
+        source_root,
+        chip32_encoded_image,
+        pathlib.PurePosixPath("src/support/chip32.bin.hex"),
+    )
+
+    requested = (
+        "dist",
+        "src/support/chip32.asm",
+        "src/support/chip32.bin.hex",
+    )
+    raw_tree = _git(source_root, "ls-tree", "-r", "-z", "HEAD", "--", *requested)
+    records: dict[str, tuple[str, str]] = {}
+    for raw_record in raw_tree.split(b"\0"):
+        if not raw_record:
+            continue
+        try:
+            header, raw_path = raw_record.split(b"\t", 1)
+            mode, kind, object_id = header.decode("ascii").split(" ")
+            relative = raw_path.decode("utf-8")
+        except (UnicodeError, ValueError) as error:
+            raise ValueError("release Git tree inventory is malformed") from error
+        if kind != "blob" or mode not in {"100644", "100755"}:
+            raise ValueError(f"release source input is not a regular Git blob: {relative}")
+        records[relative] = (mode, object_id)
+
+    required_leafs = {
+        "src/support/chip32.asm",
+        "src/support/chip32.bin.hex",
+    }
+    if not required_leafs.issubset(records):
+        raise ValueError("release checkout is missing a tracked Chip32 input")
+    dist_files = {name for name in records if name.startswith("dist/")}
+    if not dist_files:
+        raise ValueError("release checkout has no tracked dist files")
+
+    actual_files: set[str] = set()
+    actual_directories: set[str] = set()
+    for path in dist.rglob("*"):
+        metadata = path.lstat()
+        relative = "dist/" + path.relative_to(dist).as_posix()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"release dist input must not be a symlink: {relative}")
+        if stat.S_ISREG(metadata.st_mode):
+            actual_files.add(relative)
+        elif stat.S_ISDIR(metadata.st_mode):
+            actual_directories.add(relative)
+        else:
+            raise ValueError(f"release dist input is a special file: {relative}")
+    if actual_files != dist_files:
+        missing = sorted(dist_files - actual_files)
+        extra = sorted(actual_files - dist_files)
+        raise ValueError(
+            "release dist inventory does not match the exact source commit "
+            f"(missing={missing!r}, extra={extra!r})"
+        )
+    expected_directories = {
+        parent.as_posix()
+        for filename in dist_files
+        for parent in pathlib.PurePosixPath(filename).parents
+        if parent.as_posix() not in {".", "dist"}
+    }
+    if actual_directories != expected_directories:
+        raise ValueError("release dist contains an untracked or missing directory")
+
+    tracked_files: dict[str, dict[str, object]] = {}
+    for relative in sorted(records):
+        path = source_root / pathlib.Path(*pathlib.PurePosixPath(relative).parts)
+        payload = path.read_bytes()
+        mode, object_id = records[relative]
+        committed = _git(source_root, "show", f"{source_commit}:{relative}")
+        if payload != committed:
+            raise ValueError(
+                f"release source input changed after clean-check validation: {relative}"
+            )
+        tracked_files[relative] = {
+            "git_blob": object_id,
+            "mode": mode,
+            "size": len(payload),
+            "sha256": sha256_bytes(payload),
+        }
+
+    return {
+        "magic": RELEASE_SOURCE_INPUTS_V1,
+        "repository": EXPECTED_REPOSITORY,
+        "source_commit": source_commit,
+        "source_tree": tree,
+        "dist_directory": "dist",
+        "dist_directories": sorted(actual_directories),
+        "chip32_assembly": "src/support/chip32.asm",
+        "chip32_encoded_image": "src/support/chip32.bin.hex",
+        "tracked_files": tracked_files,
+        "raw_rbf": {
+            "filename": rbf_filename,
+            "size": len(rbf_bytes),
+            "sha256": sha256_bytes(rbf_bytes),
+        },
+    }
+
+
+def verify_release_dist_snapshot(
+    stage: pathlib.Path, source_inputs: dict[str, object]
+) -> None:
+    tracked = source_inputs["tracked_files"]
+    assert isinstance(tracked, dict)
+    expected = {
+        name.removeprefix("dist/"): record
+        for name, record in tracked.items()
+        if name.startswith("dist/")
+    }
+    actual_files = {
+        path.relative_to(stage).as_posix(): path
+        for path in stage.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    if set(actual_files) != set(expected):
+        raise ValueError("release dist snapshot changed after source binding")
+    actual_directories = sorted(
+        "dist/" + path.relative_to(stage).as_posix()
+        for path in stage.rglob("*")
+        if path.is_dir() and not path.is_symlink()
+    )
+    if actual_directories != source_inputs["dist_directories"]:
+        raise ValueError("release dist directory snapshot changed after source binding")
+    for relative, path in actual_files.items():
+        payload = path.read_bytes()
+        record = expected[relative]
+        if not isinstance(record, dict) or record.get("size") != len(payload) or record.get(
+            "sha256"
+        ) != sha256_bytes(payload):
+            raise ValueError(
+                f"release dist snapshot changed after source binding: {relative}"
+            )
+
+
+def release_chip32_image(source_root: pathlib.Path, source_commit: str) -> bytes:
+    """Build Chip32 from immutable blobs addressed by the evidence commit."""
+
+    assembly_path = "src/support/chip32.asm"
+    encoded_path = "src/support/chip32.bin.hex"
+    assembly_bytes = _git(source_root, "show", f"{source_commit}:{assembly_path}")
+    encoded_bytes = _git(source_root, "show", f"{source_commit}:{encoded_path}")
+    return chip32_image_bytes(
+        assembly_bytes,
+        encoded_bytes,
+        assembly_description=f"{source_commit}:{assembly_path}",
+        encoded_image_description=f"{source_commit}:{encoded_path}",
+    )
+
+
 def quartus_report_version(report_bytes: bytes, description: str) -> str:
     try:
-        report_text = report_bytes.decode("utf-8")
+        report_text = decode_quartus_report(report_bytes)
     except UnicodeError as error:
-        raise ValueError(f"{description} is not UTF-8") from error
+        raise ValueError(
+            f"{description} contains bytes other than UTF-8 and Quartus's "
+            "Latin-1 degree symbol"
+        ) from error
 
     versions: list[str] = []
     for line in report_text.splitlines():
@@ -104,7 +370,8 @@ def quartus_report_version(report_bytes: bytes, description: str) -> str:
                 "quartus prime version",
                 "quartus version",
             }:
-                versions.append(" ".join(fields[1].split()))
+                value = " ".join(fields[1].split())
+                versions.append(value.removeprefix("Version "))
                 continue
         flat = re.fullmatch(
             r"\s*(?:Quartus Prime Version|Quartus Version)\s+"
@@ -113,7 +380,8 @@ def quartus_report_version(report_bytes: bytes, description: str) -> str:
             flags=re.IGNORECASE,
         )
         if flat is not None:
-            versions.append(" ".join(flat.group(1).split()))
+            value = " ".join(flat.group(1).split())
+            versions.append(value.removeprefix("Version "))
 
     unique_versions = sorted(set(versions))
     if len(unique_versions) != 1:
@@ -156,6 +424,146 @@ def parse_build_id_words(build_id_text: str) -> dict[str, str]:
     return parsed
 
 
+def validate_quartus_audit_binding(
+    *,
+    entry_value: object,
+    evidence_directory: pathlib.Path,
+    source_commit: str,
+    source_date_epoch: int,
+    rbf: dict[str, object],
+    build_id: dict[str, object],
+    reports: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """Recompute and bind the complete Quartus candidate to release evidence."""
+
+    entry = exact_members(
+        entry_value,
+        "build evidence.quartus_audit",
+        {"filename", "size", "sha256"},
+    )
+    filename = package_filename(
+        entry["filename"], "build evidence Quartus audit filename"
+    )
+    if filename != QUARTUS_AUDIT_FILENAME:
+        raise ValueError(
+            f"build evidence Quartus audit filename must be {QUARTUS_AUDIT_FILENAME}"
+        )
+    audit_path = evidence_directory / filename
+    if not audit_path.is_file() or audit_path.is_symlink():
+        raise ValueError(f"build evidence Quartus audit is missing: {audit_path}")
+    audit_bytes = audit_path.read_bytes()
+    if evidence_integer(entry["size"], "build evidence Quartus audit size") != len(
+        audit_bytes
+    ):
+        raise ValueError("build evidence Quartus audit size mismatch")
+    audit_digest = evidence_sha256(
+        entry["sha256"], "build evidence Quartus audit SHA-256"
+    )
+    if audit_digest != sha256_bytes(audit_bytes):
+        raise ValueError("build evidence Quartus audit SHA-256 mismatch")
+    try:
+        document = strict_json_loads(audit_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
+        raise ValueError(f"invalid Quartus audit {audit_path}: {error}") from error
+
+    try:
+        recomputed = fit_audit.audit(evidence_directory)
+    except (fit_audit.AuditError, OSError) as error:
+        raise ValueError(
+            f"could not recompute Quartus audit from release evidence: {error}"
+        ) from error
+    if document != recomputed:
+        raise ValueError(
+            "build evidence Quartus audit does not match a fresh audit of its "
+            "complete artifact bundle"
+        )
+
+    top = exact_members(document, "Quartus audit", {"quartus_audit"})
+    audit = top["quartus_audit"]
+    if not isinstance(audit, dict):
+        raise ValueError("Quartus audit envelope must be an object")
+    if audit.get("magic") != "SWAN_SONG_QUARTUS_AUDIT_V1":
+        raise ValueError("Quartus audit magic must be SWAN_SONG_QUARTUS_AUDIT_V1")
+    if audit.get("audit_pass") is not True:
+        raise ValueError("Quartus audit must have audit_pass true")
+    if audit.get("release_eligible") is not False:
+        raise ValueError("candidate Quartus audit must retain release_eligible false")
+
+    provenance = audit.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ValueError("Quartus audit source provenance is missing")
+    expected_provenance = {
+        "source_commit": source_commit,
+        "source_date_epoch": str(source_date_epoch),
+        "platform": "linux/amd64",
+        "quartus": "21.1.1.850 Lite",
+        "device": "5CEBA4F23C8",
+    }
+    if provenance != expected_provenance:
+        raise ValueError("Quartus audit source identity does not match release evidence")
+    if audit.get("identity") != {
+        "revision": "ap_core",
+        "top_level": "apf_top",
+        "family": "Cyclone V",
+        "device": "5CEBA4F23C8",
+    }:
+        raise ValueError("Quartus audit target identity is not the release target")
+
+    artifacts = audit.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("Quartus audit artifact identities are missing")
+    expected_bindings = {
+        "output_files/ap_core.rbf": {
+            "size": rbf["size"],
+            "sha256": rbf["sha256"],
+        },
+        "build_id.mif": {
+            "size": build_id["size"],
+            "sha256": build_id["sha256"],
+        },
+    }
+    for report in reports.values():
+        expected_bindings[report["filename"]] = {
+            "size": report["size"],
+            "sha256": report["sha256"],
+        }
+    for relative, identity in expected_bindings.items():
+        if artifacts.get(relative) != identity:
+            raise ValueError(
+                f"Quartus audit {relative} identity does not match release evidence"
+            )
+
+    candidate_gates = audit.get("candidate_gates")
+    if not isinstance(candidate_gates, dict):
+        raise ValueError("Quartus audit candidate gates are missing")
+    failed = sorted(
+        gate for gate in AUDIT_REQUIRED_TRUE_GATES if candidate_gates.get(gate) is not True
+    )
+    if failed:
+        raise ValueError(
+            "Quartus audit has unaccepted candidate gates: " + ", ".join(failed)
+        )
+    if candidate_gates.get("compressed_bitstream") is not None:
+        raise ValueError("candidate Quartus audit must not claim compressed-bitstream QA")
+    for gate in ("pocket_hardware", "dock_hardware"):
+        if candidate_gates.get(gate) is not False:
+            raise ValueError(f"candidate Quartus audit must not claim {gate}")
+
+    return {
+        "filename": filename,
+        "size": len(audit_bytes),
+        "sha256": audit_digest,
+        "magic": audit["magic"],
+        "audit_pass": True,
+        "source_commit": source_commit,
+        "source_date_epoch": source_date_epoch,
+        "artifact_count": len(artifacts),
+        "required_candidate_gates": {
+            gate: True for gate in sorted(AUDIT_REQUIRED_TRUE_GATES)
+        },
+    }
+
+
 def validate_build_evidence(
     path: pathlib.Path, rbf_bytes: bytes, rbf_filename: str
 ) -> dict[str, object]:
@@ -178,22 +586,32 @@ def validate_build_evidence(
     except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
         raise ValueError(f"invalid build evidence {path}: {error}") from error
     top = exact_members(document, "build evidence", {"release_evidence"})
+    raw_evidence = top["release_evidence"]
+    if not isinstance(raw_evidence, dict):
+        raise ValueError("build evidence.release_evidence must be an object")
+    evidence_magic = raw_evidence.get("magic")
+    if evidence_magic not in {RELEASE_EVIDENCE_V1, RELEASE_EVIDENCE_V2}:
+        raise ValueError(
+            "build evidence magic must be SWAN_SONG_RELEASE_EVIDENCE_V1 or "
+            "SWAN_SONG_RELEASE_EVIDENCE_V2"
+        )
+    evidence_members = {
+        "magic",
+        "source_commit",
+        "source_date_epoch",
+        "quartus_version",
+        "rbf",
+        "build_id",
+        "reports",
+        "gates",
+    }
+    if evidence_magic == RELEASE_EVIDENCE_V2:
+        evidence_members.add("quartus_audit")
     evidence = exact_members(
-        top["release_evidence"],
+        raw_evidence,
         "build evidence.release_evidence",
-        {
-            "magic",
-            "source_commit",
-            "source_date_epoch",
-            "quartus_version",
-            "rbf",
-            "build_id",
-            "reports",
-            "gates",
-        },
+        evidence_members,
     )
-    if evidence["magic"] != "SWAN_SONG_RELEASE_EVIDENCE_V1":
-        raise ValueError("build evidence magic must be SWAN_SONG_RELEASE_EVIDENCE_V1")
     source_commit = evidence["source_commit"]
     if (
         not isinstance(source_commit, str)
@@ -303,9 +721,18 @@ def validate_build_evidence(
             f"build evidence.reports.{kind}",
             {"filename", "size", "sha256"},
         )
-        filename = package_filename(
-            report["filename"], f"build evidence {kind} report filename"
-        )
+        if evidence_magic == RELEASE_EVIDENCE_V2:
+            filename = report["filename"]
+            expected_filename = f"output_files/ap_core.{kind}.rpt"
+            if filename != expected_filename:
+                raise ValueError(
+                    f"build evidence {kind} report filename must be "
+                    f"{expected_filename} for V2"
+                )
+        else:
+            filename = package_filename(
+                report["filename"], f"build evidence {kind} report filename"
+            )
         if not filename.endswith(suffix):
             raise ValueError(f"build evidence {kind} report must end in {suffix}")
         report_names.append(filename.casefold())
@@ -353,7 +780,26 @@ def validate_build_evidence(
     if failed_gates:
         raise ValueError("build evidence has unaccepted gates: " + ", ".join(failed_gates))
 
+    verified_audit = None
+    if evidence_magic == RELEASE_EVIDENCE_V2:
+        verified_audit = validate_quartus_audit_binding(
+            entry_value=evidence["quartus_audit"],
+            evidence_directory=path.parent,
+            source_commit=source_commit,
+            source_date_epoch=source_date_epoch,
+            rbf={
+                "size": len(rbf_bytes),
+                "sha256": rbf["sha256"],
+            },
+            build_id={
+                "size": len(build_id_bytes),
+                "sha256": build_id_digest,
+            },
+            reports=verified_reports,
+        )
+
     return {
+        "magic": evidence_magic,
         "manifest_filename": path.name,
         "manifest_size": len(evidence_bytes),
         "manifest_sha256": sha256_bytes(evidence_bytes),
@@ -366,6 +812,7 @@ def validate_build_evidence(
             "sha256": build_id_digest,
         },
         "reports": verified_reports,
+        "quartus_audit": verified_audit,
         "gates": {name: True for name in sorted(gate_names)},
     }
 
@@ -803,6 +1250,11 @@ def create_package(
     )
     if release and verified_evidence is None:
         raise ValueError("--release requires --build-evidence")
+    if release and verified_evidence["magic"] != RELEASE_EVIDENCE_V2:
+        raise ValueError(
+            "--release requires SWAN_SONG_RELEASE_EVIDENCE_V2 with a recomputed "
+            "Quartus audit binding"
+        )
     if release and policy_argument is None:
         raise ValueError("--release requires --release-policy")
     verified_policy = (
@@ -815,11 +1267,31 @@ def create_package(
             "release package filename must be " + definition.recommended_archive_name
         )
 
-    chip32 = chip32_image(chip32_assembly, chip32_encoded_image)
+    release_source_inputs = (
+        validate_release_source_checkout(
+            source_root=SOURCE_ROOT,
+            dist=dist,
+            chip32_assembly=chip32_assembly,
+            chip32_encoded_image=chip32_encoded_image,
+            rbf_filename=rbf.name,
+            rbf_bytes=rbf_bytes,
+            source_commit=verified_evidence["source_commit"],
+        )
+        if release
+        else None
+    )
+
+    chip32 = (
+        release_chip32_image(SOURCE_ROOT, verified_evidence["source_commit"])
+        if release
+        else chip32_image(chip32_assembly, chip32_encoded_image)
+    )
 
     with tempfile.TemporaryDirectory(prefix="swan-song-") as temporary:
         stage = pathlib.Path(temporary)
         shutil.copytree(dist, stage, dirs_exist_ok=True)
+        if release_source_inputs is not None:
+            verify_release_dist_snapshot(stage, release_source_inputs)
         # Source-control placeholders are not Pocket SD assets.  Preserve the
         # empty directory entry but never expose .gitkeep in a release ZIP.
         for placeholder in stage.rglob(".gitkeep"):
@@ -906,6 +1378,8 @@ def create_package(
         }
         if verified_policy is not None:
             package_provenance["release_policy"] = verified_policy
+        if release_source_inputs is not None:
+            package_provenance["source_inputs"] = release_source_inputs
         provenance = {"package_provenance": package_provenance}
         encoded_provenance = (
             json.dumps(provenance, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

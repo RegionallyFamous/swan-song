@@ -50,7 +50,8 @@ whenever they can be shared cleanly.
 The current development work is focused on:
 
 - WonderSwan and WonderSwan Color games in `.ws` and `.wsc` format;
-- automatic game-oriented controls for horizontal and vertical play;
+- automatic game-oriented controls for horizontal and vertical play, with
+  persistent Horizontal and Vertical overrides;
 - fast forward, including an option to keep audio playing;
 - persistent per-game saves and separate console settings for the original and
   Color systems;
@@ -58,16 +59,24 @@ The current development work is focused on:
   color;
 - a CPU Turbo option for games that benefit from extra headroom;
 - friendly handling of missing or invalid files instead of unexplained hangs;
-- side-by-side installation with the earlier `agg23.WonderSwan` core (back up
-  saves before alternating between cores, because both may use the same
-  per-game save file); and
+- side-by-side installation with the earlier `agg23.WonderSwan` core, with
+  Swan Song's cartridge saves kept in its own core-specific namespace (back up
+  first and use the ROM-aware helper for older shared saves); and
 - a reproducible core package with a documented origin and test history.
 
-Swan Song will use **openFPGA**. Analogue does not currently document a
-supported way for third-party cores or their games to appear in Pocket's
-first-party Library. Setting **Startup Action > openFPGA** and using Pocket's
-openFPGA **Recent** list should make return visits quick, but Swan Song will not
-claim first-party Library integration that Pocket does not provide.
+### Controls, rotation, and returning to Swan Song
+
+**Control Layout** can follow each game's horizontal or vertical orientation
+automatically, or stay in the layout you choose. It changes the buttons, not
+the picture; **Display Orientation** controls the screen presentation. The
+[Controls and Settings guide](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
+explains the choices.
+
+Swan Song launches through **openFPGA**, not Pocket's first-party Library.
+Setting **Startup Action > openFPGA** and using openFPGA's **Recent** list makes
+return visits quick. See [Compatibility and Current
+Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
+for the current Pocket integration boundaries.
 
 ### Known limits
 
@@ -104,7 +113,9 @@ installation requirements.
 
 On macOS, take care when copying the release folders: Finder can replace a
 same-named folder instead of merging it. The release guide will include a safe
-Mac installation path.
+Mac installation path. Swan Song's read-only-first staging tool already has an
+explicit release-verification mode, but the checked-in release policy currently
+blocks installation because distribution and licensing are not authorized yet.
 
 ## Bring your own games and BIOS
 
@@ -113,26 +124,36 @@ Bandai BIOS files, or WonderWitch firmware. Use dumps you are legally entitled
 to use in your country. Please do not upload ROMs or BIOS files to GitHub, an
 issue report, or a public testing service.
 
-Private collection testing is designed so the game files remain on hardware
-you control; public reports can use anonymous results without exposing game
-names, paths, or file hashes.
-
 ## Help and documentation
 
-Player guides and deeper technical material are moving to the
-[Swan Song wiki](https://github.com/RegionallyFamous/swan-song/wiki) so this
-front page can stay focused on playing the games. Planned sections include:
+Use the live player guides for:
 
-- installation and first launch;
-- controls, rotation, saves, and display options;
-- compatibility and known limitations;
-- Pocket and Dock testing;
-- building and release verification; and
-- architecture and contributor documentation.
+- [installing Swan Song](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song)
+- [starting and playing games](https://github.com/RegionallyFamous/swan-song/wiki/Playing-Games)
+- [controls and settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
+- [saves and migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration)
+- [compatibility and current limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
+- [troubleshooting and bug reports](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
 
-The wiki is now open and will be expanded before the first verified release.
-Until each guide moves there, the documents in this repository describe the
-development work in progress.
+Technical contributors can start at the [Developer
+Hub](https://github.com/RegionallyFamous/swan-song/wiki/Developer-Hub).
+
+### Something not working?
+
+With the Pocket SD card mounted, open Terminal in a downloaded Swan Song source
+folder and run:
+
+```bash
+python3 scripts/swan_song_doctor.py --sd-root "/Volumes/POCKET"
+```
+
+Replace `/Volumes/POCKET` with the card's actual path. Swan Song Doctor is
+read-only by default. It checks the installation, BIOS filenames and sizes,
+game and per-game settings locations, older WonderSwan data, and unsafe SD-card
+paths. It never uploads ROMs, BIOS files, or saves. See the player-friendly
+[troubleshooting guide](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
+or the [complete Doctor reference](SWAN_SONG_DOCTOR.md) for help reading the
+result and for carefully previewing optional repairs.
 
 Found a problem? Open an
 [issue](https://github.com/RegionallyFamous/swan-song/issues) and include the
@@ -149,9 +170,11 @@ Swan Song is maintained by **Regionally Famous** under the independent core ID
 - WonderSwan FPGA core: [Robert Peip](https://github.com/RobertPeip)
   ([Patreon](https://www.patreon.com/FPGAzumSpass))
 - Original Analogue Pocket port: [Adam Gastineau](https://github.com/agg23)
-- Platform artwork: [spiritualized1997](https://github.com/spiritualized1997)
+- Swan Song icon and **Swan Wake** platform artwork: **Regionally Famous**
+  ([art provenance](PLATFORM_ART.md))
 
 Many emulator, homebrew, documentation, and hardware-research projects also
 make this work possible. Detailed provenance and pinned upstream revisions are
 maintained in the project documentation and will remain part of the technical
-wiki.
+wiki. That record preserves spiritualized1997's credit for the predecessor's
+historical platform image even though Swan Song no longer distributes it.
