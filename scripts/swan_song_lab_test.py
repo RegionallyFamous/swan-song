@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -14,6 +15,18 @@ import swan_song_lab as lab
 
 
 class SwanSongLabTest(unittest.TestCase):
+    def test_command_output_replaces_invalid_utf8_without_masking_status(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import os; os.write(2, b'bad\\xfftail'); raise SystemExit(37)",
+        ]
+        result = lab.run(command, check=False)
+        self.assertEqual(result.returncode, 37)
+        self.assertEqual(result.stderr, "bad\ufffdtail")
+        with self.assertRaisesRegex(lab.LabError, "bad\ufffdtail"):
+            lab.run(command)
+
     def launch_args(self, **changes: object) -> argparse.Namespace:
         values: dict[str, object] = {
             "apply": False,
@@ -108,10 +121,19 @@ class SwanSongLabTest(unittest.TestCase):
         self.assertIn("/tmp/lab-key", calls[0][0])
         remote = calls[1][1] or ""
         self.assertIn(f"trap cleanup EXIT", remote)
+        self.assertIn("status=$?", remote)
+        self.assertIn("trap - EXIT", remote)
+        self.assertIn('(( status != 0 )) || status=1', remote)
+        self.assertIn('exit "$status"', remote)
         self.assertIn(lab.ARCHIVE_SHA1, remote)
         self.assertIn("quartus_archive.py verify", remote)
         self.assertIn("QUARTUS_ACCEPT_EULA=1", remote)
         self.assertIn("quartus_docker.sh image", remote)
+        self.assertIn("quartus-image-build.log", remote)
+        self.assertIn('> "$build_log" 2>&1', remote)
+        self.assertIn('tail -c 65536 "$build_log"', remote)
+        self.assertIn('exit "$build_status"', remote)
+        self.assertIn('rm -f "$build_log"', remote)
         self.assertIn("quartus_docker.sh check-image", remote)
         self.assertIn(lab.IMAGE, remote)
         self.assertEqual(calls[1][2], lab.BUILD_TIMEOUT)

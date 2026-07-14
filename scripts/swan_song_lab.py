@@ -60,6 +60,8 @@ def run(
             list(argv),
             input=input_text,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout,
@@ -410,7 +412,15 @@ def prepare_remote(state: dict[str, Any], archive: Path, commit: str) -> None:
     repo_url = f"https://github.com/{state['repo']}.git"
     remote = f"""set -euo pipefail
 archive={shlex.quote(remote_archive)}
-cleanup() {{ rm -f "$archive"; }}
+cleanup() {{
+  status=$?
+  trap - EXIT
+  if ! rm -f "$archive"; then
+    printf 'could not remove the remote Quartus archive\n' >&2
+    (( status != 0 )) || status=1
+  fi
+  exit "$status"
+}}
 trap cleanup EXIT
 test "$(sha1sum "$archive" | awk '{{print $1}}')" = {ARCHIVE_SHA1}
 rm -rf /srv/swan-song-source
@@ -422,9 +432,21 @@ test "$(git rev-parse HEAD)" = {commit}
 python3 scripts/quartus_archive.py verify "$archive"
 export TMPDIR=/srv/swan-song-data/tmp
 export QUARTUS_ACCEPT_EULA=1
-./scripts/quartus_docker.sh image "$archive"
+build_log=/srv/swan-song-data/quartus-image-build.log
+umask 077
+: > "$build_log"
+set +e
+./scripts/quartus_docker.sh image "$archive" > "$build_log" 2>&1
+build_status=$?
+set -e
+if (( build_status != 0 )); then
+  printf 'Quartus image build failed with status %s; tail follows:\n' "$build_status" >&2
+  tail -c 65536 "$build_log" >&2 || true
+  exit "$build_status"
+fi
 ./scripts/quartus_docker.sh check-image
 docker image inspect --format '{{{{.Id}}}}' {shlex.quote(IMAGE)}
+rm -f "$build_log"
 """
     run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=BUILD_TIMEOUT)
 

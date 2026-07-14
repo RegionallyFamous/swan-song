@@ -14,6 +14,7 @@ WORKFLOW = ROOT / ".github/workflows/quartus-fit.yml"
 DOCKERFILE = ROOT / "toolchains/quartus-21.1.1/Dockerfile"
 CONTAINER_BUILD = ROOT / "toolchains/quartus-21.1.1/container-build-core.sh"
 TOOLCHAIN_CHECK = ROOT / "toolchains/quartus-21.1.1/toolchain-check.sh"
+VERIFY_TCL = ROOT / "toolchains/quartus-21.1.1/verify-toolchain.tcl"
 
 
 class QuartusDockerContractTest(unittest.TestCase):
@@ -536,6 +537,47 @@ esac
         self.assertIn("Lite Edition", check)
         self.assertIn("5CEBA4F23C8", check)
         self.assertIn("Cyclone V", check)
+
+    def test_device_family_gate_normalizes_one_element_quartus_list(self) -> None:
+        verify = VERIFY_TCL.read_text()
+        accepted = subprocess.run(
+            ["tclsh"],
+            input=(
+                'proc get_part_info {flag part} { return [list "Cyclone V"] }\n'
+                + verify
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn("5CEBA4F23C8 -> Cyclone V", accepted.stdout)
+
+        scalar = subprocess.run(
+            ["tclsh"],
+            input=(
+                'proc get_part_info {flag part} { return "Cyclone V" }\n'
+                + verify
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(scalar.returncode, 0, scalar.stderr)
+        self.assertIn("5CEBA4F23C8 -> Cyclone V", scalar.stdout)
+
+        rejected = subprocess.run(
+            ["tclsh"],
+            input=(
+                'proc get_part_info {flag part} { return [list "Cyclone 10"] }\n'
+                + verify
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(rejected.returncode, 70)
+        self.assertIn("unexpected family: Cyclone 10", rejected.stderr)
 
     def test_image_gate_compares_all_embedded_toolchain_payloads(self) -> None:
         host = HOST.read_text()
