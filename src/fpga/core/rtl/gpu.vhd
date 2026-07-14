@@ -174,15 +174,22 @@ architecture arch of gpu is
    signal memoryArbiter       : unsigned(2 downto 0) := (others => '0');
    
    -- sprite DMA
-   signal spriteDMAon         : std_logic := '0';
-   signal spriteDMACnt        : integer range 0 to 127;
-   signal spriteDMAAddr       : std_logic_vector(15 downto 0) := (others => '0');
-   signal spriteDMAData       : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteDMARequest          : std_logic := '0';
+   signal spriteDMATransferArmed    : std_logic := '0';
+   signal spriteDMALogicalRequest   : std_logic := '0';
+   signal spriteDMALogicalIndex     : unsigned(7 downto 0) := (others => '0');
+   signal spriteDMALogicalAddr      : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteDMAResponsePending  : std_logic := '0';
+   signal spriteDMARequestIndex     : unsigned(7 downto 0) := (others => '0');
+   signal spriteDMAResponseIndex    : unsigned(7 downto 0) := (others => '0');
+   signal spriteDMABase             : unsigned(15 downto 0) := (others => '0');
+   signal spriteDMAFirstOffset      : unsigned(8 downto 0) := (others => '0');
+   signal spriteDMAAddr             : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteDMAData             : std_logic_vector(15 downto 0) := (others => '0');
    signal spriteDMADataAddr   : std_logic_vector(15 downto 0) := (others => '0');
    signal spriteDMADataCollision : std_logic := '0';
    signal spriteDMADataDebugValid : std_logic := '0';
    signal spriteDMADebugGeneration : unsigned(31 downto 0) := (others => '0');
-   signal spriteDMAWait       : integer range 0 to 2;
    
    signal spriteCount         : integer range 0 to 128;
    type tspriteRAM is array(0 to 127) of std_logic_vector(31 downto 0);
@@ -295,6 +302,43 @@ architecture arch of gpu is
 begin 
 
    export_vtime <= LINE_CUR;
+
+   -- Produce the logical line-144 word request directly from the raster edge.
+   -- A request is either consumed in a sprite-table arbiter slot on that same
+   -- edge or held in spriteDMARequest until the next such slot. This direct
+   -- path matters in fast-forward, where ce can recur every four clk edges at
+   -- the same cadence as the two sprite-table slots: delaying the logical
+   -- request by one clk would attribute word 255 to line 145 for two phases.
+   process (all)
+      variable dmaBase       : unsigned(15 downto 0);
+      variable dmaOffset     : unsigned(8 downto 0);
+      variable dmaWordOffset : unsigned(8 downto 0);
+   begin
+      spriteDMALogicalRequest <= '0';
+      spriteDMALogicalIndex   <= (others => '0');
+      spriteDMALogicalAddr    <= (others => '0');
+
+      if (reset = '0' and ce = '1' and
+          unsigned(LINE_CUR) = 143 and xCount = 255) then
+         -- The old raster value names the edge entering line 144 cycle 0.
+         -- Base and first are still live here because their latched copies are
+         -- written on this same edge.
+         if (DISP_MODE(7 downto 6) = "00") then
+            dmaBase := shift_left(resize(unsigned(SPR_BASE(4 downto 0)), 16), 9);
+         else
+            dmaBase := shift_left(resize(unsigned(SPR_BASE(5 downto 0)), 16), 9);
+         end if;
+         dmaOffset := shift_left(resize(unsigned(SPR_FIRST(6 downto 0)), 9), 2);
+         spriteDMALogicalRequest <= '1';
+         spriteDMALogicalAddr    <= std_logic_vector(dmaBase + resize(dmaOffset, 16));
+      elsif (reset = '0' and ce = '1' and spriteDMATransferArmed = '1' and
+             unsigned(LINE_CUR) = 144 and xCount < 255) then
+         spriteDMALogicalRequest <= '1';
+         spriteDMALogicalIndex   <= xCount + 1;
+         dmaWordOffset := spriteDMAFirstOffset + shift_left(resize(xCount + 1, 9), 1);
+         spriteDMALogicalAddr <= std_logic_vector(spriteDMABase + resize(dmaWordOffset, 16));
+      end if;
+   end process;
 
    iDISP_CTRL   : entity work.eReg generic map ( REG_DISP_CTRL   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(0 ), DISP_CTRL  , DISP_CTRL  );  
    iBACK_COLOR  : entity work.eReg generic map ( REG_BACK_COLOR  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(1 ), BACK_COLOR , BACK_COLOR );  
@@ -556,10 +600,15 @@ begin
                   debug_vram_fetch_role <= DEBUG_VRAM_SCREEN1_MAP;
                end if;
             when 1 =>
-               RAM_addr <= spriteDMAAddr;
                debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TABLE;
-               if spriteDMAon = '1' and spriteDMAWait = 0 then
+               if reset = '0' and spriteDMARequest = '1' then
+                  RAM_addr <= spriteDMAAddr;
                   debug_vram_fetch_valid <= is_simu;
+               elsif spriteDMALogicalRequest = '1' then
+                  RAM_addr <= spriteDMALogicalAddr;
+                  debug_vram_fetch_valid <= is_simu;
+               else
+                  RAM_addr <= spriteDMAAddr;
                end if;
             when 2 =>
                RAM_addr <= RAM_Address_SPR;
@@ -577,10 +626,15 @@ begin
                   debug_vram_fetch_role <= DEBUG_VRAM_SCREEN2_MAP;
                end if;
             when 5 =>
-               RAM_addr <= spriteDMAAddr;
                debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TABLE;
-               if spriteDMAon = '1' and spriteDMAWait = 0 then
+               if reset = '0' and spriteDMARequest = '1' then
+                  RAM_addr <= spriteDMAAddr;
                   debug_vram_fetch_valid <= is_simu;
+               elsif spriteDMALogicalRequest = '1' then
+                  RAM_addr <= spriteDMALogicalAddr;
+                  debug_vram_fetch_valid <= is_simu;
+               else
+                  RAM_addr <= spriteDMAAddr;
                end if;
             when 6 =>
                RAM_addr <= RAM_Address_SPR;
@@ -625,6 +679,9 @@ begin
    process (clk)
       variable tileY8 : unsigned(7 downto 0);
       variable tileY3 : unsigned(2 downto 0);
+      variable dmaBase : unsigned(15 downto 0);
+      variable dmaOffset : unsigned(8 downto 0);
+      variable dmaDescriptorIndex : integer range 0 to 127;
    begin
       if rising_edge(clk) then
          spritesClearNext       <= '0';
@@ -635,12 +692,19 @@ begin
             -- Cancel only the sprite DMA/line-loader work that can cross a
             -- reset boundary. The sprite cache itself remains ordinary
             -- functional storage and is repopulated by the next frame DMA.
-            -- Broader gpu ce/savestate behavior is intentionally unchanged.
-            spriteDMAon       <= '0';
-            spriteDMAWait     <= 0;
-            spriteDMACnt      <= 0;
-            spriteDMAAddr     <= (others => '0');
-            spriteDMAData     <= (others => '0');
+            -- The sprite cache and transfer phase are not in the legacy GPU
+            -- save payload. Memories is unsupported, so a restore into the
+            -- middle of line 144 deliberately leaves the transfer disarmed;
+            -- the next genuine 143:255 boundary repopulates the cache.
+            spriteDMARequest         <= '0';
+            spriteDMATransferArmed   <= '0';
+            spriteDMAResponsePending <= '0';
+            spriteDMARequestIndex    <= (others => '0');
+            spriteDMAResponseIndex   <= (others => '0');
+            spriteDMABase            <= (others => '0');
+            spriteDMAFirstOffset     <= (others => '0');
+            spriteDMAAddr            <= (others => '0');
+            spriteDMAData            <= (others => '0');
             spriteCount       <= 0;
             spriteLineState   <= IDLE;
             spriteLineCounter <= 0;
@@ -695,57 +759,96 @@ begin
             spriteLineLoadEpochSeen <= '0';
          end if;
 
-         -- DMA
-         if (newLine = '1' and unsigned(LINE_CUR) = 142) then
-            spriteDMAon   <= '1';
-            spriteDMAWait <= 2;
-            spriteDMACnt  <= 0;
+         -- Sprite table copy. WonderSwan performs one 16-bit transfer on
+         -- every one of line 144's 256 system cycles, with the byte offset
+         -- wrapping inside the 512-byte table. Pinned Mesen2 b9fa69dd
+         -- WsPpu::ProcessSpriteCopy establishes that cadence and explicitly
+         -- latches count at cycle 0, but reads base/first live on each cycle.
+         -- Pinned ares 449b9371 instead snapshots count, base, and first on
+         -- entry to its line-144 oamSyncScanline; this RTL deliberately uses
+         -- the ares all-three boundary model. WSdev Display/Sprites documents
+         -- the table and register meanings. This replaces the inherited
+         -- line-142/free-arbiter transfer.
+         --
+         -- Form each request on the ce edge that enters its system cycle. It
+         -- is consumed either on that same edge when it coincides with a
+         -- dedicated VRAM arbiter slot or from the one-entry queue at the next
+         -- slot. The response is captured two clk edges after physical issue,
+         -- matching the synchronous dpram latency used by other GPU clients.
+         if (ce = '1' and unsigned(LINE_CUR) = 143 and xCount = 255) then
+            -- The old raster values are still visible on this edge: this is
+            -- the exact transition into line 144 cycle 0.
+            spriteDMATransferArmed <= '1';
+
+            if (unsigned(SPR_COUNT) > 128) then
+               spriteCount <= 128;
+            else
+               spriteCount <= to_integer(unsigned(SPR_COUNT));
+            end if;
+
+            -- SPR_BASE bit 5 is available in every Color mode, including
+            -- 2bpp; it is not a 4bpp-only feature. See WSdev
+            -- Display/IO_Ports ($04) and ws-test-suite
+            -- tile_screen_extended_range.
+            if (DISP_MODE(7 downto 6) = "00") then
+               dmaBase := shift_left(resize(unsigned(SPR_BASE(4 downto 0)), 16), 9);
+            else
+               dmaBase := shift_left(resize(unsigned(SPR_BASE(5 downto 0)), 16), 9);
+            end if;
+            dmaOffset := shift_left(resize(unsigned(SPR_FIRST(6 downto 0)), 9), 2);
+            spriteDMABase        <= dmaBase;
+            spriteDMAFirstOffset <= dmaOffset;
+            spriteDMAAddr        <= std_logic_vector(dmaBase + resize(dmaOffset, 16));
+
             if (is_simu = '1') then
                -- A new table transfer cannot inherit a half descriptor from
                -- an interrupted or reset-time transfer.
                spriteDMADataDebugValid <= '0';
             end if;
-            
-            if (unsigned(SPR_COUNT) > 128) then
-               spriteCount  <= 128;
+         elsif (ce = '1' and spriteDMATransferArmed = '1' and
+                unsigned(LINE_CUR) = 144 and xCount = 254) then
+            -- Word 255 is the last logical request. Disarm before the next ce
+            -- enters line 145 so no queued or restored remainder can escape.
+            spriteDMATransferArmed <= '0';
+         end if;
+
+         if (spriteDMARequest = '1' and
+             (to_integer(memoryArbiter) = 1 or to_integer(memoryArbiter) = 5)) then
+            spriteDMARequest         <= '0';
+            spriteDMAResponsePending <= '1';
+            spriteDMAResponseIndex   <= spriteDMARequestIndex;
+         elsif (spriteDMALogicalRequest = '1') then
+            if (to_integer(memoryArbiter) = 1 or to_integer(memoryArbiter) = 5) then
+               -- Same-edge issue keeps fast-forward phases 1/5 from shifting
+               -- the physical/debug request into the next logical cycle.
+               spriteDMAResponsePending <= '1';
+               spriteDMAResponseIndex   <= spriteDMALogicalIndex;
             else
-               spriteCount  <= to_integer(unsigned(SPR_COUNT));
-            end if;
-                        
-            -- SPR_BASE bit 5 is available in every Color mode, including
-            -- 2bpp; it is not a 4bpp-only feature. See WSdev Display/IO_Ports
-            -- ($04) and ws-test-suite tile_screen_extended_range.
-            if (DISP_MODE(7 downto 6) = "00") then
-               spriteDMAAddr <= "00" & SPR_BASE(4 downto 0) & SPR_FIRST(6 downto 0) & "00";
-            else
-               spriteDMAAddr <=  '0' & SPR_BASE(5 downto 0) & SPR_FIRST(6 downto 0) & "00";
+               spriteDMARequest      <= '1';
+               spriteDMARequestIndex <= spriteDMALogicalIndex;
+               spriteDMAAddr         <= spriteDMALogicalAddr;
             end if;
          end if;
-         
-         if (spriteDMAWait > 0) then
-            spriteDMAWait <= spriteDMAWait - 1;
-         elsif (spriteDMAon = '1' and (to_integer(memoryArbiter) = 3 or to_integer(memoryArbiter) = 7)) then
-            spriteDMAAddr <= std_logic_vector(unsigned(spriteDMAAddr) + 2);
-            if (spriteDMAAddr(1) = '1') then
-               spriteRAM(spriteDMACnt) <= RAM_dataread & spriteDMAData;
+
+         if (spriteDMAResponsePending = '1' and
+             (to_integer(memoryArbiter) = 3 or to_integer(memoryArbiter) = 7)) then
+            spriteDMAResponsePending <= '0';
+            if (spriteDMAResponseIndex(0) = '1') then
+               dmaDescriptorIndex := to_integer(spriteDMAResponseIndex(7 downto 1));
+               spriteRAM(dmaDescriptorIndex) <= RAM_dataread & spriteDMAData;
                if (is_simu = '1') then
-                  spriteRAMAddr(spriteDMACnt)       <= spriteDMADataAddr;
-                  spriteRAMCollision(spriteDMACnt)  <= spriteDMADataCollision or RAM_response_collision;
-                  spriteRAMDebugValid(spriteDMACnt) <= spriteDMADataDebugValid;
-                  spriteRAMGeneration(spriteDMACnt) <= std_logic_vector(spriteDMADebugGeneration);
-                  spriteDMADebugGeneration          <= spriteDMADebugGeneration + 1;
-                  spriteDMADataDebugValid           <= '0';
-               end if;
-               if (spriteDMACnt + 1 < spriteCount) then
-                  spriteDMACnt <= spriteDMACnt + 1;
-               else
-                  spriteDMAon   <= '0';
+                  spriteRAMAddr(dmaDescriptorIndex)       <= spriteDMADataAddr;
+                  spriteRAMCollision(dmaDescriptorIndex)  <= spriteDMADataCollision or RAM_response_collision;
+                  spriteRAMDebugValid(dmaDescriptorIndex) <= spriteDMADataDebugValid;
+                  spriteRAMGeneration(dmaDescriptorIndex) <= std_logic_vector(spriteDMADebugGeneration);
+                  spriteDMADebugGeneration                <= spriteDMADebugGeneration + 1;
+                  spriteDMADataDebugValid                 <= '0';
                end if;
             else
                spriteDMAData <= RAM_dataread;
                if (is_simu = '1') then
-                  spriteDMADataAddr      <= RAM_response_addr;
-                  spriteDMADataCollision <= RAM_response_collision;
+                  spriteDMADataAddr       <= RAM_response_addr;
+                  spriteDMADataCollision  <= RAM_response_collision;
                   spriteDMADataDebugValid <= '1';
                end if;
             end if;

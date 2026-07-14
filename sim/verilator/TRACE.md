@@ -426,11 +426,26 @@ distinct from ordinary `cart_sram`; the current observer label does not by
 itself claim MBM29 command decoding or persistence.
 
 The screen roles distinguish tile-map attribute reads from tile bitmap reads.
-`sprite_table` identifies sprite-table DMA reads into the core's internal
-sprite buffer, while `sprite_tile` identifies sprite bitmap reads. A role
-describes an active fetch source, not a guarantee that the word contributes a
-visible pixel. V5 retains the completed fetched word, but raw physical reads
-can still include pipeline or prefetch work that does not contribute a pixel.
+`sprite_table` identifies the 256 completed 16-bit reads made during line 144's
+sprite-table transfer into the core's internal sprite buffer. Pinned Mesen2's
+[`ProcessSpriteCopy`](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsPpu.cpp#L299-L310)
+establishes one wrapping 16-bit word per cycle and explicitly latches count at
+cycle 0, but reads base/first live during the line. Pinned ares instead takes
+local count/base/first values on entry to its
+[`oamSyncScanline`](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/sprite.cpp#L1-L22).
+The RTL deliberately follows ares for that all-three cycle-0 boundary while
+following Mesen for the complete 256-word physical copy; the byte offset wraps
+inside the 512-byte table documented by WSdev
+[Display/Sprites](https://ws.nesdev.org/w/index.php?title=Display/Sprites&oldid=507).
+`sprite_tile` identifies sprite bitmap reads. A role describes an active fetch
+source, not a guarantee that the word contributes a visible pixel. In
+particular, all 256 table words are physical reads even when only a few cached
+descriptors are selected by the captured count. V5 retains the completed
+fetched word, but raw physical reads can still include pipeline or prefetch
+work that does not contribute a pixel. Sprite-cache/transfer phase is absent
+from the legacy GPU save payload and Pocket Memories remains unsupported;
+reset therefore cancels an in-flight copy and a restored mid-line-144 raster
+does not resume a partial table until the next genuine line-144 boundary.
 
 `bg_cell` is the logical companion to those raw reads. It pulses when a
 completed Screen 1 or Screen 2 fetch buffer is promoted into the buffer used by
@@ -687,10 +702,10 @@ result is claimed as hardware-correct. The SRAM probe uses `ramtype=0x03`
 the corrected, research-consistent 32 KiB `0x01`/`0x02` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
-The six-frame display-provenance regression requires 78,940/78,940
+The six-frame display-provenance regression requires 80,202/80,202
 non-collision physical display reads to match the complete-from-reset IRAM
-scoreboard: 78,750 are tied to exact CPU writer instructions and 190 pre-enable
-prefetches to the defined power-up value. Any value mismatch fails regression.
+scoreboard: 79,760 are tied to exact CPU writer instructions and 442 reads to
+the defined power-up value. Any value mismatch fails regression.
 Within that bootstrap trace, the conservative CPU classifier observes exactly
 two 2,048-byte chains: ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` at
 origin `0xf00a4`, and ROM `0x00a52..0x01251` to IRAM `0x2000..0x27ff` at

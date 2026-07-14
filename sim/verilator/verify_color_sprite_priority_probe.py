@@ -33,9 +33,9 @@ STABLE_FRAME_SHA256 = "eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3
 
 # Filled from the first reviewed fixed-RTL capture.  They deliberately live in
 # this independent verifier instead of the generator or the manifest.
-TRACE_SIZE = 9_636_623
-TRACE_FNV1A64 = "a6a44d72d4bf27c8"
-TRACE_SHA256 = "e297b5ad598647fc7f4594522600d9ebb8f7b89529d23071b5a6010e0e1923af"
+TRACE_SIZE = 9_653_062
+TRACE_FNV1A64 = "864bf2b1d0480355"
+TRACE_SHA256 = "8bf03e5b423020d271a7f10d964a65e70d42ee65c1b115e03b4c9e47b0a0be54"
 CAPTURE_CYCLES = 930689
 BIOS_FNV1A64 = "bde71f09ac34c168"
 EXPECTED_EVENTS = {
@@ -276,6 +276,13 @@ def expected_sprite_tiles() -> tuple[tuple[int, int], ...]:
     return tuple(rows)
 
 
+def expected_sprite_table() -> tuple[tuple[int, int], ...]:
+    """Return the complete line-144 512-byte table transfer."""
+    return TABLE_GROUP + tuple(
+        (address, 0) for address in range(0x1018, 0x1200, 2)
+    )
+
+
 def verify_vram(fetches: list[VramFetch]) -> dict[str, int]:
     for fetch in fetches:
         if fetch.collision != 0:
@@ -284,7 +291,7 @@ def verify_vram(fetches: list[VramFetch]) -> dict[str, int]:
             )
 
     table = [(item.address, item.value) for item in fetches if item.role == "sprite_table"]
-    wanted_table = list(TABLE_GROUP) * 2
+    wanted_table = list(expected_sprite_table())
     if table != wanted_table:
         raise ValueError(f"exact sprite-table fetch sequence mismatch: {table!r}")
 

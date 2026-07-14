@@ -252,6 +252,18 @@ applicable reported real-hardware result was found. Acceptance is therefore
 limited to translated RTL against the pinned reference contract. No external
 code, ROM, firmware, graphics, or palette data is copied into the probe.
 
+The sprite-table timing correction was separately reviewed against pinned
+Mesen2 [`ProcessSpriteCopy`](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsPpu.cpp#L299-L310),
+pinned ares [`oamSyncScanline`](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/sprite.cpp#L1-L22),
+and WSdev's pinned [Display/Sprites](https://ws.nesdev.org/w/index.php?title=Display/Sprites&oldid=507).
+Mesen performs one wrapping 16-bit copy on every line-144 cycle and explicitly
+latches count at cycle 0, while reading base/first live. ares snapshots local
+count/base/first values before its 256-cycle OAM-sync routine, but reads only
+selected descriptors and idles the unused cycles. Swan Song deliberately uses
+Mesen's complete-copy cadence and ares's all-three entry boundary; the focused
+bench states and tests that composite model instead of presenting the two
+references as identical.
+
 The checked-in `tile_screen_extended_range.wsc` fixture is a byte-identical
 build of the pinned MIT ws-test-suite source. Its local README records the
 pinned Wonderful container, ROM hash, source files, and linked

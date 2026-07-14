@@ -32,6 +32,7 @@ echo "PASS compact-ROM host mapping and negative mutations"
 "$ROOT/sim/rtl/run_savestate_disabled_reset_tb.sh"
 "$ROOT/sim/rtl/run_cpu_prefix_irq_shadow_tb.sh"
 "$ROOT/sim/rtl/run_gpu_timer_irq_tb.sh"
+"$ROOT/sim/rtl/run_gpu_sprite_dma_timing_tb.sh"
 "$ROOT/sim/rtl/run_cpu_rotate_tb.sh"
 "$ROOT/sim/rtl/run_apf_crc64_ecma32_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_v2_layout_tb.sh"
@@ -55,14 +56,14 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_i2s_waveform_tb.sh"
 "$ROOT/sim/rtl/run_apf_rtc_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_rtc_save_loader_tb.sh"
-"$ROOT/sim/rtl/run_apf_pll_boot_reset_tb.sh"
 "$ROOT/sim/rtl/run_apf_reset_sync_tb.sh"
+"$ROOT/sim/rtl/run_apf_pll_boot_reset_tb.sh"
+"$ROOT/sim/rtl/run_apf_gamepad_filter_tb.sh"
 "$ROOT/sim/rtl/run_apf_input_blocked_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_fast_forward_control_tb.sh"
-"$ROOT/sim/rtl/run_apf_gamepad_filter_tb.sh"
-"$ROOT/sim/rtl/run_apf_control_layout_tb.sh"
 "$ROOT/sim/rtl/run_apf_console_setup_tb.sh"
 "$ROOT/sim/rtl/run_apf_settings_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_control_layout_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_ram_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_arbiter_tb.sh"
 "$ROOT/sim/rtl/run_apf_frame_orientation_tb.sh"
@@ -75,13 +76,13 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_temporal_blend_tb.sh"
 "$ROOT/sim/rtl/run_apf_dataslot_guard_tb.sh"
 "$ROOT/sim/rtl/run_apf_rom_plan_cdc_tb.sh"
-"$ROOT/sim/rtl/run_sdram_cl3_capture_tb.sh"
 "$ROOT/sim/rtl/run_apf_rom_loader_adapter_tb.sh"
 "$ROOT/sim/rtl/run_apf_sdram_channel1_mux_tb.sh"
+"$ROOT/sim/rtl/run_sdram_cl3_capture_tb.sh"
 "$ROOT/sim/rtl/run_sdram_quiescent_tb.sh"
-"$ROOT/sim/rtl/run_footer_snapshot_tb.sh"
 python3 "$ROOT/scripts/memories_channel1_contract_test.py"
 "$ROOT/sim/rtl/run_apf_save_metadata_cdc_tb.sh"
+"$ROOT/sim/rtl/run_footer_snapshot_tb.sh"
 "$ROOT/sim/rtl/run_apf_startup_sequencer_tb.sh"
 "$ROOT/sim/rtl/run_internal_eeprom_tb.sh"
 "$ROOT/sim/rtl/run_pocket_console_eeprom_init_tb.sh"
@@ -117,26 +118,29 @@ python3 "$ROOT/sim/verilator/verify_wonderful_medium_sram_fixture_test.py"
 python3 "$ROOT/sim/verilator/verify_wonderwitch_athena_fixture_test.py"
 python3 "$ROOT/scripts/migrate_type01_save_test.py"
 python3 "$ROOT/scripts/migrate_legacy_eeprom_save_test.py"
+python3 "$ROOT/scripts/migrate_swan_song_namespace_test.py"
 python3 "$ROOT/scripts/migrate_cartridge_save_namespace_test.py"
 python3 "$ROOT/scripts/pocket_per_game_preset_test.py"
-python3 "$ROOT/scripts/gpu_timer_irq_contract_test.py"
+python3 "$ROOT/scripts/swan_song_doctor_test.py"
+python3 "$ROOT/scripts/wiki_publication_check_test.py"
 python3 "$ROOT/scripts/frame_delivery_metrics_test.py"
 python3 "$ROOT/scripts/beam_race_safety_test.py"
-python3 "$ROOT/scripts/pocket_pll_reset_contract_test.py"
 python3 "$ROOT/scripts/late_frame_delivery_test.py"
 python3 "$ROOT/scripts/pocket_synchronizer_attribute_contract_test.py"
+python3 "$ROOT/scripts/gpu_timer_irq_contract_test.py"
+python3 "$ROOT/scripts/pocket_pll_reset_contract_test.py"
 python3 "$ROOT/scripts/pocket_first_class_contract_test.py"
+python3 "$ROOT/scripts/pocket_launcher_library_contract_test.py"
+python3 "$ROOT/scripts/pocket_save_metadata_constraint_test.py"
 python3 "$ROOT/scripts/pocket_footer_snapshot_contract_test.py"
 python3 "$ROOT/scripts/pocket_sdram_constraint_test.py"
 python3 "$ROOT/scripts/pocket_apf_boundary_constraint_test.py"
-python3 "$ROOT/scripts/pocket_launcher_library_contract_test.py"
-python3 "$ROOT/scripts/pocket_save_metadata_constraint_test.py"
-python3 "$ROOT/scripts/pocket_control_layout_contract_test.py"
 python3 "$ROOT/scripts/pocket_control_cdc_contract_test.py"
+python3 "$ROOT/scripts/pocket_control_layout_contract_test.py"
 python3 "$ROOT/scripts/pocket_pad_contract_test.py"
 python3 "$ROOT/scripts/pocket_console_setup_contract_test.py"
-python3 "$ROOT/scripts/pocket_menu_focus_contract_test.py"
 python3 "$ROOT/scripts/pocket_input_dock_contract_test.py"
+python3 "$ROOT/scripts/pocket_menu_focus_contract_test.py"
 python3 "$ROOT/scripts/pocket_hardware_qa_test.py"
 python3 "$ROOT/scripts/known_title_compatibility_test.py"
 python3 "$ROOT/scripts/import_private_corpus_test.py"
@@ -219,9 +223,9 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=78940 --expect-count match=78940 \
-  --expect-count collision=0 --expect-count cpu_exact=78750 \
-  --expect-count initial_powerup=190 --expect-count gdma_rom=0 \
+  --expect-count fetches=80202 --expect-count match=80202 \
+  --expect-count collision=0 --expect-count cpu_exact=79760 \
+  --expect-count initial_powerup=442 --expect-count gdma_rom=0 \
   --expect-count cpu_rom_movsb=52512 \
   --expect-count cpu_rom_movsb_bytes=4096 \
   --expect-count cpu_rom_movsb_origins=2
@@ -638,9 +642,9 @@ for variant in planar packed; do
     "$BPP4_VARIANT_OUT/events.csv" \
     --output "$BPP4_VARIANT_OUT/provenance.csv" \
     --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-    --expect-count fetches=25669 --expect-count match=25669 \
+    --expect-count fetches=25921 --expect-count match=25921 \
     --expect-count collision=0 --expect-count cpu_exact=8493 \
-    --expect-count initial_powerup=17048 --expect-count gdma_rom=128 \
+    --expect-count initial_powerup=17300 --expect-count gdma_rom=128 \
     --expect-count cpu_rom_movsb=0 \
     --expect-count cpu_rom_movsb_bytes=0 \
     --expect-count cpu_rom_movsb_origins=0
@@ -708,8 +712,8 @@ python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
   --require-complete-coverage \
   --expect-count sprite_rows=48 --expect-count bpp2=0 \
   --expect-count bpp4=48 --expect-count planar=0 \
-  --expect-count packed=48 --expect-count raw_table_groups=12 \
-  --expect-count raw_table_unused=6 --expect-count raw_tile_groups=48 \
+  --expect-count packed=48 --expect-count raw_table_groups=128 \
+  --expect-count raw_table_unused=122 --expect-count raw_tile_groups=48 \
   --expect-count raw_tile_unpromoted=0 \
   --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
   --expect-count descriptor_collision=0 --expect-count row_collision=0 \
@@ -735,9 +739,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=25111 --expect-count match=25111 \
-  --expect-count collision=0 --expect-count cpu_exact=24729 \
-  --expect-count initial_powerup=190 --expect-count gdma_rom=192 \
+  --expect-count fetches=25363 --expect-count match=25363 \
+  --expect-count collision=0 --expect-count cpu_exact=24742 \
+  --expect-count initial_powerup=429 --expect-count gdma_rom=192 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -950,9 +954,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=15794 --expect-count match=15794 \
-  --expect-count collision=0 --expect-count cpu_exact=15608 \
-  --expect-count initial_powerup=186 --expect-count gdma_rom=0 \
+  --expect-count fetches=16034 --expect-count match=16034 \
+  --expect-count collision=0 --expect-count cpu_exact=15600 \
+  --expect-count initial_powerup=434 --expect-count gdma_rom=0 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -971,8 +975,8 @@ python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
   --require-complete-coverage \
   --expect-count sprite_rows=32 --expect-count bpp2=32 \
   --expect-count bpp4=0 --expect-count planar=32 \
-  --expect-count packed=0 --expect-count raw_table_groups=8 \
-  --expect-count raw_table_unused=4 --expect-count raw_tile_groups=32 \
+  --expect-count packed=0 --expect-count raw_table_groups=128 \
+  --expect-count raw_table_unused=124 --expect-count raw_tile_groups=32 \
   --expect-count raw_tile_unpromoted=0 \
   --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
   --expect-count descriptor_collision=0 --expect-count row_collision=0 \
