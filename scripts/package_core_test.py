@@ -170,6 +170,26 @@ class PackageCoreTest(unittest.TestCase):
             authorization["distribution_and_licensing_authorized"] = True
 
         self.mutate_release_policy(authorize)
+        manifest_path = self.dist / CORE_DIRECTORY / "LICENSE-MANIFEST.json"
+        definition = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = definition["license_manifest"]
+        for component in manifest["components"]:
+            if component["review_status"] == "review_required":
+                component["review_status"] = "documented"
+                component["blocker"] = None
+                if component["license_expression"] == "NOASSERTION":
+                    component["license_expression"] = "LicenseRef-Test-Reviewed"
+        for requirement in manifest["requirements"]:
+            requirement["review_status"] = "documented"
+            requirement["blocker"] = None
+        manifest["release_gate"] = {
+            "licensing_review_complete": True,
+            "unresolved_ids": [],
+        }
+        manifest_path.write_text(
+            json.dumps(definition, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     def set_published_releases(self, releases: list[dict[str, str]]) -> None:
         self.mutate_release_policy(
@@ -335,6 +355,10 @@ class PackageCoreTest(unittest.TestCase):
         self.assertEqual(
             provenance["raw_rbf"]["sha256"], hashlib.sha256(self.rbf_bytes).hexdigest()
         )
+        self.assertFalse(
+            provenance["license_manifest"]["licensing_review_complete"]
+        )
+        self.assertEqual(provenance["license_manifest"]["package_notice_count"], 7)
 
         with zipfile.ZipFile(first) as archive:
             names = archive.namelist()
@@ -342,6 +366,25 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(len(names), len(set(names)))
             self.assertFalse(any(name.endswith(".tmp") for name in names))
             self.assertFalse(any(name.endswith(".gitkeep") for name in names))
+            legal_names = {
+                (CORE_DIRECTORY / filename).as_posix()
+                for filename in (
+                    "COPYING-GPL-2.0.txt",
+                    "COPYING-GPL-3.0.txt",
+                    "LICENSE-MANIFEST.json",
+                    "LICENSE-MIT-Adam-Gastineau.txt",
+                    "LICENSE-MIT-Peter-Lemon.txt",
+                    "NOTICE-Analogue-APF.txt",
+                    "NOTICE-Intel-FPGA.txt",
+                    "THIRD-PARTY-NOTICES.txt",
+                )
+            }
+            self.assertTrue(legal_names.issubset(names))
+            for legal_name in legal_names:
+                self.assertEqual(
+                    archive.read(legal_name),
+                    (self.dist / legal_name).read_bytes(),
+                )
             core_definition = json.loads(
                 archive.read((CORE_DIRECTORY / "core.json").as_posix())
             )
@@ -940,6 +983,20 @@ class PackageCoreTest(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertFalse(self.provenance_path(output).exists())
 
+    def test_release_rejects_incomplete_license_manifest_after_policy_toggle(self) -> None:
+        self.mutate_release_policy(
+            lambda definition: definition["release_policy"]["authorization"].__setitem__(
+                "distribution_and_licensing_authorized", True
+            )
+        )
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+        with self.assertRaisesRegex(
+            ValueError, "license manifest review is not complete"
+        ):
+            self.package(output, build_evidence=self.build_evidence(), release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
     def test_predecessor_history_does_not_become_swan_song_history(self) -> None:
         self.authorize_release_policy()
         output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
@@ -1324,6 +1381,9 @@ class PackageCoreTest(unittest.TestCase):
             self.provenance_path(release_output).read_text(encoding="utf-8")
         )["package_provenance"]
         self.assertTrue(release_provenance["release"])
+        self.assertTrue(
+            release_provenance["license_manifest"]["licensing_review_complete"]
+        )
         verified_policy = release_provenance["release_policy"]
         self.assertEqual(
             verified_policy["manifest_sha256"],
@@ -1363,6 +1423,10 @@ class PackageCoreTest(unittest.TestCase):
             hashlib.sha256(self.rbf_bytes).hexdigest(),
         )
         self.assertIn("dist/Cores/RegionallyFamous.SwanSong/core.json", source_inputs["tracked_files"])
+        self.assertIn(
+            "dist/Cores/RegionallyFamous.SwanSong/LICENSE-MANIFEST.json",
+            source_inputs["tracked_files"],
+        )
         self.assertIn("src/support/chip32.asm", source_inputs["tracked_files"])
 
         with self.assertRaisesRegex(ValueError, "requires --build-evidence"):

@@ -1,0 +1,101 @@
+Swan Song third-party notices
+=============================
+
+This file identifies grants and notices that can be proved from the pinned
+source history. It does not declare a license for Regionally Famous's original
+contributions and does not authorize distribution of the combined bitstream.
+The machine-readable LICENSE-MANIFEST.json records the unresolved release
+review separately.
+
+WonderSwan FPGA core
+--------------------
+
+Copyright (c) 2021 Robert Peip.
+MiSTer Framework copyright (C) 2021 Sorgelig.
+
+MiSTer commit 8f7a4d670b4635eda0e518e7fd9a17ef8610db79 retains the
+WonderSwan.sv program notice offering that program under the GNU General
+Public License, version 2 or (at the recipient's option) any later version.
+Swan Song descends through agg23/openfpga-wonderswan commit
+073213a2e5992cff23b174d17763cb6354ee862b. The Pocket adaptation omitted that
+program notice from wonderswan.sv; this provenance record does not treat the
+omission as a new grant.
+
+The GNU GPL version 2 text is in COPYING-GPL-2.0.txt.
+
+MiSTer memory controllers
+-------------------------
+
+src/fpga/core/rtl/ddram.sv is copyright (c) 2019 Sorgelig.
+src/fpga/core/rtl/sdram.sv is copyright (c) 2015-2019 Sorgelig.
+
+Their retained headers offer each source file under the GNU General Public
+License, version 3 or (at the recipient's option) any later version.
+
+The GNU GPL version 3 text is in COPYING-GPL-3.0.txt.
+
+Analogue Pocket utilities
+-------------------------
+
+data_loader.sv, data_unloader.sv, sound_i2s.sv, and sync_fifo.sv descend from
+agg23/analogue-pocket-utils commit
+78482d1b363606336f4535aa0adc2e957bc20558. Their retained notices grant the
+MIT License and identify Adam Gastineau as copyright holder.
+
+The complete notice is in LICENSE-MIT-Adam-Gastineau.txt.
+
+Chip32 assembler/image
+----------------------
+
+The packaged chip32.bin is assembled from Swan Song's checked-in
+src/support/chip32.asm using the instruction encoding published by
+open-fpga/bass-chip32 v1.0.0, commit
+f3ad17dfd541e67b527298808ebef131e979ded4. That repository is offered under
+the MIT License and identifies Peter Lemon as copyright holder.
+
+The complete notice is in LICENSE-MIT-Peter-Lemon.txt.
+
+Analogue Platform Framework
+---------------------------
+
+The source tree descends from open-fpga/core-template commit
+da3a021b1eaf742604d86d8dc9b33a6666263e6a. APF source files retain Analogue's
+Software License Agreement notice, including the incorporated EULA reference
+and the clause stating that applicable MIT or GNU GPL terms prevail where
+inconsistent.
+
+The link resolves to Analogue's August 14, 2022 EULA. Its section 2 permits
+developers to market, sell, or distribute Developer Applications while
+separately restricting publication, copying, and modification of Analogue
+Software. The complete retained APF notice is in NOTICE-Analogue-APF.txt.
+Clarification of modified APF source redistribution and final combined terms
+remains open.
+
+Intel / Altera generated material
+---------------------------------
+
+The source tree includes Intel/Altera generated IP and reference-design files
+whose embedded notices refer to separate applicable agreements. See
+NOTICE-Intel-FPGA.txt. Its presence does not resolve that review.
+
+Not included in the Pocket package
+----------------------------------
+
+Commercial game ROMs, Bandai BIOS images, WonderWitch firmware, save data, and
+the repository's test ROM corpus are not included in this Pocket package.
+The 19 legacy MiSTer test assets under testroms/spritepriority,
+testroms/timingtest, and testroms/windowtest have no file-level grant; their
+status is therefore not inferred from this package notice.
+
+Corresponding source
+--------------------
+
+The project repository is:
+
+  https://github.com/RegionallyFamous/swan-song
+
+Release packaging records the exact source commit in the package provenance.
+The release gate separately requires the corresponding source for that exact
+commit to be made available with clear retrieval directions. This paragraph
+is a pointer, not a written offer and not a conclusion that any source-delivery
+obligation has been satisfied.
