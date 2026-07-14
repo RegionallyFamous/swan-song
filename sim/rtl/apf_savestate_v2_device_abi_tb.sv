@@ -10,6 +10,7 @@ module apf_savestate_v2_device_abi_tb;
   integer offset;
   integer bit_index;
   integer state_index;
+  integer cart_type_index;
   integer clear_index;
   integer word_value;
   logic [255:0] rtc_image;
@@ -18,6 +19,7 @@ module apf_savestate_v2_device_abi_tb;
   logic [127:0] eeprom_mutation;
   logic [31:0] expected_word;
   logic [31:0] packed_words;
+  logic [7:0] cart_eeprom_type;
 
   task automatic check(input logic condition, input string message);
     begin
@@ -82,8 +84,9 @@ module apf_savestate_v2_device_abi_tb;
       image[EEPROM_B_WRITE_PROTECT] =
           !is_external && state_code != EEPROM_STATE_CLEAR;
       image[EEPROM_B_READ_DONE] =
-          state_code != EEPROM_STATE_READWAIT &&
-          state_code != EEPROM_STATE_READONE;
+          is_external ||
+          (state_code != EEPROM_STATE_READWAIT &&
+           state_code != EEPROM_STATE_READONE);
       image[EEPROM_B_READ_DELAY +: 4] =
           (state_code == EEPROM_STATE_OFF ||
            state_code == EEPROM_STATE_CLEAR) ? 4'd0 : 4'd9;
@@ -335,21 +338,65 @@ module apf_savestate_v2_device_abi_tb;
     make_eeprom(eeprom_image, 1'b0, V2_MODEL_COLOR, V2_RAM_NONE,
                 EEPROM_STATE_READWAIT);
     check(v2_eeprom_state_valid(0, V2_MODEL_COLOR, V2_RAM_NONE,
-          eeprom_image), "READWAIT with readDone zero accepted");
+          eeprom_image), "internal READWAIT with readDone zero accepted");
     eeprom_image[EEPROM_B_READ_DONE] = 1'b1;
     check(!v2_eeprom_state_valid(0, V2_MODEL_COLOR, V2_RAM_NONE,
-          eeprom_image), "READWAIT with readDone one rejected");
+          eeprom_image), "internal READWAIT with readDone one rejected");
     make_eeprom(eeprom_image, 1'b0, V2_MODEL_COLOR, V2_RAM_NONE,
                 EEPROM_STATE_READONE);
     check(v2_eeprom_state_valid(0, V2_MODEL_COLOR, V2_RAM_NONE,
-          eeprom_image), "READONE with readDone zero/delay nine accepted");
+          eeprom_image),
+          "internal READONE with readDone zero/delay nine accepted");
     eeprom_image[EEPROM_B_READ_DONE] = 1'b1;
     check(!v2_eeprom_state_valid(0, V2_MODEL_COLOR, V2_RAM_NONE,
-          eeprom_image), "READONE with readDone one rejected");
+          eeprom_image), "internal READONE with readDone one rejected");
     eeprom_image[EEPROM_B_READ_DONE] = 1'b0;
     eeprom_image[EEPROM_B_READ_DELAY +: 4] = 4'd8;
     check(!v2_eeprom_state_valid(0, V2_MODEL_COLOR, V2_RAM_NONE,
-          eeprom_image), "READONE with delay eight rejected");
+          eeprom_image), "internal READONE with delay eight rejected");
+
+    // Cartridge READ retains the prior DONE value. Both zero (after a
+    // WRITE/SHORT command) and one (after reset or a completed READ) are
+    // therefore legal in READWAIT/READONE for every supported EEPROM size.
+    // Written-history and READONE-delay mutations remain invalid.
+    for (cart_type_index = 0; cart_type_index < 3;
+         cart_type_index = cart_type_index + 1) begin
+      case (cart_type_index)
+        0: cart_eeprom_type = V2_RAM_EEPROM_128;
+        1: cart_eeprom_type = V2_RAM_EEPROM_2K;
+        default: cart_eeprom_type = V2_RAM_EEPROM_1K;
+      endcase
+      for (state_index = EEPROM_STATE_READWAIT;
+           state_index <= EEPROM_STATE_READONE;
+           state_index = state_index + 1) begin
+        make_eeprom(eeprom_image, 1'b1, V2_MODEL_COLOR,
+                    cart_eeprom_type, state_index[2:0]);
+        check(v2_eeprom_state_valid(1, V2_MODEL_COLOR, cart_eeprom_type,
+              eeprom_image),
+              $sformatf("cart type %02x state %0d retained DONE accepted",
+                        cart_eeprom_type, state_index));
+        eeprom_mutation = eeprom_image;
+        eeprom_mutation[EEPROM_B_READ_DONE] = 1'b0;
+        check(v2_eeprom_state_valid(1, V2_MODEL_COLOR, cart_eeprom_type,
+              eeprom_mutation),
+              $sformatf("cart type %02x state %0d cleared DONE accepted",
+                        cart_eeprom_type, state_index));
+        eeprom_mutation = eeprom_image;
+        eeprom_mutation[EEPROM_B_WRITTEN] = 1'b1;
+        check(!v2_eeprom_state_valid(1, V2_MODEL_COLOR, cart_eeprom_type,
+              eeprom_mutation),
+              $sformatf("cart type %02x state %0d written mutation rejected",
+                        cart_eeprom_type, state_index));
+        if (state_index == EEPROM_STATE_READONE) begin
+          eeprom_mutation = eeprom_image;
+          eeprom_mutation[EEPROM_B_READ_DELAY +: 4] = 4'd8;
+          check(!v2_eeprom_state_valid(1, V2_MODEL_COLOR,
+                cart_eeprom_type, eeprom_mutation),
+                $sformatf("cart type %02x READONE delay mutation rejected",
+                          cart_eeprom_type));
+        end
+      end
+    end
 
     // Exact model/footer-dependent active word counts.
     check(v2_expected_eeprom_words(0, V2_MODEL_MONO, V2_RAM_NONE) == 64,

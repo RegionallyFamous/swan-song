@@ -435,9 +435,13 @@ package apf_savestate_v2_device_abi_pkg;
           state_history_valid = write_enable && written_history &&
               !(!is_external && write_protect && addr_counter >= 11'h030);
         EEPROM_STATE_READWAIT:
-          state_history_valid = !read_done && !written_history;
+          // Internal READ always clears DONE. Bandai 2001 cartridge READ
+          // retains its previous DONE value, so both values are reachable.
+          state_history_valid = (is_external || !read_done) &&
+              !written_history;
         EEPROM_STATE_READONE:
-          state_history_valid = !read_done && read_delay == 9 &&
+          state_history_valid = (is_external || !read_done) &&
+              read_delay == 9 &&
               !written_history;
         default: begin
           // A disabled write-all/erase-all stalls at its initial address and

@@ -32,7 +32,8 @@ docker run --rm --platform linux/amd64 \
     /work/src/fpga/core/rtl/registerpackage.vhd \
     /work/src/fpga/core/rtl/bus_savestates.vhd \
     "$EEPROM_RTL_CONTAINER" \
-    /work/sim/rtl/internal_eeprom_tb.vhd
+    /work/sim/rtl/internal_eeprom_tb.vhd \
+    /work/sim/rtl/external_eeprom_done_tb.vhd
 
 docker run --rm --platform linux/amd64 \
   -v "$ROOT:/work" -w "$BUILD_CONTAINER" "$IMAGE" \
@@ -42,3 +43,12 @@ docker run --rm --platform linux/amd64 \
 docker run --rm --platform linux/amd64 \
   -v "$ROOT:/work" -w "$BUILD_CONTAINER" "$IMAGE" \
   ./internal_eeprom_tb --assert-level=error
+
+docker run --rm --platform linux/amd64 \
+  -v "$ROOT:/work" -w "$BUILD_CONTAINER" "$IMAGE" \
+  ghdl -e --std=08 -frelaxed-rules --workdir=. \
+    -o external_eeprom_done_tb external_eeprom_done_tb
+
+docker run --rm --platform linux/amd64 \
+  -v "$ROOT:/work" -w "$BUILD_CONTAINER" "$IMAGE" \
+  ./external_eeprom_done_tb --assert-level=error
