@@ -92,9 +92,11 @@ package apf_savestate_v2_layout_pkg;
   localparam logic [7:0] V2_BIOS_MONO         = 8'd0;
   localparam logic [7:0] V2_BIOS_COLOR        = 8'd1;
 
-  // The current 11-bit settings package has only CPU turbo as a hard match.
-  localparam logic [31:0] V2_SETTINGS_ALLOWED     = 32'h0000_07ff;
-  localparam logic [31:0] V2_SETTINGS_HARD_MATCH  = 32'h0000_0100;
+  // The current 13-bit settings package has only CPU turbo (bit 10) as a
+  // hard match.  Control Layout is presentation/input policy and is restored
+  // from the current Pocket setting rather than state-file identity.
+  localparam logic [31:0] V2_SETTINGS_ALLOWED     = 32'h0000_1fff;
+  localparam logic [31:0] V2_SETTINGS_HARD_MATCH  = 32'h0000_0400;
 
   // Fixed top-level payload regions.
   localparam logic [31:0] P_MACHINE             = 32'h0000_0000;

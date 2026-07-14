@@ -20,6 +20,52 @@ def compact(text: str) -> str:
     return re.sub(r"\s+", "", text)
 
 
+def disabled_transport_violations(top_text: str) -> list[str]:
+    """Return structural failures in the compile-time Memories boundary."""
+
+    top = compact(top_text)
+    required = (
+        "localparamSAVESTATE_SUPPORTED=1'b0;",
+        "wiresavestate_supported=SAVESTATE_SUPPORTED;",
+        "bridge_rd_data<=savestate_supported?"
+        "save_state_bridge_read_data:32'd0;",
+        "if(SAVESTATE_SUPPORTED)begin:gen_save_state_controller",
+        "elsebegin:gen_save_state_disabled",
+        "assignsave_state_bridge_read_data=32'd0;",
+        "assignsavestate_load_ack=1'b0;",
+        "assignsavestate_load_busy=1'b0;",
+        "assignsavestate_load_ok=1'b0;",
+        "assignsavestate_load_err=1'b0;",
+        "assignsavestate_start_ack=1'b0;",
+        "assignsavestate_start_busy=1'b0;",
+        "assignsavestate_start_ok=1'b0;",
+        "assignsavestate_start_err=1'b0;",
+        "assignss_save=1'b0;",
+        "assignss_load=1'b0;",
+        "assignss_dout=64'd0;",
+        "assignss_ack=1'b0;",
+    )
+    failures = [token for token in required if token not in top]
+
+    enabled_marker = "if(SAVESTATE_SUPPORTED)begin:gen_save_state_controller"
+    disabled_marker = "elsebegin:gen_save_state_disabled"
+    if enabled_marker in top and disabled_marker in top:
+        enabled_start = top.index(enabled_marker)
+        disabled_start = top.index(disabled_marker, enabled_start)
+        enabled = top[enabled_start:disabled_start]
+        disabled = top[disabled_start:]
+        if "save_state_controllersave_state_controller(" not in enabled:
+            failures.append("controller-not-in-enabled-generate")
+        if "save_state_controllersave_state_controller(" in disabled:
+            failures.append("controller-present-in-disabled-generate")
+
+    if top.count("save_state_controllersave_state_controller(") != 1:
+        failures.append("controller-instance-count")
+    if top.count("savestate_supported?save_state_bridge_read_data:32'd0") != 1:
+        failures.append("raw-window-gate-count")
+    return failures
+
+
 class PocketSavestateContract(unittest.TestCase):
     def test_mister_max_payload_derivation(self) -> None:
         rtl = source("src/fpga/core/rtl/savestates.vhd")
@@ -64,12 +110,61 @@ class PocketSavestateContract(unittest.TestCase):
         core = json.loads(source("dist/Cores/RegionallyFamous.SwanSong/core.json"))
         self.assertIs(core["core"]["framework"]["sleep_supported"], False)
 
-        top = compact(source("src/fpga/core/core_top.v"))
-        self.assertIn("wiresavestate_supported=0;", top)
+        top_text = source("src/fpga/core/core_top.v")
+        top = compact(top_text)
+        self.assertEqual(disabled_transport_violations(top_text), [])
+
+        # The command handler is not the only route into the legacy state
+        # transport: core_top also owns a raw 0x4 bridge window.  Keep that
+        # entire boundary capability-gated while Memories is unadvertised so
+        # its 16-M10K load FIFO cannot survive synthesis as a dormant back
+        # door. The controller exists only in a compile-time-disabled generate
+        # branch, and the live branch drives every response and engine input
+        # to an inert value.
+        self.assertIn("32'h4xxxxxxx:begin", top)
 
         commands = compact(source("src/fpga/core/core_bridge_cmd.v"))
         self.assertIn("if(host_20[0]&&savestate_supported)begin", commands)
         self.assertEqual(commands.count("if(host_20[0]&&savestate_supported)begin"), 2)
+
+        # The controller stub must not remove SwanTop's internal state manager:
+        # that block also turns the external reset into the console reset.
+        wonderswan = compact(source("src/fpga/core/wonderswan.sv"))
+        self.assertIn(".save_state(ss_save)", wonderswan)
+        self.assertIn(".load_state(ss_load)", wonderswan)
+        self.assertIn(".SAVE_out_Dout(ss_dout)", wonderswan)
+        self.assertIn(".SAVE_out_done(ss_ack)", wonderswan)
+
+        swantop = compact(source("src/fpga/core/rtl/swanTop.vhd"))
+        self.assertIn("isavestates:entitywork.savestates", swantop)
+        self.assertIn("reset_in=>reset_in", swantop)
+        self.assertIn("reset_out=>reset", swantop)
+        self.assertIn("save=>savestate_savestate", swantop)
+        self.assertIn("load=>savestate_loadstate", swantop)
+
+        manager = compact(source("src/fpga/core/rtl/savestates.vhd"))
+        self.assertIn("if(reset_in='1')thenreset_out<='1';", manager)
+        self.assertIn("if(reset_in='1')thenstate<=IDLE;", manager)
+
+    def test_disabled_transport_mutations_are_rejected(self) -> None:
+        top = source("src/fpga/core/core_top.v")
+        mutations = (
+            ("localparam SAVESTATE_SUPPORTED = 1'b0;", "localparam SAVESTATE_SUPPORTED = 1'b1;"),
+            ("wire savestate_supported = SAVESTATE_SUPPORTED;", "wire savestate_supported = 1'b1;"),
+            ("if (SAVESTATE_SUPPORTED) begin : gen_save_state_controller", "if (1'b1) begin : gen_save_state_controller"),
+            ("assign save_state_bridge_read_data = 32'd0;", "assign save_state_bridge_read_data = bridge_wr_data;"),
+            ("assign savestate_start_ack = 1'b0;", "assign savestate_start_ack = savestate_start;"),
+            ("assign savestate_load_ack = 1'b0;", "assign savestate_load_ack = savestate_load;"),
+            ("assign ss_save = 1'b0;", "assign ss_save = savestate_start;"),
+            ("assign ss_load = 1'b0;", "assign ss_load = savestate_load;"),
+            ("assign ss_dout = 64'd0;", "assign ss_dout = ss_din;"),
+            ("assign ss_ack = 1'b0;", "assign ss_ack = ss_req;"),
+        )
+        for original, replacement in mutations:
+            with self.subTest(replacement=replacement):
+                self.assertEqual(top.count(original), 1)
+                mutated = top.replace(original, replacement, 1)
+                self.assertTrue(disabled_transport_violations(mutated))
 
         # The envelope is a staging-memory contract, not permission to connect
         # its streaming output to the live MiSTer state bus.
@@ -96,6 +191,7 @@ class PocketSavestateContract(unittest.TestCase):
         regression = source("scripts/regression.sh")
         self.assertIn('"$ROOT/sim/rtl/run_apf_savestate_envelope_tb.sh"', regression)
         self.assertIn('"$ROOT/sim/rtl/run_apf_savestate_staging_tb.sh"', regression)
+        self.assertIn('"$ROOT/sim/rtl/run_savestate_disabled_reset_tb.sh"', regression)
         self.assertIn('python3 "$ROOT/scripts/pocket_savestate_contract_test.py"', regression)
 
     def test_v2_crc_primitive_remains_isolated(self) -> None:

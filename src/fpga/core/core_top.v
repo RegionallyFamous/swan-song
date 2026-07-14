@@ -6,6 +6,27 @@
 
 `default_nettype none
 
+// Give the generated PLL a deterministic power-on reset without coupling it
+// to Pocket's host reset lifecycle.  Cyclone V registers honor the initialized
+// state, so reset is high before the first raw reference-clock edge, remains
+// high for exactly eight edges, and can only transition low afterward.
+module apf_pll_boot_reset (
+    input  wire clk,
+    output wire reset
+);
+
+  reg [3:0] elapsed_cycles = 4'd0;
+
+  always @(posedge clk) begin
+    if (!elapsed_cycles[3]) begin
+      elapsed_cycles <= elapsed_cycles + 4'd1;
+    end
+  end
+
+  assign reset = !elapsed_cycles[3];
+
+endmodule
+
 module core_top (
 
     //
@@ -221,7 +242,8 @@ module core_top (
     input wire [15:0] cont1_trig,
     input wire [15:0] cont2_trig,
     input wire [15:0] cont3_trig,
-    input wire [15:0] cont4_trig
+    input wire [15:0] cont4_trig,
+    input wire        cont1_key_updated
 
 );
 
@@ -333,7 +355,11 @@ module core_top (
         bridge_rd_data <= rom_validation_status_74a;
       end
       32'h4xxxxxxx: begin
-        bridge_rd_data <= save_state_bridge_read_data;
+        // Memories is not advertised yet, so its private payload window must
+        // also be inert.  This gate is part of the capability boundary: it
+        // lets Quartus remove the large legacy bridge FIFOs without changing
+        // any supported APF operation.
+        bridge_rd_data <= savestate_supported ? save_state_bridge_read_data : 32'd0;
       end
     endcase
   end
@@ -398,6 +424,12 @@ module core_top (
         32'h210: begin
           configured_color_profile <= bridge_wr_data[0];
         end
+        32'h214: begin
+          // Fail closed to Auto if an old preset contains an encoding that is
+          // not advertised by the current interact definition.
+          configured_control_layout <=
+              bridge_wr_data > 32'd2 ? 2'd0 : bridge_wr_data[1:0];
+        end
 
         32'h300: begin
           use_fastforward_sound <= bridge_wr_data[0];
@@ -431,6 +463,25 @@ module core_top (
   wire status_setup_done;
   wire status_running;
   wire ready_to_run_complete;
+  wire settings_update_pending_74a;
+
+  // Pocket writes persistent interact registers immediately before 0011
+  // Reset Exit, but APF specifies no quiet interval after the final write.
+  // Hold Reset Exit busy until the atomic settings CDC acknowledges its most
+  // recent payload.  Include the source write strobe itself so a write sharing
+  // the command's parse cycle cannot race the pending indication.
+  wire settings_write_74a = bridge_wr &&
+      ((bridge_addr == 32'h00000100) ||
+       (bridge_addr == 32'h00000110) ||
+       (bridge_addr == 32'h00000200) ||
+       (bridge_addr == 32'h00000204) ||
+       (bridge_addr == 32'h00000208) ||
+       (bridge_addr == 32'h0000020c) ||
+       (bridge_addr == 32'h00000210) ||
+       (bridge_addr == 32'h00000214) ||
+       (bridge_addr == 32'h00000300));
+  wire settings_reset_exit_ready_74a =
+      !settings_write_74a && !settings_update_pending_74a;
 
   wire dataslot_requestread;
   wire [15:0] dataslot_requestread_id;
@@ -552,7 +603,12 @@ module core_top (
 
   // The command handler remains regression-tested, but the end-to-end state
   // controller is not yet safe to advertise to Pocket for Memories/sleep.
-  wire savestate_supported = 0;
+  // Keep this a compile-time capability.  The disabled generate branch below
+  // removes the legacy APF transport (including its 16-M10K load FIFO) while
+  // still leaving SwanTop's internal savestate manager present to propagate
+  // reset_in through its normal reset_out path.
+  localparam SAVESTATE_SUPPORTED = 1'b0;
+  wire savestate_supported = SAVESTATE_SUPPORTED;
   wire [31:0] savestate_addr = 32'h40000000;
   // MiSTer's exact 0x90300-byte payload plus the versioned 32-byte envelope.
   wire [31:0] savestate_size = 32'h9_0320;
@@ -604,6 +660,7 @@ module core_top (
       .status_boot_done (status_boot_done),
       .status_setup_done(status_setup_done),
       .status_running   (status_running),
+      .reset_exit_ready(settings_reset_exit_ready_74a),
       .ready_to_run_complete(ready_to_run_complete),
 
       .dataslot_requestread    (dataslot_requestread),
@@ -1009,45 +1066,66 @@ module core_top (
 
   wire [31:0] save_state_bridge_read_data;
 
-  save_state_controller save_state_controller (
-      .clk_74a(clk_74a),
-      .clk_sys(clk_sys_36_864),
+  generate
+    if (SAVESTATE_SUPPORTED) begin : gen_save_state_controller
+      save_state_controller save_state_controller (
+          .clk_74a(clk_74a),
+          .clk_sys(clk_sys_36_864),
 
-      // APF
-      .bridge_wr(bridge_wr),
-      .bridge_rd(bridge_rd),
-      .bridge_endian_little(bridge_endian_little),
-      .bridge_addr(bridge_addr),
-      .bridge_wr_data(bridge_wr_data),
-      .save_state_bridge_read_data(save_state_bridge_read_data),
+          // APF
+          .bridge_wr(bridge_wr),
+          .bridge_rd(bridge_rd),
+          .bridge_endian_little(bridge_endian_little),
+          .bridge_addr(bridge_addr),
+          .bridge_wr_data(bridge_wr_data),
+          .save_state_bridge_read_data(save_state_bridge_read_data),
 
-      // APF Save States
-      .savestate_load(savestate_load),
-      .savestate_load_ack_s(savestate_load_ack),
-      .savestate_load_busy_s(savestate_load_busy),
-      .savestate_load_ok_s(savestate_load_ok),
-      .savestate_load_err_s(savestate_load_err),
+          // APF Save States
+          .savestate_load(savestate_load),
+          .savestate_load_ack_s(savestate_load_ack),
+          .savestate_load_busy_s(savestate_load_busy),
+          .savestate_load_ok_s(savestate_load_ok),
+          .savestate_load_err_s(savestate_load_err),
 
-      .savestate_start(savestate_start),
-      .savestate_start_ack_s(savestate_start_ack),
-      .savestate_start_busy_s(savestate_start_busy),
-      .savestate_start_ok_s(savestate_start_ok),
-      .savestate_start_err_s(savestate_start_err),
+          .savestate_start(savestate_start),
+          .savestate_start_ack_s(savestate_start_ack),
+          .savestate_start_busy_s(savestate_start_busy),
+          .savestate_start_ok_s(savestate_start_ok),
+          .savestate_start_err_s(savestate_start_err),
 
-      // Save States Manager
-      .ss_save(ss_save),
-      .ss_load(ss_load),
+          // Save States Manager
+          .ss_save(ss_save),
+          .ss_load(ss_load),
 
-      .ss_din (ss_din),
-      .ss_dout(ss_dout),
-      .ss_addr(ss_addr),
-      .ss_rnw (ss_rnw),
-      .ss_req (ss_req),
-      .ss_be  (ss_be),
-      .ss_ack (ss_ack),
+          .ss_din (ss_din),
+          .ss_dout(ss_dout),
+          .ss_addr(ss_addr),
+          .ss_rnw (ss_rnw),
+          .ss_req (ss_req),
+          .ss_be  (ss_be),
+          .ss_ack (ss_ack),
 
-      .ss_busy(ss_busy)
-  );
+          .ss_busy(ss_busy)
+      );
+    end else begin : gen_save_state_disabled
+      // Pocket sees no Memories transport and the WonderSwan manager never
+      // receives a save/load edge.  Its own reset path remains active because
+      // the manager itself stays instantiated inside SwanTop.
+      assign save_state_bridge_read_data = 32'd0;
+      assign savestate_load_ack = 1'b0;
+      assign savestate_load_busy = 1'b0;
+      assign savestate_load_ok = 1'b0;
+      assign savestate_load_err = 1'b0;
+      assign savestate_start_ack = 1'b0;
+      assign savestate_start_busy = 1'b0;
+      assign savestate_start_ok = 1'b0;
+      assign savestate_start_err = 1'b0;
+      assign ss_save = 1'b0;
+      assign ss_load = 1'b0;
+      assign ss_dout = 64'd0;
+      assign ss_ack = 1'b0;
+    end
+  endgenerate
 
   wire ioctl_wr;
   wire [24:0] ioctl_addr;
@@ -1306,6 +1384,7 @@ module core_top (
   reg use_triple_buffer = 1'b1;
   reg [1:0] configured_flickerblend = 2'd0;
   reg [1:0] configured_orientation = 2'd0;
+  reg [1:0] configured_control_layout = 2'd0;
   reg use_flip_horizontal = 1'b0;
   reg configured_color_profile = 1'b0;
 
@@ -1330,6 +1409,7 @@ module core_top (
   wire use_triple_buffer_s;
   wire [1:0] configured_flickerblend_s;
   wire [1:0] configured_orientation_s;
+  wire [1:0] configured_control_layout_s;
   wire use_flip_horizontal_s;
   wire configured_color_profile_s;
 
@@ -1367,10 +1447,9 @@ module core_top (
   // toggle both bits of a field, so a vector synchronizer can expose a torn
   // intermediate value. Transfer the whole package atomically and keep this
   // CDC alive through host Reset Enter; only loss of PLL readiness resets it.
-  wire [10:0] settings_snapshot_s;
-  wire settings_update_pending_74a;
+  wire [12:0] settings_snapshot_s;
   apf_settings_cdc #(
-      .DEFAULT_SETTINGS(11'h081)
+      .DEFAULT_SETTINGS(13'h0201)
   ) settings_command_cdc (
       .reset_n(pll_core_ready_74a),
       .clk_source(clk_74a),
@@ -1381,6 +1460,7 @@ module core_top (
         use_triple_buffer,
         configured_flickerblend,
         configured_orientation,
+        configured_control_layout,
         use_flip_horizontal,
         configured_color_profile,
         use_fastforward_sound
@@ -1397,6 +1477,7 @@ module core_top (
     use_triple_buffer_s,
     configured_flickerblend_s,
     configured_orientation_s,
+    configured_control_layout_s,
     use_flip_horizontal_s,
     configured_color_profile_s,
     use_fastforward_sound_s
@@ -1404,24 +1485,36 @@ module core_top (
 
   // PAD key words carry a controller type in [31:28].  Sanitize the word in
   // its native clk_74a domain before the multi-bit button state crosses into
-  // clk_sys.  This prevents keyboard modifiers, mouse counters, disconnected
-  // slots, and reserved future packet types from becoming WonderSwan input.
+  // clk_sys.  PocketOS menu focus blocks every physical button, and a valid
+  // neutral gamepad packet is required before input is rearmed.  This prevents
+  // keyboard modifiers, mouse counters, disconnected slots, reserved future
+  // packet types, and a held menu chord from becoming WonderSwan input.
   wire [15:0] cont1_gamepad_key_74a;
+  wire physical_input_blocked_74a;
   apf_gamepad_filter gamepad_filter (
       .clk(clk_74a),
       .reset_n(reset_n),
+      .os_focus_lost(osnotify_inmenu),
+      .key_word_updated(cont1_key_updated),
       .key_word(cont1_key),
-      .buttons(cont1_gamepad_key_74a)
+      .buttons(cont1_gamepad_key_74a),
+      .input_blocked(physical_input_blocked_74a)
   );
 
   wire [15:0] cont1_key_s;
+  wire physical_input_blocked_sys_s;
 
-  synch_3 #(
-      .WIDTH(16)
-  ) cont1_s (
-      cont1_gamepad_key_74a,
-      cont1_key_s,
-      clk_sys_36_864
+  // Buttons and ownership are one atomic cross-domain payload.  Keeping them
+  // in one acknowledged transfer prevents torn multi-button states and makes
+  // the blocked+zero / neutral+unblocked ordering indivisible.
+  apf_input_blocked_cdc input_state_system_cdc (
+      .clk_source(clk_74a),
+      .clk_destination(clk_sys_36_864),
+      .reset_n_async(reset_n),
+      .buttons_source(cont1_gamepad_key_74a),
+      .input_blocked_source(physical_input_blocked_74a),
+      .buttons_destination(cont1_key_s),
+      .input_blocked_destination(physical_input_blocked_sys_s)
   );
 
   wire [2:0] scaler_slot_command_sys;
@@ -1472,6 +1565,7 @@ module core_top (
       .dpad_down(cont1_key_s[1]),
       .dpad_left(cont1_key_s[2]),
       .dpad_right(cont1_key_s[3]),
+      .physical_input_blocked(physical_input_blocked_sys_s),
 
       // Settings
       .configured_system(configured_system_s),
@@ -1481,6 +1575,7 @@ module core_top (
       .use_triple_buffer(use_triple_buffer_s),
       .configured_flickerblend(configured_flickerblend_s),
       .configured_orientation(configured_orientation_s),
+      .configured_control_layout(configured_control_layout_s),
       .use_flip_horizontal(use_flip_horizontal_s),
       .configured_color_profile(configured_color_profile_s),
 
@@ -1621,6 +1716,7 @@ module core_top (
   wire clk_vid_3_75_90deg;
 
   wire pll_core_locked;
+  wire pll_core_boot_reset;
 
   // B8 is received on the 74.25 MHz BRIDGE clock.  Apply it only after the
   // request crosses into the pixel domain and is applied on a frame boundary,
@@ -1638,9 +1734,14 @@ module core_top (
       clk_74a
   );
 
+  apf_pll_boot_reset pll_boot_reset_generator (
+      .clk  (clk_74a),
+      .reset(pll_core_boot_reset)
+  );
+
   mf_pllbase mp1 (
       .refclk(clk_74a),
-      .rst   (0),
+      .rst   (pll_core_boot_reset),
 
       .outclk_0(clk_mem_110_592),
       .outclk_1(clk_sys_36_864),

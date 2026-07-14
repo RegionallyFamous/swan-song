@@ -95,23 +95,25 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("settings_command_cdc(", top)
         self.assertIn(".reset_n(pll_core_ready_74a)", top)
         self.assertIn(".settings_destination(settings_snapshot_s)", top)
-        self.assertIn("wire[10:0]settings_snapshot_s;", top)
-        self.assertIn(".DEFAULT_SETTINGS(11'h081)", top)
+        self.assertIn("wire[12:0]settings_snapshot_s;", top)
+        self.assertIn(".DEFAULT_SETTINGS(13'h0201)", top)
         self.assertIn(
             ".settings_source({configured_system,use_cpu_turbo,"
             "use_triple_buffer,configured_flickerblend,configured_orientation,"
+            "configured_control_layout,"
             "use_flip_horizontal,configured_color_profile,use_fastforward_sound})",
             top,
         )
         self.assertIn(
             "assign{configured_system_s,use_cpu_turbo_s,use_triple_buffer_s,"
             "configured_flickerblend_s,configured_orientation_s,"
+            "configured_control_layout_s,"
             "use_flip_horizontal_s,configured_color_profile_s,"
             "use_fastforward_sound_s}=settings_snapshot_s;",
             top,
         )
         self.assertNotIn("settings_s(", top)
-        self.assertIn("reg[10:0]settings_hold_source;", settings_cdc)
+        self.assertIn("reg[12:0]settings_hold_source;", settings_cdc)
         self.assertIn("settings_destination<=settings_hold_source;", settings_cdc)
 
         self.assertIn("if(frame_start_video&&!request_arrived_video)begin", selector)

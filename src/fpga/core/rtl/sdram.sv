@@ -21,7 +21,7 @@
 module sdram
 (
 	input             init,        // reset to initialize RAM
-	input             clk,         // clock 64MHz
+	input             clk,         // Pocket memory clock, 110.592 MHz
    
    input             doRefresh,
 
@@ -78,13 +78,13 @@ assign {SDRAM_DQMH,SDRAM_DQML} = SDRAM_A[12:11];
 localparam BURST_LENGTH        = 1;
 localparam BURST_CODE          = (BURST_LENGTH == 8) ? 3'b011 : (BURST_LENGTH == 4) ? 3'b010 : (BURST_LENGTH == 2) ? 3'b001 : 3'b000;  // 000=1, 001=2, 010=4, 011=8
 localparam ACCESS_TYPE         = 1'b0;     // 0=sequential, 1=interleaved
-localparam CAS_LATENCY         = 3'd3;     // 2 for < 100MHz, 3 for >100MHz
+localparam CAS_LATENCY         = 3'd3;     // CL3 is required above 100 MHz
 localparam OP_MODE             = 2'b00;    // only 00 (standard operation) allowed
 localparam NO_WRITE_BURST      = 1'b1;     // 0= write burst enabled, 1=only single access write
 localparam MODE                = {3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY, ACCESS_TYPE, BURST_CODE};
 
-localparam sdram_startup_cycles= 14'd12100;// 100us, plus a little more, @ 100MHz
-localparam cycles_per_refresh  = 14'd500;  // (64000*64)/8192-1 Calc'd as (64ms @ 64MHz)/8192 rose
+localparam sdram_startup_cycles= 14'd12100;// ~109 us at 110.592 MHz (>100 us)
+localparam cycles_per_refresh  = 14'd500;  // ~4.52 us at 110.592 MHz (<7.8125 us limit)
 localparam startup_refresh_max = 14'b11111111111111;
 
 // SDRAM commands
@@ -149,6 +149,17 @@ assign quiescent = !init &&
 				   !ch1_ready && !ch2_ready && !ch3_ready &&
 				   !refresh_pending;
 
+// SDRAM_CLK rises on the falling edge of clk.  For CL3, the -6 device starts
+// driving at r+2, guarantees the word by r+3, and holds it for tOH after r+3.
+// Capture on the positive edge immediately after r+3: fitted clock insertion
+// puts that edge inside the device's valid window.  The main positive-edge
+// process consumes the preceding dq_reg sample, so its existing ready pipeline
+// exposes this exact capture one cycle later.  core_constraints.sdc models the
+// preceding launch edge with setup-2 and an explicit hold-zero trailing check.
+always @(posedge clk) begin
+	if (init) dq_reg <= 16'd0;
+	else      dq_reg <= SDRAM_DQ;
+end
 
 always @(posedge clk) begin
 	ch1_req_1 <= ch1_req;
@@ -175,8 +186,6 @@ always @(posedge clk) begin
 	data_ready_delay1 <= data_ready_delay1>>1;
 	data_ready_delay2 <= data_ready_delay2>>1;
 	data_ready_delay3 <= data_ready_delay3>>1;
-
-	dq_reg <= SDRAM_DQ;
 
 	if(data_ready_delay1[1]) ch1_dout[15:00] <= dq_reg;
 	if(data_ready_delay1[1]) ch1_ready <= 1;
@@ -335,7 +344,6 @@ always @(posedge clk) begin
 		saved_wr          <= 1'b0;
 		cas_addr          <= 13'd0;
 		saved_data        <= 16'd0;
-		dq_reg            <= 16'd0;
 		ch                <= 2'd0;
 
 		ch3_rnw_1         <= 1'b1;

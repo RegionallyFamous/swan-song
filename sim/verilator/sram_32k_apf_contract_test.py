@@ -43,7 +43,7 @@ def parse_pocket_byte_sizes(source: str) -> dict[int, int]:
     return {
         int(ram_type, 16): int(byte_size, 16)
         for ram_type, byte_size in re.findall(
-            r"if\s*\(ramtype\s*==\s*8'h([0-9A-Fa-f]{2})\)\s*"
+            r"if\s*\(ramtype_mem\s*==\s*8'h([0-9A-Fa-f]{2})\)\s*"
             r"save_size_bytes\s*=\s*20'h([0-9A-Fa-f]{1,5})",
             source,
         )
@@ -157,8 +157,8 @@ def main() -> None:
     must_fail([memorymux, old_state_size, *valid[2:]], "save-state payload")
 
     old_pocket_size = wonderswan.replace(
-        "if (ramtype == 8'h01) save_size_bytes = 20'h08000",
-        "if (ramtype == 8'h01) save_size_bytes = 20'h02000",
+        "if (ramtype_mem == 8'h01) save_size_bytes = 20'h08000",
+        "if (ramtype_mem == 8'h01) save_size_bytes = 20'h02000",
         1,
     )
     must_fail(

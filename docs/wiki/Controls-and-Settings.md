@@ -6,13 +6,16 @@
 
 ## Controls
 
-The running game's native orientation selects the WonderSwan button matrix.
-Changing **Display Orientation** rotates presentation only; it does not remap
-gameplay.
+**Control Layout** decides how Pocket's face and shoulder buttons map to the
+WonderSwan button matrix. **Auto** follows the running game's native
+orientation. **Horizontal** and **Vertical** keep the chosen button arrangement
+even if a game changes orientation. This setting changes controls only: the
+D-pad continues to follow the game's native directional matrix, and the screen
+does not rotate.
 
-| Pocket or Dock control | Horizontal game | Vertical game |
+| Pocket or Dock control | Horizontal layout | Vertical layout |
 | --- | --- | --- |
-| D-pad | WonderSwan X directions | WonderSwan Y directions |
+| D-pad | Game-native directions | Game-native directions |
 | A | A | X3 |
 | B | B | X4 |
 | X | Y3 | X2 |
@@ -49,13 +52,21 @@ persist it. The researched contract and hardware matrix are in
 
 Hold Select for temporary 2.5× speed, or tap it to latch Fast Forward until the
 next press. Dock controllers without a dedicated menu button may use a
-PocketOS Select + Down menu chord. Whether the OS completely intercepts that
-chord before Swan Song sees it remains a physical Dock test.
+PocketOS Select + Down menu chord. Swan Song uses PocketOS's focus notification
+to block physical gameplay input and clear Fast Forward as the menu opens. It
+requires a fresh valid neutral Pocket or Dock gamepad packet before controls
+are rearmed, so a held menu chord cannot leak back into the game. This guard
+does not pause the emulated system, and the internally generated **Console
+Setup** Start gesture remains separate from physical input. Exact notification
+and PAD ordering on current firmware remains a physical Pocket/Dock test.
 
 ## System settings
 
-- **System Type:** `Auto`, `WonderSwan`, or `WonderSwan Color`. Auto follows
-  cartridge metadata. Changing this option requires a reset.
+- **System Type (reset):** `Auto`, `WonderSwan`, or `WonderSwan Color`. Auto
+  follows cartridge metadata. Changing this option requires a reset.
+- **Control Layout:** `Auto` follows the game's native orientation;
+  `Horizontal` or `Vertical` keeps that face/shoulder-button arrangement.
+  This does not rotate the picture or change the D-pad's native matrix.
 - **CPU Turbo:** allows extra emulated CPU work per frame and can reduce some
   software slowdowns. It is an optional behavior change, not an accuracy
   requirement.

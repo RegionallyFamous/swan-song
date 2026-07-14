@@ -4,6 +4,27 @@
 # put your clock groups in here as well as any net assignments
 #
 
+# The Pocket's documented 64 MiB SDRAM is Alliance Memory
+# AS4C32M16MSA-6BIN. Swan Song operates it at 110.592 MHz, CAS latency 3,
+# and forwards an inverted copy of the memory PLL clock with ALTDDIO_OUT.
+# Reference all delays to the physical forwarded-clock pin so TimeQuest includes
+# the actual DDIO clock path instead of assuming the PLL phase appears directly
+# at SDRAM. The chip's active rising edge is produced by the memory PLL falling
+# edge, so every delay selects -clock_fall explicitly. This is Intel's
+# source-synchronous -reference_pin model, not a guessed generated-clock
+# waveform.
+set dram_chip_clk \
+  {ic|mp1|mf_pllbase_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+set sdram_chip_clock [get_clocks -nowarn $dram_chip_clk]
+set sdram_clock_port [get_ports -nowarn {dram_clk}]
+
+if {[get_collection_size $sdram_chip_clock] != 1} {
+  error "SDRAM constraint expected exactly one memory PLL clock"
+}
+if {[get_collection_size $sdram_clock_port] != 1} {
+  error "SDRAM constraint expected exactly one dram_clk port"
+}
+
 set_clock_groups -asynchronous \
  -group { bridge_spiclk } \
  -group { clk_74a } \
@@ -20,7 +41,102 @@ set_clock_groups -asynchronous \
 # falling edge of counter 1 and captured on counter 2; retain the generated-clock
 # relationship so setup/hold analysis covers that half-system-cycle boundary.
 
-# Pocket interact settings are an eleven-bit acknowledged bundled-data CDC.
+# Alliance's -6 speed-grade datasheet specifies, at 1.8 V:
+#   address/command/DQM/data-in setup = 2.0 ns;
+#   address/command/DQM/data-in hold  = 1.0 ns;
+#   CL3 clock-to-data maximum         = 5.5 ns; and
+#   data-out hold minimum             = 2.5 ns.
+# Apply the exact device requirements to every physical SDRAM signal.  On
+# reads, the 5.9 ns maximum is Alliance's CL3 tAC=5.5 ns plus an explicit,
+# provisional 0.4 ns sum of outbound clock flight and inbound DQ flight.
+# TimeQuest's reference pin
+# includes the FPGA clock path to dram_clk but cannot include the external
+# dram_clk-to-SDRAM plus SDRAM-to-DQ-pad flight.  The 0.4 ns allowance follows
+# maintained Pocket-core precedent; it is not an Analogue or Alliance measured
+# limit and must remain a physical-hardware QA gate.  Use Alliance's tOH=2.5 ns
+# directly for the minimum: omitted positive external flight makes that hold
+# check conservative.  The 0.9 ns minimum seen in third-party cores has no
+# published derivation and discards 1.6 ns of guaranteed device hold.
+# The write-side 2.0/-1.0 ns constraints below use the device setup/hold limits
+# directly and therefore assume zero differential PCB skew between dram_clk and
+# command/address/data at the SDRAM pins.  Analogue publishes neither trace
+# delays nor a skew budget for this interface, so Pocket hardware validation is
+# required to confirm that assumption before release.
+set sdram_write_ports [get_ports -nowarn {dram_a[*] dram_ba[*] dram_dq[*] \
+  dram_dqm[*] dram_cke dram_ras_n dram_cas_n dram_we_n}]
+set sdram_read_ports [get_ports -nowarn {dram_dq[*]}]
+# Follow only buffer/inverter paths from the physical DQ pads.  This resolves
+# the exact fitted IOE capture registers without relying on Fitter-generated
+# suffixes or accidentally including a duplicated downstream dq_reg fanout.
+# Before placement those physical fanouts do not exist, so fall back to the
+# exact logical SDRAM hierarchy; the cardinality guard makes either phase fail
+# closed if synthesis changes that register bank.
+set sdram_capture_registers [get_fanouts -no_logic $sdram_read_ports]
+if {[get_collection_size $sdram_capture_registers] == 0} {
+  set sdram_capture_registers \
+    [get_registers -nowarn {*sdram:sdram|dq_reg*}]
+}
+
+if {[get_collection_size $sdram_write_ports] != 37} {
+  error "SDRAM constraint expected exactly 37 write-side ports"
+}
+if {[get_collection_size $sdram_read_ports] != 16} {
+  error "SDRAM constraint expected exactly 16 read-side DQ ports"
+}
+set sdram_capture_register_count [get_collection_size $sdram_capture_registers]
+if {$sdram_capture_register_count != 16} {
+  error "SDRAM constraint expected exactly 16 dq_reg capture registers; observed $sdram_capture_register_count"
+}
+
+set_output_delay -clock $dram_chip_clk -clock_fall -reference_pin $sdram_clock_port -max 2.0 -add_delay $sdram_write_ports
+set_output_delay -clock $dram_chip_clk -clock_fall -reference_pin $sdram_clock_port -min -1.0 -add_delay $sdram_write_ports
+set_input_delay -clock $dram_chip_clk -clock_fall -reference_pin $sdram_clock_port -max 5.9 -add_delay $sdram_read_ports
+set_input_delay -clock $dram_chip_clk -clock_fall -reference_pin $sdram_clock_port -min 2.5 -add_delay $sdram_read_ports
+
+# For CL3 the first word begins driving at r+2, is valid by r+3, and remains
+# valid for tOH after r+3.  dq_reg captures on the positive edge just after
+# r+3.  The setup multicycle pairs that capture with the word's r+2 launch.
+# Explicit hold-zero preserves the default relationship: for this opposite-edge
+# source-synchronous interface it checks the r+3 transition against that same
+# capture edge while also making the paired exception complete to TimeQuest.
+# The usual same-edge setup-N/hold-(N-1) recipe would instead move hold back to
+# an irrelevant earlier edge.  This changes neither the physical input-delay
+# limits nor the consumer latency.
+set_multicycle_path -setup -end -from $sdram_read_ports -to $sdram_capture_registers 2
+set_multicycle_path -hold -end -from $sdram_read_ports -to $sdram_capture_registers 0
+
+# The remaining ports reported as unconstrained by the preserved vendor fit are
+# the fixed APF bridge/scaler boundary. Analogue documents the signal roles and
+# the scaler's source-synchronous clocking, but publishes no receiver setup/hold
+# or bridge pad timing values from which truthful set_input/output_delay values
+# can be derived. Maintained OpenGateware Pocket cores use these exact per-port
+# false paths at that platform boundary. Keep the waiver equally narrow and
+# fail closed if the interface changes: this removes only the named external
+# pad checks, never an internal clock-domain path and never an all-input/output
+# wildcard. It is an explicit APF boundary waiver, not measured I/O closure;
+# Pocket hardware validation remains mandatory.
+set apf_boundary_input_ports [get_ports -nowarn {bridge_1wire bridge_spimiso \
+  bridge_spimosi bridge_spiss}]
+set apf_bridge_output_ports [get_ports -nowarn {bridge_1wire bridge_spimiso \
+  bridge_spimosi}]
+set apf_scaler_output_ports [get_ports -nowarn {scal_auddac scal_audlrck \
+  scal_audmclk scal_clk scal_de scal_hs scal_skip scal_vid[*] scal_vs}]
+
+if {[get_collection_size $apf_boundary_input_ports] != 4} {
+  error "APF boundary waiver expected exactly 4 input-side ports"
+}
+if {[get_collection_size $apf_bridge_output_ports] != 3} {
+  error "APF boundary waiver expected exactly 3 bridge output-side ports"
+}
+if {[get_collection_size $apf_scaler_output_ports] != 20} {
+  error "APF boundary waiver expected exactly 20 scaler output-side ports"
+}
+
+set_false_path -from $apf_boundary_input_ports
+set_false_path -to $apf_bridge_output_ports
+set_false_path -to $apf_scaler_output_ports
+
+# Pocket interact settings are a thirteen-bit acknowledged bundled-data CDC.
 # settings_hold_source is frozen before its request toggle enters the console-side
 # synchronizer and remains frozen until settings_destination captures the whole
 # package and acknowledges it. Bound both delay and skew so legal 01 <-> 10 menu
@@ -30,11 +146,11 @@ set settings_source_registers [get_registers -nowarn -no_duplicates \
 set settings_destination_registers [get_registers -nowarn -no_duplicates \
   {ic|settings_command_cdc|settings_destination[*]}]
 
-if {[get_collection_size $settings_source_registers] != 11} {
-  error "settings CDC constraint expected 11 settings_hold_source registers"
+if {[get_collection_size $settings_source_registers] != 13} {
+  error "settings CDC constraint expected 13 settings_hold_source registers"
 }
-if {[get_collection_size $settings_destination_registers] != 11} {
-  error "settings CDC constraint expected 11 settings_destination registers"
+if {[get_collection_size $settings_destination_registers] != 13} {
+  error "settings CDC constraint expected 13 settings_destination registers"
 }
 
 set_net_delay -max \
@@ -128,5 +244,43 @@ set_max_skew \
   -skew_value_multiplier 1.0 \
   -from $save_metadata_source_registers_expanded \
   -to $save_metadata_destination_registers_expanded
+
+# Physical input is a 17-bit acknowledged bundled-data CDC: ownership and all
+# sixteen buttons are captured together. payload_hold_source remains frozen
+# from before request_toggle_source enters its two-flop synchronizer until the
+# destination capture has returned its acknowledgement. Bound delay and skew
+# across the complete bundle so a legal multi-button transition cannot tear and
+# neutral+unblocked can never arrive in different destination cycles.
+set input_state_source_registers [get_registers -nowarn -no_duplicates \
+  {ic|input_state_system_cdc|payload_hold_source[*]}]
+set input_state_destination_registers [get_registers -nowarn -no_duplicates \
+  {ic|input_state_system_cdc|payload_destination[*]}]
+set input_state_source_registers_expanded [get_registers -nowarn \
+  {ic|input_state_system_cdc|payload_hold_source[*]}]
+set input_state_destination_registers_expanded [get_registers -nowarn \
+  {ic|input_state_system_cdc|payload_destination[*]}]
+
+set input_state_source_count \
+  [get_collection_size $input_state_source_registers]
+set input_state_destination_count \
+  [get_collection_size $input_state_destination_registers]
+
+if {$input_state_source_count != 17} {
+  error "input state CDC constraint expected 17 payload_hold_source registers; found $input_state_source_count register(s): [swan_song_register_names $input_state_source_registers]"
+}
+if {$input_state_destination_count != 17} {
+  error "input state CDC constraint expected 17 destination registers; found $input_state_destination_count register(s): [swan_song_register_names $input_state_destination_registers]"
+}
+
+set_net_delay -max \
+  -get_value_from_clock_period dst_clock_period \
+  -value_multiplier 1.0 \
+  -from $input_state_source_registers_expanded \
+  -to $input_state_destination_registers_expanded
+set_max_skew \
+  -get_skew_value_from_clock_period min_clock_period \
+  -skew_value_multiplier 1.0 \
+  -from $input_state_source_registers_expanded \
+  -to $input_state_destination_registers_expanded
 
 derive_clock_uncertainty

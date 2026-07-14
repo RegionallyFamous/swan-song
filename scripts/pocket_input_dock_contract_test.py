@@ -52,6 +52,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
     first_class_input = bundle["first_class_input"]
     core_top_source = bundle["core_top"]
     wonderswan_source = bundle["wonderswan"]
+    control_layout_source = bundle["control_layout"]
     joypad_source = bundle["joypad"]
     filter_source = bundle["filter"]
     regression = bundle["regression"]
@@ -173,15 +174,23 @@ def verify_contract(bundle: dict[str, object]) -> None:
 
     core_top = compact(core_top_source)
     wonderswan = compact(wonderswan_source)
+    control_layout = compact(control_layout_source)
     joypad = compact(joypad_source)
     gamepad_filter = compact(filter_source)
 
-    expected_filter = (
-        "TYPE_POCKET,TYPE_DOCK_DIGITAL,TYPE_DOCK_ANALOG:"
-        "buttons<=key_word[15:0];default:buttons<=16'd0;"
-    )
-    if expected_filter not in gamepad_filter:
-        raise ValueError("gamepad filter does not accept exactly APF PAD types 1-3")
+    for fragment in (
+        "wirevalid_gamepad=key_word[31:28]==TYPE_POCKET||"
+        "key_word[31:28]==TYPE_DOCK_DIGITAL||"
+        "key_word[31:28]==TYPE_DOCK_ANALOG;",
+        "TYPE_POCKET,TYPE_DOCK_DIGITAL,TYPE_DOCK_ANALOG:begin"
+        "buttons<=key_word[15:0];input_blocked<=1'b0;end",
+        "elseif(os_focus_lost)beginbuttons<=16'd0;",
+        "if(key_word_updated&&neutral_gamepad)begin",
+    ):
+        if fragment not in gamepad_filter:
+            raise ValueError(
+                "gamepad filter must accept only APF PAD types 1-3 and guard PocketOS focus"
+            )
     for signal in (
         "cont2_key", "cont3_key", "cont4_key",
         "cont1_joy", "cont2_joy", "cont3_joy", "cont4_joy",
@@ -191,6 +200,14 @@ def verify_contract(bundle: dict[str, object]) -> None:
             raise ValueError(f"unsupported input signal is consumed: {signal}")
     if ".key_word(cont1_key)" not in core_top:
         raise ValueError("P1 key word does not pass through the gamepad type filter")
+    for fragment in (
+        ".os_focus_lost(osnotify_inmenu)",
+        ".key_word_updated(cont1_key_updated)",
+        ".input_blocked(physical_input_blocked_74a)",
+        ".physical_input_blocked(physical_input_blocked_sys_s)",
+    ):
+        if fragment not in core_top:
+            raise ValueError(f"PocketOS focus boundary is missing {fragment}")
 
     for fragment in (
         ".button_a(cont1_key_s[4])",
@@ -210,20 +227,31 @@ def verify_contract(bundle: dict[str, object]) -> None:
             raise ValueError(f"documented PAD bit mapping is missing {fragment}")
 
     for fragment in (
-        ".KeyY1(vertical?button_x:button_trig_l)",
-        ".KeyY2(vertical?button_a:button_trig_r)",
-        ".KeyY3(vertical?button_b:button_x)",
-        ".KeyY4(vertical?button_y:button_y)",
+        ".KeyY1(control_key_y1)",
+        ".KeyY2(control_key_y2)",
+        ".KeyY3(control_key_y3)",
+        ".KeyY4(control_key_y4)",
         ".KeyX1(dpad_up)",
         ".KeyX2(dpad_right)",
         ".KeyX3(dpad_down)",
         ".KeyX4(dpad_left)",
-        ".KeyA(~vertical?button_a:button_trig_l)",
-        ".KeyB(~vertical?button_b:button_trig_r)",
-        "wirefastforward=button_select&&!ioctl_download;",
+        ".KeyA(control_key_a)",
+        ".KeyB(control_key_b)",
+        "apf_fast_forward_controlfast_forward_control(",
+        ".clear_state(external_reset||cart_download_sys||physical_input_blocked)",
     ):
         if fragment not in wonderswan:
             raise ValueError(f"native-orientation input mapping is missing {fragment}")
+    for fragment in (
+        "assignkey_y1=controls_vertical?button_x:button_trig_l;",
+        "assignkey_y2=controls_vertical?button_a:button_trig_r;",
+        "assignkey_y3=controls_vertical?button_b:button_x;",
+        "assignkey_y4=button_y;",
+        "assignkey_a=controls_vertical?button_trig_l:button_a;",
+        "assignkey_b=controls_vertical?button_trig_r:button_b;",
+    ):
+        if fragment not in control_layout:
+            raise ValueError(f"control-layout input mapping is missing {fragment}")
 
     vertical_y_matrix = (
         "else"
@@ -261,6 +289,7 @@ def load_bundle() -> dict[str, object]:
         "first_class_input": (ROOT / "FIRST_CLASS_INPUT_DOCK.md").read_text(),
         "core_top": (ROOT / "src/fpga/core/core_top.v").read_text(),
         "wonderswan": (ROOT / "src/fpga/core/wonderswan.sv").read_text(),
+        "control_layout": (ROOT / "src/fpga/core/apf_control_layout.sv").read_text(),
         "joypad": (ROOT / "src/fpga/core/rtl/joypad.vhd").read_text(),
         "filter": (ROOT / "src/fpga/core/apf_gamepad_filter.sv").read_text(),
         "regression": (ROOT / "scripts/regression.sh").read_text(),
@@ -292,8 +321,8 @@ def main() -> None:
                 (
                     "filter",
                     bundle["filter"].replace(
-                        "TYPE_DOCK_ANALOG: buttons <= key_word[15:0];",
-                        "TYPE_DOCK_ANALOG, 4'h4: buttons <= key_word[15:0];",
+                        "TYPE_DOCK_ANALOG: begin",
+                        "TYPE_DOCK_ANALOG, 4'h4: begin",
                         1,
                     ),
                 ),
@@ -312,10 +341,10 @@ def main() -> None:
             (
                 "vertical face mapping",
                 (
-                    "wonderswan",
-                    bundle["wonderswan"].replace(
-                        ".KeyY2   (vertical ? button_a : button_trig_r)",
-                        ".KeyY2   (vertical ? button_b : button_trig_r)",
+                    "control_layout",
+                    bundle["control_layout"].replace(
+                        "assign key_y2 = controls_vertical ? button_a : button_trig_r;",
+                        "assign key_y2 = controls_vertical ? button_b : button_trig_r;",
                         1,
                     ),
                 ),

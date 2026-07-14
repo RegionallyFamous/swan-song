@@ -292,6 +292,7 @@ mf_ddio_bidir_12 isclk(
     wire    [15:0]  cont2_trig;
     wire    [15:0]  cont3_trig;
     wire    [15:0]  cont4_trig;
+    wire            cont1_key_updated;
         
 io_pad_controller ipm (
     .clk            ( clk_74a ),
@@ -310,7 +311,8 @@ io_pad_controller ipm (
     .cont1_trig         ( cont1_trig ),
     .cont2_trig         ( cont2_trig ),
     .cont3_trig         ( cont3_trig ),
-    .cont4_trig         ( cont4_trig )
+    .cont4_trig         ( cont4_trig ),
+    .cont1_key_updated  ( cont1_key_updated )
 );
     
     
@@ -467,7 +469,8 @@ core_top ic (
     .cont1_trig             ( cont1_trig ),
     .cont2_trig             ( cont2_trig ),
     .cont3_trig             ( cont3_trig ),
-    .cont4_trig             ( cont4_trig )
+    .cont4_trig             ( cont4_trig ),
+    .cont1_key_updated      ( cont1_key_updated )
     
 );
 

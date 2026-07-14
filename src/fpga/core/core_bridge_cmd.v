@@ -32,6 +32,7 @@ input   wire    [31:0]  bridge_wr_data,
 input   wire            status_boot_done,           // assert when PLLs lock and logic is ready
 input   wire            status_setup_done,          // assert when core is happy with what's been loaded into it
 input   wire            status_running,             // assert when pocket's taken core out of reset and is running
+input   wire            reset_exit_ready,           // prior settings writes reached the user clock domain
 output  reg             ready_to_run_complete,      // target 0140 was acknowledged by Pocket
 
 output  reg             dataslot_requestread,
@@ -356,9 +357,12 @@ always @(posedge clk) begin
         16'h0011: begin
             // Reset Exit
             // APF normally sends this only after the core's 0140 Ready to Run
-            // target command has completed.  Fail closed if a host sends it
-            // early: keep the command busy and the machine held in reset.
-            if(ready_to_run_complete) begin
+            // target command has completed and its persistent interact writes.
+            // Those writes have no APF-side acknowledgement or settling-time
+            // guarantee, so also wait for the user-clock CDC acknowledgement.
+            // Keep the command busy and the machine held in reset until both
+            // lifecycle and settings boundaries are complete.
+            if(ready_to_run_complete && reset_exit_ready) begin
                 reset_n <= 1;
                 hstate <= ST_DONE_OK;
             end

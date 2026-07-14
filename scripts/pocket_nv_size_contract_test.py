@@ -115,7 +115,7 @@ def check_wonderswan(source: str) -> list[str]:
     if body is None:
         errors.append("wonderswan exact-byte save_size_bytes mapping is missing")
     else:
-        first_ramtype = re.search(r"\bif\s*\(\s*ramtype\b", body)
+        first_ramtype = re.search(r"\bif\s*\(\s*ramtype_mem\b", body)
         prefix = body[: first_ramtype.start()] if first_ramtype else body
         default_match = re.search(
             rf"\bsave_size_bytes\s*=\s*(?P<value>{SV_LITERAL})\s*;",
@@ -127,7 +127,7 @@ def check_wonderswan(source: str) -> list[str]:
             default = None
 
         assignment_pattern = re.compile(
-            rf"\bif\s*\(\s*ramtype\s*==\s*(?P<type>{SV_LITERAL})\s*\)"
+            rf"\bif\s*\(\s*ramtype_mem\s*==\s*(?P<type>{SV_LITERAL})\s*\)"
             rf"\s*(?:begin\s*)?save_size_bytes\s*=\s*"
             rf"(?P<value>{SV_LITERAL})\s*;"
         )
@@ -163,7 +163,7 @@ def check_wonderswan(source: str) -> list[str]:
             "wonderswan must obtain the exact-byte RTC boundary from its save loader"
         )
 
-    rtc_assignments = re.findall(r"\bassign\s+has_rtc\s*=\s*([^;]+);", active)
+    rtc_assignments = re.findall(r"\bwire\s+has_rtc_mem\s*=\s*([^;]+);", active)
     if len(rtc_assignments) != 1:
         errors.append("wonderswan must have exactly one active has_rtc assignment")
     elif compact_expression(rtc_assignments[0]) != "lastdata[1][15:8]==8'h01":
@@ -176,7 +176,7 @@ def check_wonderswan(source: str) -> list[str]:
         ".save_payload_write(sd_buff_wr&&!extra_data_addr)": (
             "save initializer must distinguish APF payload writes from RTC trailer writes"
         ),
-        ".save_is_eeprom(saveIsEEPROM)": (
+        ".save_is_eeprom(save_is_eeprom_mem)": (
             "save initializer must use the explicit external-EEPROM type classifier"
         ),
         ".save_size_bytes(save_size_bytes)": (
@@ -188,7 +188,7 @@ def check_wonderswan(source: str) -> list[str]:
         ".eeprom_din(clear_eeprom_write?16'hFFFF:sd_buff_dout)": (
             "absent external EEPROM must initialize to native blank value 0xFFFF"
         ),
-        ".eeprom_req(clear_eeprom_write||(saveIsEEPROM&&(sd_buff_rd||sd_buff_wr)&&~extra_data_addr))": (
+        ".eeprom_req(clear_eeprom_write||(save_is_eeprom_mem&&(sd_buff_rd||sd_buff_wr)&&~extra_data_addr))": (
             "external EEPROM request mux must include initialization and payload traffic only"
         ),
         ".eeprom_rnw(!clear_eeprom_write&&~sd_buff_wr)": (
@@ -199,9 +199,9 @@ def check_wonderswan(source: str) -> list[str]:
         if expression not in compact:
             errors.append(error)
 
-    eeprom_types = re.search(r"\bwire\s+saveIsEEPROM\s*=\s*([^;]+);", active)
+    eeprom_types = re.search(r"\bwire\s+save_is_eeprom_mem\s*=\s*([^;]+);", active)
     expected_classifier = (
-        "(ramtype==8'h10)||(ramtype==8'h20)||(ramtype==8'h50)"
+        "(ramtype_mem==8'h10)||(ramtype_mem==8'h20)||(ramtype_mem==8'h50)"
     )
     if eeprom_types is None or compact_expression(eeprom_types.group(1)) != expected_classifier:
         errors.append(
@@ -502,7 +502,7 @@ def run_mutations() -> int:
         else:
             mutation = source_mutation(
                 WONDERSWAN,
-                rf"(if\s*\(\s*ramtype\s*==\s*8'h{ram_type:02X}\s*\)\s*"
+                rf"(if\s*\(\s*ramtype_mem\s*==\s*8'h{ram_type:02X}\s*\)\s*"
                 rf"save_size_bytes\s*=\s*){SV_LITERAL}(\s*;)",
                 rf"\g<1>20'd{expected + 1}\g<2>",
             )
@@ -547,7 +547,7 @@ def run_mutations() -> int:
                 "wrong-eeprom-type-classifier",
                 source_mutation(
                     WONDERSWAN,
-                    r"(saveIsEEPROM\s*=.*ramtype\s*==\s*8'h)50",
+                    r"(save_is_eeprom_mem\s*=(?:.|\n)*?ramtype_mem\s*==\s*8'h)50",
                     r"\g<1>51",
                 ),
                 "classifier must be exactly",
@@ -575,7 +575,7 @@ def run_mutations() -> int:
                 "forced-rtc",
                 source_mutation(
                     WONDERSWAN,
-                    r"(assign\s+has_rtc\s*=\s*)lastdata\s*\[\s*1\s*\]\s*"
+                    r"(wire\s+has_rtc_mem\s*=\s*)lastdata\s*\[\s*1\s*\]\s*"
                     r"\[\s*15\s*:\s*8\s*\]\s*==\s*8'h01(\s*;)",
                     r"\g<1>1'b1\g<2>",
                 ),
@@ -585,7 +585,7 @@ def run_mutations() -> int:
                 "wrong-rtc-footer-value",
                 source_mutation(
                     WONDERSWAN,
-                    r"(assign\s+has_rtc\s*=\s*lastdata\s*\[\s*1\s*\]\s*"
+                    r"(wire\s+has_rtc_mem\s*=\s*lastdata\s*\[\s*1\s*\]\s*"
                     r"\[\s*15\s*:\s*8\s*\]\s*==\s*8'h)01(\s*;)",
                     r"\g<1>02\g<2>",
                 ),
