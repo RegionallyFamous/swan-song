@@ -1034,6 +1034,7 @@ esac
             ],
         )
         self.assertIn("jobs:\n  verilator:\n    runs-on: ubuntu-24.04\n", workflow)
+        self.assertEqual(workflow.count("    timeout-minutes: 30\n"), 1)
         self.assertNotIn("    if:", workflow)
         toolchain = workflow.index(".github/toolchain/verify.sh")
         regression_command = workflow.index("run: make regression")
