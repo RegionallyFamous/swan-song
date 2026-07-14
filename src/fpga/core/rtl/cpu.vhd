@@ -479,6 +479,7 @@ begin
       variable resultval         : unsigned(15 downto 0);
       variable target            : tCPU_REG;
       variable result            : unsigned(15 downto 0);
+      variable result9           : unsigned(8 downto 0);
       variable result17          : unsigned(16 downto 0);
       variable result32          : unsigned(31 downto 0);
       variable result8           : unsigned(7 downto 0);
@@ -486,8 +487,6 @@ begin
       variable newZero           : std_logic;
       variable newParity         : std_logic;
       variable newSign           : std_logic;
-      variable carryWork1        : std_logic;
-      variable carryWork2        : std_logic;
       variable cond              : std_logic;
       variable exeDone           : std_logic;
       variable pushValue         : std_logic_vector(15 downto 0);
@@ -1982,45 +1981,42 @@ begin
                               end if;
                            
                            when ALU_OP_RCL => 
-                              carryWork1 := flagCarry;
                               result := source1Val;
-                              for i in 0 to 31 loop
-                                 if (i < source2Val(4 downto 0)) then
-                                    if (opsize = 1) then
-                                       carryWork2 := result(7);
-                                    else
-                                       carryWork2 := result(15);
-                                    end if;
-                                    result     := result(14 downto 0) & carryWork1;
-                                    carryWork1 := carryWork2;
-                                 end if;
-                              end loop;
-                              regs.FlagCar <= carryWork1;
                               if (opsize = 1) then
+                                 result9 := (others => '0');
+                                 result9(8) := flagCarry;
+                                 result9(7 downto 0) := source1Val(7 downto 0);
+                                 result9 := rotate_left(result9, to_integer(source2Val(4 downto 0)));
+                                 result(7 downto 0) := result9(7 downto 0);
+                                 regs.FlagCar <= result9(8);
                                  regs.FlagOvf <= (source1Val(7) xor result(7));
                               else
+                                 result17 := (others => '0');
+                                 result17(16) := flagCarry;
+                                 result17(15 downto 0) := source1Val;
+                                 result17 := rotate_left(result17, to_integer(source2Val(4 downto 0)));
+                                 result := result17(15 downto 0);
+                                 regs.FlagCar <= result17(16);
                                  regs.FlagOvf <= (source1Val(15) xor result(15));
                               end if;
                            
                            when ALU_OP_RCR =>
-                              carryWork1 := flagCarry;
                               result := source1Val;
-                              for i in 0 to 31 loop
-                                 if (i < source2Val(4 downto 0)) then
-                                    carryWork2 := result(0);
-                                    result     := '0' & result(15 downto 1);
-                                    if (opsize = 1) then
-                                       result(7) := carryWork1;
-                                    else
-                                       result(15) := carryWork1;
-                                    end if;
-                                    carryWork1 := carryWork2;
-                                 end if;
-                              end loop;
-                              regs.FlagCar <= carryWork1;
                               if (opsize = 1) then
+                                 result9 := (others => '0');
+                                 result9(8) := flagCarry;
+                                 result9(7 downto 0) := source1Val(7 downto 0);
+                                 result9 := rotate_right(result9, to_integer(source2Val(4 downto 0)));
+                                 result(7 downto 0) := result9(7 downto 0);
+                                 regs.FlagCar <= result9(8);
                                  regs.FlagOvf <= (source1Val(7) xor result(7));
                               else
+                                 result17 := (others => '0');
+                                 result17(16) := flagCarry;
+                                 result17(15 downto 0) := source1Val;
+                                 result17 := rotate_right(result17, to_integer(source2Val(4 downto 0)));
+                                 result := result17(15 downto 0);
+                                 regs.FlagCar <= result17(16);
                                  regs.FlagOvf <= (source1Val(15) xor result(15));
                               end if;
                            
