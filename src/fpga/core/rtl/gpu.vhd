@@ -18,6 +18,9 @@ entity gpu is
       ce             : in  std_logic;
       reset          : in  std_logic;
       isColor        : in  std_logic;
+      -- Canonical effective $60 video mode from soc_control:
+      -- 000 mono, 100 Color 2bpp, 110 Color 4bpp planar, 111 packed.
+      video_mode     : in  std_logic_vector(2 downto 0) := "000";
       
       IRQ_LineComp   : out std_logic;
       IRQ_VBlankTmr  : out std_logic;
@@ -121,8 +124,6 @@ architecture arch of gpu is
    signal LCD_VSYNC   : std_logic_vector(REG_LCD_VSYNC  .upper downto REG_LCD_VSYNC  .lower);
    
    signal LCD_ICON_written : std_logic;
-   
-   signal DISP_MODE   : std_logic_vector(REG_DISP_MODE  .upper downto REG_DISP_MODE  .lower);
    
    type tPalettePool is array(0 to 3) of std_logic_vector(7 downto 0);
    signal PalettePool : tPalettePool;
@@ -438,7 +439,7 @@ begin
          -- The old raster value names the edge entering line 144 cycle 0.
          -- Base and first are still live here because their latched copies are
          -- written on this same edge.
-         if (DISP_MODE(7 downto 6) = "00") then
+         if (video_mode(2 downto 1) = "00") then
             dmaBase := shift_left(resize(unsigned(SPR_BASE(4 downto 0)), 16), 9);
          else
             dmaBase := shift_left(resize(unsigned(SPR_BASE(5 downto 0)), 16), 9);
@@ -480,7 +481,9 @@ begin
    iLCD_VTOTAL  : entity work.eReg generic map ( REG_LCD_VTOTAL  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(22), LCD_VTOTAL , LCD_VTOTAL );  
    iLCD_VSYNC   : entity work.eReg generic map ( REG_LCD_VSYNC   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(23), LCD_VSYNC  , LCD_VSYNC  );
    
-   iDISP_MODE   : entity work.eReg generic map ( REG_DISP_MODE   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(24), DISP_MODE and x"EB", DISP_MODE);  
+   -- $60 is owned centrally by soc_control.  Keep the inherited register-bus
+   -- slot neutral so the GPU cannot accidentally become a second owner.
+   reg_wired_or(24) <= (others => '0');
    
    gREG_PalettePool : for i in 0 to 3 generate 
    begin
@@ -660,8 +663,8 @@ begin
    startLine   <= '1' when (xCount = 0 and renderLineActive = '1') else '0';
    newLine     <= '1' when (xCount = 0) else '0';
    
-   depth2      <= '1' when DISP_MODE(7 downto 6) /= "11" else '0';
-   isGray      <= '1' when DISP_MODE(7 downto 6) = "00" else '0';
+   depth2      <= '1' when video_mode(2 downto 1) /= "11" else '0';
+   isGray      <= '1' when video_mode(2 downto 1) = "00" else '0';
    
    -- orientation
    process (clk)
@@ -949,7 +952,7 @@ begin
             -- 2bpp; it is not a 4bpp-only feature. See WSdev
             -- Display/IO_Ports ($04) and ws-test-suite
             -- tile_screen_extended_range.
-            if (DISP_MODE(7 downto 6) = "00") then
+            if (video_mode(2 downto 1) = "00") then
                dmaBase := shift_left(resize(unsigned(SPR_BASE(4 downto 0)), 16), 9);
             else
                dmaBase := shift_left(resize(unsigned(SPR_BASE(5 downto 0)), 16), 9);
@@ -1039,7 +1042,7 @@ begin
                      spriteRow0CurrentDebugValid <= spriteDMADataDebugValid;
                      spriteRow0CurrentGeneration <= std_logic_vector(spriteDMADebugGeneration);
                      spriteRow0CurrentDepth2     <= depth2;
-                     spriteRow0CurrentPacked     <= DISP_MODE(5);
+                     spriteRow0CurrentPacked     <= video_mode(0);
                      spriteRow0TileWord          <= '0';
                      if (depth2 = '1') then
                         RAM_Address_SPR <= std_logic_vector(
@@ -1059,7 +1062,7 @@ begin
                      spriteRow0PendingDebugValid <= spriteDMADataDebugValid;
                      spriteRow0PendingGeneration <= std_logic_vector(spriteDMADebugGeneration);
                      spriteRow0PendingDepth2     <= depth2;
-                     spriteRow0PendingPacked     <= DISP_MODE(5);
+                     spriteRow0PendingPacked     <= video_mode(0);
                      if (depth2 = '1') then
                         spriteRow0PendingTileAddr <= std_logic_vector(
                            to_unsigned(16#2000#, 16) +
@@ -1238,17 +1241,17 @@ begin
                      else
                         tileY3  := tileY8(2 downto 0); 
                      end if;
-                     if (depth2 = '1' and DISP_MODE(5) = '0') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#2000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0'));       end if;
-                     if (depth2 = '0' and DISP_MODE(5) = '0') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if; 
-                     if (depth2 = '1' and DISP_MODE(5) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#2000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0'));       end if;
-                     if (depth2 = '0' and DISP_MODE(5) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if; 
+                     if (depth2 = '1' and video_mode(0) = '0') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#2000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0'));       end if;
+                     if (depth2 = '0' and video_mode(0) = '0') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if;
+                     if (depth2 = '1' and video_mode(0) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#2000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0'));       end if;
+                     if (depth2 = '0' and video_mode(0) = '1') then RAM_Address_SPR <= std_logic_vector(to_unsigned(16#4000#, 16) + unsigned(spriteLineData(8 downto 0) & std_logic_vector(tileY3) & '0' & '0')); end if;
                      if (is_simu = '1') then
                         -- These values define the row address above. Keep that
                         -- fetch-time contract even if the scanline or display
                         -- mode changes before the two reads finish.
                         spriteFetchLineY  <= spritePrefetchLine;
                         spriteFetchDepth2 <= depth2;
-                        spriteFetchPacked <= DISP_MODE(5);
+                        spriteFetchPacked <= video_mode(0);
                      end if;
                      spriteLineState <= FETCHCOLOR0;
                   end if;
@@ -1339,8 +1342,8 @@ begin
                         
       enable         => displayControl(0),
       depth2         => depth2,        
-      packed         => DISP_MODE(5),        
-      tilemapSize    => DISP_MODE(7),            
+      packed         => video_mode(0),
+      tilemapSize    => video_mode(2),
       screenbase     => screenMapBase(3 downto 0),    
       scrollX        => scrollX1,       
       scrollY        => scrollY1,       
@@ -1377,8 +1380,8 @@ begin
                         
       enable         => displayControl(1),
       depth2         => depth2,   
-      packed         => DISP_MODE(5),       
-      tilemapSize    => DISP_MODE(7),            
+      packed         => video_mode(0),
+      tilemapSize    => video_mode(2),
       screenbase     => screenMapBase(7 downto 4),    
       scrollX        => scrollX2,       
       scrollY        => scrollY2,    
@@ -1427,7 +1430,7 @@ begin
                 
       enable         => displayControl(2),
       depth2         => depth2, 
-      packed         => DISP_MODE(5), 
+      packed         => video_mode(0),
 
       useWindow      => displayControl(3),
       WinX0          => spr2WinX0,

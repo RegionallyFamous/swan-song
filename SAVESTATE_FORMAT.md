@@ -54,6 +54,25 @@ false.
 
 ## Isolated v2 verification slices
 
+The first production-side prerequisite is now compiled but remains unreachable
+from APF. `memories_pause.vhd` waits for SwanTop's existing instruction/HALT
+boundary predicate, including idle GDMA/SDMA, no pending IRQ dispatch, and no
+prefix continuation, and additionally requires a gap between every console
+clock-enable pulse. Its acquisition gate is visible to SwanTop's clock generator
+before the boundary edge, preventing that edge from scheduling one final
+console enable. It gates the runtime for one complete system-clock interval
+before acknowledging the future v2 owner, then retains that acknowledgement
+until SwanTop's existing three-cycle resume warm-up is complete. The request is
+hard-tied low in `core_top.v` while `SAVESTATE_SUPPORTED` is false, so this
+changes no normal-run timing and no Pocket command can pause the console.
+
+The focused `run_memories_pause_tb.sh` bench covers pre-boundary cancellation,
+gate-before-ack ordering, held ownership, release warm-up, a re-request during
+release, and lifecycle reset. This is only the cooperative pause primitive: the
+v2 owner, device-freeze wiring, serializer/validator, staging data plane, and
+APF command crossings remain disconnected. It does not make Memories or Sleep
++ Wake supported.
+
 The isolated owner first enforces pause at an instruction/HALT boundary. It then
 asserts device freeze and waits in one acquisition state for both all-device
 freeze acknowledgement and global SDRAM quiescence; those two acknowledgements

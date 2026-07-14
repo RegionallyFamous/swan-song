@@ -18,6 +18,12 @@ entity SwanTop is
       reset_in                   : in  std_logic;
       pause_in                   : in  std_logic;
       preserve_internal_eeprom   : in  std_logic := '0';
+
+      -- Cooperative instruction-boundary pause for the future Memories v2
+      -- owner.  Production currently ties the request low while the complete
+      -- state data plane remains unavailable.
+      memories_pause_request     : in  std_logic := '0';
+      memories_pause_ack         : out std_logic := '0';
       
       -- rom/sdram
       EXTRAM_doRefresh           : out std_logic := '0';
@@ -183,6 +189,10 @@ architecture arch of SwanTop is
    signal refreshwait            : integer range 0 to 4 := 0;
    signal normalRefresh          : std_logic := '0';
    signal startwait              : integer range 0 to 3 := 0;
+
+   signal memories_pause_gate    : std_logic := '0';
+   signal memories_safe_boundary : std_logic := '0';
+   signal memories_resume_ready  : std_logic := '0';
    
    signal EXTRAM_acc_1           : std_logic := '0';
    signal EXTRAM_acc_2           : std_logic := '0';
@@ -196,6 +206,16 @@ architecture arch of SwanTop is
    signal RegBus_Dout            : std_logic_vector(BUS_buswidth-1 downto 0);
    signal RegBus_Dout_mapped     : std_logic_vector(BUS_buswidth-1 downto 0);
    signal regIsMapped            : std_logic;
+
+   -- Sole $A0/$60 owner and its normalized consumer-facing state.  isColor
+   -- remains the physical model identity; soc_color_enabled is software's
+   -- effective Color/DMA enable from $60 bit 7.
+   signal soc_port_60_mapped      : std_logic;
+   signal soc_boot_rom_locked     : std_logic;
+   signal soc_cartridge_rom_word  : std_logic;
+   signal soc_cartridge_rom_slow  : std_logic;
+   signal soc_color_enabled       : std_logic;
+   signal soc_video_mode          : std_logic_vector(2 downto 0);
    
    signal CPU_RegBus_Din         : std_logic_vector(BUS_buswidth-1 downto 0);
    signal CPU_RegBus_Adr         : std_logic_vector(BUS_busadr-1 downto 0);
@@ -213,7 +233,7 @@ architecture arch of SwanTop is
    signal reg_stage_origin_pc    : std_logic_vector(19 downto 0) := (others => '0');
    signal reg_stage_origin       : std_logic_vector(1 downto 0) := (others => '0');
    
-   type t_reg_wired_or is array(0 to 7) of std_logic_vector(7 downto 0);
+   type t_reg_wired_or is array(0 to 8) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
    
    -- memorymux
@@ -445,7 +465,8 @@ begin
             startwait <= startwait - 1;
          end if;
          
-         if (reset = '1' or sleep_savestate = '1' or sleep_rewind = '1' or pause_in = '1') then
+         if (reset = '1' or sleep_savestate = '1' or sleep_rewind = '1' or
+             pause_in = '1' or memories_pause_gate = '1') then
             if (reset = '1') then
                ce_counter    <= (others => '0');
             end if;
@@ -531,7 +552,8 @@ begin
       RegBus_Dout <= wired_or;
    end process;
    
-   regIsMapped <= '0' when unsigned(RegBus_Adr) >= 16#18# and unsigned(RegBus_Adr) <= 16#19# else
+   regIsMapped <= soc_port_60_mapped when RegBus_Adr = x"60" else
+                  '0' when unsigned(RegBus_Adr) >= 16#18# and unsigned(RegBus_Adr) <= 16#19# else
                   '0' when unsigned(RegBus_Adr) >= 16#40# and unsigned(RegBus_Adr) <= 16#5F# else
                   '0' when RegBus_Adr = x"61" else
                   '0' when unsigned(RegBus_Adr) >= 16#63# and unsigned(RegBus_Adr) <= 16#69# else
@@ -566,6 +588,37 @@ begin
       RegBus_wren  => RegBus_wren,
       RegBus_rst   => RegBus_rst,
       RegBus_Dout  => reg_wired_or(0)
+   );
+
+   -- RegBus_rst is deliberately the only reset for these software-visible
+   -- registers.  The legacy loader first pulses it, replays the 256-port
+   -- image through RegBus_wren, and only later pulses the general core reset.
+   isoc_control : entity work.soc_control
+   port map
+   (
+      clk                    => clk,
+      reset                  => RegBus_rst,
+      is_color_model         => isColor,
+      reg_addr               => RegBus_Adr,
+      reg_write              => RegBus_wren,
+      reg_data_in            => RegBus_Din,
+      reg_data_out           => reg_wired_or(8),
+      reg_read_mapped        => open,
+      reg_write_mapped       => open,
+      port_60_mapped         => soc_port_60_mapped,
+      state_load             => '0',
+      state_data_in          => (others => '0'),
+      state_data_out         => open,
+      boot_rom_locked        => soc_boot_rom_locked,
+      cartridge_rom_word     => soc_cartridge_rom_word,
+      cartridge_rom_slow     => soc_cartridge_rom_slow,
+      color_enabled          => soc_color_enabled,
+      video_mode             => soc_video_mode,
+      video_4bpp             => open,
+      video_4bpp_packed      => open,
+      cartridge_sram_slow    => open,
+      cartridge_io_slow      => open,
+      cartridge_clock_fast   => open
    );
 
    -- The controller exposes every hardware source now.  These two level
@@ -721,6 +774,8 @@ begin
       ce                   => ce,           
       reset                => reset,   
       isColor              => isColor,   
+      color_enabled        => soc_color_enabled,
+      boot_rom_locked      => soc_boot_rom_locked,
       preserve_internal_eeprom => preserve_internal_eeprom,
 
       maskAddr             => maskAddr,
@@ -863,7 +918,9 @@ begin
       clk               => clk,  
       ce                => ce,   
       reset             => reset,
-      isColor           => isColor,  
+      isColor           => soc_color_enabled,
+      cartridge_rom_word => soc_cartridge_rom_word,
+      cartridge_rom_slow => soc_cartridge_rom_slow,
                         
       dma_active        => dma_active,
       sdma_active       => sdma_active,
@@ -978,6 +1035,7 @@ begin
       ce             => ce,   
       reset          => reset,
       isColor        => isColor,
+      video_mode     => soc_video_mode,
       
       IRQ_LineComp   => IRQ_LineComp ,
       IRQ_VBlankTmr  => IRQ_VBlankTmr,
@@ -1129,6 +1187,27 @@ begin
    -- pending IRQ still blocks capture and wakes the CPU through the normal
    -- path; every non-idle CPU stage remains ineligible.
    system_idle <= '1' when (cpu_idle = '1' and dma_active = '0' and sdma_active = '0' and cpu_irqrequest = '0' and cpu_prefix = '0') else '0';
+
+   -- The broker samples a boundary only between all console clock-enable
+   -- pulses.  Releasing its gate uses SwanTop's existing three-cycle warm-up;
+   -- an unrelated external pause therefore keeps the acknowledgement high.
+   memories_safe_boundary <= '1' when
+      (system_idle = '1' and ce = '0' and ce_cpu = '0' and ce_4x = '0')
+      else '0';
+   memories_resume_ready <= '1' when
+      (startwait = 0 and pause_in = '0' and reset = '0') else '0';
+
+   imemories_pause : entity work.memories_pause
+   port map
+   (
+      clk           => clk,
+      reset         => reset,
+      request       => memories_pause_request,
+      safe_boundary => memories_safe_boundary,
+      resume_ready  => memories_resume_ready,
+      pause_gate    => memories_pause_gate,
+      pause_ack     => memories_pause_ack
+   );
 
    isavestates : entity work.savestates
    port map

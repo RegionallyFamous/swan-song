@@ -87,6 +87,7 @@ architecture arch of dma is
    
    type t_reg_wired_or is array(0 to 14) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
+   signal RegBus_wren_color : std_logic;
    
    -- internal
    type tState is
@@ -151,31 +152,42 @@ architecture arch of dma is
 
 begin
 
-   iREG_DMA_SRC_L  : entity work.eReg generic map ( REG_DMA_SRC_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 0), DMA_SRC( 7 downto  0) , open, DMA_SRC_L_written  ); 
-   iREG_DMA_SRC_M  : entity work.eReg generic map ( REG_DMA_SRC_M  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 1), DMA_SRC(15 downto  8) , open, DMA_SRC_M_written  ); 
-   iREG_DMA_SRC_H  : entity work.eReg generic map ( REG_DMA_SRC_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 2), DMA_SRC(19 downto 16) , open, DMA_SRC_H_written  ); 
-   iREG_DMA_DST_L  : entity work.eReg generic map ( REG_DMA_DST_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 3), DMA_DST( 7 downto  0) , open, DMA_DST_L_written  ); 
-   iREG_DMA_DST_H  : entity work.eReg generic map ( REG_DMA_DST_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 4), DMA_DST(15 downto  8) , open, DMA_DST_H_written  ); 
-   iREG_DMA_LEN_L  : entity work.eReg generic map ( REG_DMA_LEN_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 5), DMA_LEN( 7 downto  0) , open, DMA_LEN_L_written  ); 
-   iREG_DMA_LEN_H  : entity work.eReg generic map ( REG_DMA_LEN_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 6), DMA_LEN(15 downto  8) , open, DMA_LEN_H_written  ); 
-   iREG_DMA_CTRL   : entity work.eReg generic map ( REG_DMA_CTRL   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 7), DMA_CTRL              , open, DMA_CTRL_written   );
-   
-   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), open, SDMA_SRC_L_written);
-   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), open, SDMA_SRC_M_written);
-   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), open, SDMA_SRC_H_written);
-   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), open, SDMA_LEN_L_written);
-   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), open, SDMA_LEN_M_written);
-   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), open, SDMA_LEN_H_written);
-   iREG_SDMA_CTRL  : entity work.eReg generic map ( REG_SDMA_CTRL  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren, RegBus_rst, reg_wired_or(14), SDMA_CTRL             , open, SDMA_CTRL_written  ); 
+   -- Mesen2 b9fa69d models $40-$53 as physically present on Color hardware,
+   -- but returns zero and ignores every write while $60 bit 7 is clear.
+   -- sleep_savestate keeps raw readback visible to the legacy 256-port image;
+   -- DMA's dedicated SS records remain the authoritative restore path.
+   -- https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp
+   RegBus_wren_color <= RegBus_wren when isColor = '1' else '0';
 
-   process (reg_wired_or)
+   iREG_DMA_SRC_L  : entity work.eReg generic map ( REG_DMA_SRC_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 0), DMA_SRC( 7 downto  0) , open, DMA_SRC_L_written  );
+   iREG_DMA_SRC_M  : entity work.eReg generic map ( REG_DMA_SRC_M  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 1), DMA_SRC(15 downto  8) , open, DMA_SRC_M_written  );
+   iREG_DMA_SRC_H  : entity work.eReg generic map ( REG_DMA_SRC_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 2), DMA_SRC(19 downto 16) , open, DMA_SRC_H_written  );
+   iREG_DMA_DST_L  : entity work.eReg generic map ( REG_DMA_DST_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 3), DMA_DST( 7 downto  0) , open, DMA_DST_L_written  );
+   iREG_DMA_DST_H  : entity work.eReg generic map ( REG_DMA_DST_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 4), DMA_DST(15 downto  8) , open, DMA_DST_H_written  );
+   iREG_DMA_LEN_L  : entity work.eReg generic map ( REG_DMA_LEN_L  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 5), DMA_LEN( 7 downto  0) , open, DMA_LEN_L_written  );
+   iREG_DMA_LEN_H  : entity work.eReg generic map ( REG_DMA_LEN_H  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 6), DMA_LEN(15 downto  8) , open, DMA_LEN_H_written  );
+   iREG_DMA_CTRL   : entity work.eReg generic map ( REG_DMA_CTRL   ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 7), DMA_CTRL              , open, DMA_CTRL_written   );
+   
+   iREG_SDMA_SRC_L : entity work.eReg generic map ( REG_SDMA_SRC_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 8), SDMA_SRC_work( 7 downto  0), open, SDMA_SRC_L_written);
+   iREG_SDMA_SRC_M : entity work.eReg generic map ( REG_SDMA_SRC_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or( 9), SDMA_SRC_work(15 downto  8), open, SDMA_SRC_M_written);
+   iREG_SDMA_SRC_H : entity work.eReg generic map ( REG_SDMA_SRC_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or(10), SDMA_SRC_work(19 downto 16), open, SDMA_SRC_H_written);
+   iREG_SDMA_LEN_L : entity work.eReg generic map ( REG_SDMA_LEN_L ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or(11), SDMA_LEN_work( 7 downto  0), open, SDMA_LEN_L_written);
+   iREG_SDMA_LEN_M : entity work.eReg generic map ( REG_SDMA_LEN_M ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or(12), SDMA_LEN_work(15 downto  8), open, SDMA_LEN_M_written);
+   iREG_SDMA_LEN_H : entity work.eReg generic map ( REG_SDMA_LEN_H ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or(13), SDMA_LEN_work(19 downto 16), open, SDMA_LEN_H_written);
+   iREG_SDMA_CTRL  : entity work.eReg generic map ( REG_SDMA_CTRL  ) port map (clk, RegBus_Din, RegBus_Adr, RegBus_wren_color, RegBus_rst, reg_wired_or(14), SDMA_CTRL             , open, SDMA_CTRL_written  );
+
+   process (all)
       variable wired_or : std_logic_vector(7 downto 0);
    begin
       wired_or := reg_wired_or(0);
       for i in 1 to (reg_wired_or'length - 1) loop
          wired_or := wired_or or reg_wired_or(i);
       end loop;
-      RegBus_Dout <= wired_or;
+      if (isColor = '1' or sleep_savestate = '1') then
+         RegBus_Dout <= wired_or;
+      else
+         RegBus_Dout <= (others => '0');
+      end if;
    end process;
    
    -- On the final WRITING edge dmaOn clears immediately to avoid an extra

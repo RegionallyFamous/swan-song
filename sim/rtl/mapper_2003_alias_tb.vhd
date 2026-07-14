@@ -28,6 +28,8 @@ architecture test of mapper_2003_alias_tb is
   signal debug_off   : std_logic_vector(23 downto 0);
   signal debug_valid : std_logic;
   signal sleep_state : std_logic := '0';
+  signal boot_rom_locked : std_logic := '0';
+  signal color_enabled : std_logic := '1';
 begin
   clk <= not clk after CLK_PERIOD / 2;
 
@@ -38,6 +40,8 @@ begin
       ce                     => '1',
       reset                  => reset,
       isColor                => '1',
+      color_enabled          => color_enabled,
+      boot_rom_locked        => boot_rom_locked,
       preserve_internal_eeprom => '0',
       maskAddr               => x"FFFFFF",
       romtype                => romtype,
@@ -148,6 +152,32 @@ begin
     reset <= '0';
     reg_rst <= '0';
     tick(2);
+
+    -- memorymux is now a pure consumer of soc_control's sticky $A0 lock.
+    -- The Color boot overlay must disappear and reappear immediately with the
+    -- explicit normalized input; no private A0 register remains here.
+    expect_mapping(16#FE000#, 6, 0);
+    boot_rom_locked <= '1';
+    wait for 1 ns;
+    expect_mapping(16#FE000#, 5, 16#FFE000#);
+    boot_rom_locked <= '0';
+    wait for 1 ns;
+    expect_mapping(16#FE000#, 6, 0);
+
+    -- Physical Color identity still chooses the Color BIOS, while $60 bit 7
+    -- independently exposes or hides the upper 48 KiB of internal RAM.
+    expect_mapping(16#04000#, 1, 16#004000#);
+    color_enabled <= '0';
+    wait for 1 ns;
+    cpu_addr <= to_unsigned(16#04000#, cpu_addr'length);
+    wait for 1 ns;
+    assert debug_space = x"7" and debug_valid = '0'
+      report "disabled Color mode did not hide upper internal RAM"
+      severity failure;
+    expect_mapping(16#03FFE#, 1, 16#003FFE#);
+    color_enabled <= '1';
+    wait for 1 ns;
+    expect_mapping(16#04000#, 1, 16#004000#);
 
     -- Bandai 2001 must retain the inherited C0-C3-only decode.
     write_port(16#C0#, 1);
@@ -321,7 +351,7 @@ begin
     expect_port(16#D3#, 3);
     expect_port(16#D5#, 3);
 
-    report "PASS Bandai 2003 low aliases, exhaustive high bytes, and save replay" severity note;
+    report "PASS boot-lock consumer, Bandai 2003 low aliases, exhaustive high bytes, and save replay" severity note;
     stop;
     wait;
   end process;

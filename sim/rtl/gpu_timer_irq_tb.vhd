@@ -46,6 +46,7 @@ begin
          ce => ce,
          reset => reset,
          isColor => '1',
+         video_mode => "000",
          IRQ_LineComp => open,
          IRQ_VBlankTmr => irq_vblank_timer,
          IRQ_VBlank => open,
