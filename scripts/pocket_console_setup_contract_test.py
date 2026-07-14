@@ -65,8 +65,17 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
     ):
         if expression not in sequencer:
             raise ValueError(message)
-    if sequencer.count('async_reg="true"') != 2:
-        raise ValueError("both setup level synchronizers must carry ASYNC_REG")
+    quartus_sync_attribute = (
+        'altera_attribute="-namesynchronizer_identificationforced;'
+        '-namepreserve_registeron"'
+    )
+    if sequencer.count(quartus_sync_attribute) != 2:
+        raise ValueError(
+            "both setup level synchronizers must carry the supported Quartus "
+            "synchronizer assignment"
+        )
+    if "async_reg" in sequencer:
+        raise ValueError("setup CDC uses an unsupported Quartus attribute")
 
     core_top = compact(sources["core_top"])
     for expression, message in (
@@ -140,6 +149,11 @@ def main() -> None:
     for source_name, old, new in (
         ("sequencer", "START_CYCLES = 33_554_432", "START_CYCLES = 1_048_576"),
         ("sequencer", "or negedge reset_n", ""),
+        (
+            "sequencer",
+            "SYNCHRONIZER_IDENTIFICATION FORCED",
+            'ASYNC_REG = "TRUE"',
+        ),
         (
             "core_top",
             ".external_reset(external_reset_sys_s | console_setup_reset_sys_s)",

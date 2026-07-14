@@ -53,11 +53,15 @@ def main() -> None:
         "settings payload is not eleven bits",
     )
     require(
-        r"ASYNC_REG[^\n]*reg\s+request_meta_destination\s*;.*"
-        r"ASYNC_REG[^\n]*reg\s+request_sync_destination\s*;",
+        r"SYNCHRONIZER_IDENTIFICATION\s+FORCED[^\n]*"
+        r"reg\s+request_meta_destination\s*;.*"
+        r"SYNCHRONIZER_IDENTIFICATION\s+FORCED[^\n]*"
+        r"reg\s+request_sync_destination\s*;",
         cdc,
-        "request toggle lacks the expected two-flop synchronizer",
+        "request toggle lacks the expected Quartus-identified two-flop synchronizer",
     )
+    if "ASYNC_REG" in cdc:
+        raise AssertionError("settings CDC uses an unsupported Quartus attribute")
     require(
         r"ic\|settings_command_cdc\|settings_hold_source\[\*\]",
         sdc,

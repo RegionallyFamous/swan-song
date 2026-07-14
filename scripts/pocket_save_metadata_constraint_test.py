@@ -32,10 +32,45 @@ def main() -> None:
     )
     require(r"reg\s*\[20:0\]\s+metadata_hold\s*;", cdc, "payload is not 21 bits")
     require(
-        r"ASYNC_REG[^\n]*reg\s+request_meta\s*;.*"
-        r"ASYNC_REG[^\n]*reg\s+request_sync\s*;",
+        r"\(\*\s*preserve\s*\*\)\s*reg\s*\[20:0\]\s+metadata_hold\s*;",
         cdc,
-        "request toggle does not have the expected two-flop synchronizer",
+        "source payload registers are not preserved for exact constraints",
+    )
+    require(
+        r"\(\*\s*preserve\s*\*\)\s*output\s+reg\s*\[19:0\]\s+"
+        r"save_size_bytes_74a\s*,.*"
+        r"\(\*\s*preserve\s*\*\)\s*output\s+reg\s+has_rtc_74a\s*,",
+        cdc,
+        "destination payload registers are not preserved for exact constraints",
+    )
+    native_synchronizer = (
+        r'\(\*\s*altera_attribute\s*=\s*"-name\s+'
+        r'SYNCHRONIZER_IDENTIFICATION\s+FORCED;\s*'
+        r'-name\s+PRESERVE_REGISTER\s+ON"\s*\*\)'
+    )
+    if len(re.findall(native_synchronizer, cdc)) != 6:
+        raise AssertionError("metadata CDC does not mark all six synchronizer declarations")
+    if "ASYNC_REG" in cdc:
+        raise AssertionError("metadata CDC retains a non-Intel ASYNC_REG declaration")
+    for declaration in (
+        r"reg\s*\[1:0\]\s+source_reset_sync\s*=\s*2'b00\s*;",
+        r"reg\s*\[1:0\]\s+destination_reset_sync\s*=\s*2'b00\s*;",
+        r"reg\s+acknowledge_meta\s*;",
+        r"reg\s+acknowledge_sync\s*;",
+        r"reg\s+request_meta\s*;",
+        r"reg\s+request_sync\s*;",
+    ):
+        require(
+            native_synchronizer + r"\s*" + declaration,
+            cdc,
+            f"metadata synchronizer lacks Intel-native preservation: {declaration}",
+        )
+    require(
+        native_synchronizer + r"\s*reg\s+request_meta\s*;.*"
+        + native_synchronizer
+        + r"\s*reg\s+request_sync\s*;",
+        cdc,
+        "request toggle does not have the expected preserved two-flop synchronizer",
     )
     require(
         r"ic\|save_metadata_command_cdc\|metadata_hold\[\*\]",
@@ -54,8 +89,8 @@ def main() -> None:
         r"set_net_delay\s+-max\s+.*"
         r"-get_value_from_clock_period\s+dst_clock_period\s+.*"
         r"-value_multiplier\s+1\.0\s+.*"
-        r"-from\s+\$save_metadata_source_registers\s+.*"
-        r"-to\s+\$save_metadata_destination_registers",
+        r"-from\s+\$save_metadata_source_registers_expanded\s+.*"
+        r"-to\s+\$save_metadata_destination_registers_expanded",
         sdc,
         "payload net delay is not bounded to one destination period",
     )
@@ -63,8 +98,8 @@ def main() -> None:
         r"set_max_skew\s+.*"
         r"-get_skew_value_from_clock_period\s+min_clock_period\s+.*"
         r"-skew_value_multiplier\s+1\.0\s+.*"
-        r"-from\s+\$save_metadata_source_registers\s+.*"
-        r"-to\s+\$save_metadata_destination_registers",
+        r"-from\s+\$save_metadata_source_registers_expanded\s+.*"
+        r"-to\s+\$save_metadata_destination_registers_expanded",
         sdc,
         "payload bus skew is not bounded to the smaller clock period",
     )
@@ -76,11 +111,15 @@ def main() -> None:
     # Source the real SDC through Tcl command stubs. This catches quoting,
     # continuation, brace, collection-variable, and argument-shape errors even
     # on hosts without Quartus/TimeQuest installed.
-    harness = f"""
+    def source_harness(
+        metadata_source_count: int, metadata_destination_count: int
+    ) -> subprocess.CompletedProcess[str]:
+        harness = f"""
 proc set_clock_groups {{args}} {{}}
 proc derive_clock_uncertainty {{}} {{}}
 proc get_registers {{args}} {{
   set filter [lindex $args end]
+  set no_duplicates [expr {{[lsearch -exact $args "-no_duplicates"] >= 0}}]
   set result {{}}
   if {{[string first "slot_hold_sys" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 2}} {{incr i}} {{ lappend result "scaler_source_$i" }}
@@ -91,14 +130,21 @@ proc get_registers {{args}} {{
   }} elseif {{[string first "settings_destination" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 11}} {{incr i}} {{ lappend result "settings_destination_$i" }}
   }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 21}} {{incr i}} {{ lappend result "source_$i" }}
+    for {{set i 0}} {{$i < {metadata_source_count}}} {{incr i}} {{ lappend result "source_$i" }}
+    if {{!$no_duplicates}} {{ lappend result "source_fitter_duplicate" }}
   }} elseif {{[string first "save_size_bytes_74a" $filter] >= 0 &&
               [string first "has_rtc_74a" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 21}} {{incr i}} {{ lappend result "destination_$i" }}
+    for {{set i 0}} {{$i < {metadata_destination_count}}} {{incr i}} {{ lappend result "destination_$i" }}
+    if {{!$no_duplicates}} {{ lappend result "destination_fitter_duplicate" }}
   }}
   return $result
 }}
 proc get_collection_size {{collection}} {{ return [llength $collection] }}
+proc foreach_in_collection {{variable collection body}} {{
+  upvar 1 $variable item
+  foreach item $collection {{ uplevel 1 $body }}
+}}
+proc get_object_info {{args}} {{ return [lindex $args end] }}
 set ::net_delay_args {{}}
 set ::max_skew_args {{}}
 proc set_net_delay {{args}} {{ set ::net_delay_args $args }}
@@ -106,17 +152,35 @@ proc set_max_skew {{args}} {{ set ::max_skew_args $args }}
 source {{{SDC}}}
 if {{[llength $::net_delay_args] == 0}} {{ error "set_net_delay was not called" }}
 if {{[llength $::max_skew_args] == 0}} {{ error "set_max_skew was not called" }}
+set net_delay_from [lindex $::net_delay_args [expr {{[lsearch -exact $::net_delay_args "-from"] + 1}}]]
+set net_delay_to [lindex $::net_delay_args [expr {{[lsearch -exact $::net_delay_args "-to"] + 1}}]]
+set max_skew_from [lindex $::max_skew_args [expr {{[lsearch -exact $::max_skew_args "-from"] + 1}}]]
+set max_skew_to [lindex $::max_skew_args [expr {{[lsearch -exact $::max_skew_args "-to"] + 1}}]]
+foreach collection [list $net_delay_from $max_skew_from] {{
+  if {{[lsearch -exact $collection "source_fitter_duplicate"] < 0}} {{
+    error "source Fitter duplicate omitted from timing bound"
+  }}
+}}
+foreach collection [list $net_delay_to $max_skew_to] {{
+  if {{[lsearch -exact $collection "destination_fitter_duplicate"] < 0}} {{
+    error "destination Fitter duplicate omitted from timing bound"
+  }}
+}}
 puts "PASS Tcl source"
 """
-    with tempfile.TemporaryDirectory(prefix="save-metadata-sdc-test-") as temporary:
-        harness_path = pathlib.Path(temporary) / "source_test.tcl"
-        harness_path.write_text(harness, encoding="utf-8")
-        completed = subprocess.run(
-            ["tclsh", str(harness_path)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        with tempfile.TemporaryDirectory(
+            prefix="save-metadata-sdc-test-"
+        ) as temporary:
+            harness_path = pathlib.Path(temporary) / "source_test.tcl"
+            harness_path.write_text(harness, encoding="utf-8")
+            return subprocess.run(
+                ["tclsh", str(harness_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+    completed = source_harness(21, 21)
     if completed.returncode != 0:
         raise AssertionError(
             f"SDC Tcl source failed:\n{completed.stdout}{completed.stderr}"
@@ -124,9 +188,31 @@ puts "PASS Tcl source"
     if "PASS Tcl source" not in completed.stdout:
         raise AssertionError("SDC Tcl source did not reach its PASS marker")
 
+    failed = source_harness(8, 21)
+    diagnostic = failed.stdout + failed.stderr
+    if failed.returncode == 0:
+        raise AssertionError("SDC accepted an incomplete metadata source collection")
+    if (
+        "expected 21 metadata_hold registers; found 8 register(s):" not in diagnostic
+        or "source_0" not in diagnostic
+        or "source_7" not in diagnostic
+    ):
+        raise AssertionError(f"SDC failure omitted observed endpoints:\n{diagnostic}")
+
+    failed = source_harness(21, 8)
+    diagnostic = failed.stdout + failed.stderr
+    if failed.returncode == 0:
+        raise AssertionError("SDC accepted an incomplete metadata destination collection")
+    if (
+        "expected 21 destination registers; found 8 register(s):" not in diagnostic
+        or "destination_0" not in diagnostic
+        or "destination_7" not in diagnostic
+    ):
+        raise AssertionError(f"SDC failure omitted observed endpoints:\n{diagnostic}")
+
     print(
         "PASS save metadata CDC constraint endpoints=21 delay=dst-period "
-        "skew=min-period no-payload-false-path"
+        "skew=min-period fitter-duplicates no-payload-false-path"
     )
 
 

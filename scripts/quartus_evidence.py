@@ -13,9 +13,11 @@ import stat
 import sys
 
 import quartus_container_provenance as container_provenance
+import quartus_fit_audit as fit_audit
 
 
 CHUNK_SIZE = 1024 * 1024
+MAX_EVIDENCE_BYTES = 512 * 1024 * 1024
 
 
 class EvidenceError(RuntimeError):
@@ -47,6 +49,9 @@ EVIDENCE_FILES = (
     EvidenceFile(Path("container-provenance.json"), 64 * 1024),
     EvidenceFile(Path("container-packages.tsv"), 2 * 1024 * 1024),
     EvidenceFile(Path("output_files/ap_core.rbf"), 32 * 1024 * 1024),
+    # Quartus warning 12241 points to the detailed Connectivity Checks tables
+    # in the Analysis & Synthesis text report, not to a separate log file.
+    EvidenceFile(Path("output_files/ap_core.map.rpt"), 64 * 1024 * 1024),
     EvidenceFile(Path("output_files/ap_core.fit.rpt"), 64 * 1024 * 1024),
     EvidenceFile(Path("output_files/ap_core.asm.rpt"), 64 * 1024 * 1024),
     EvidenceFile(Path("output_files/ap_core.sta.rpt"), 64 * 1024 * 1024),
@@ -145,11 +150,16 @@ def _validate_container_pair(
 
 
 def _file_identity(path: Path) -> dict[str, object]:
-    data = path.read_bytes()
-    return {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while block := stream.read(CHUNK_SIZE):
+            digest.update(block)
+            size += len(block)
+    return {"sha256": digest.hexdigest(), "size": size}
 
 
-def _validate_candidate_container_binding(
+def _validate_candidate_binding(
     output: Path,
     collected: list[Path],
     validated_container: dict[str, object] | None,
@@ -172,13 +182,38 @@ def _validate_candidate_container_binding(
     artifacts = audit.get("artifacts")
     if not isinstance(artifacts, dict):
         raise EvidenceError("Quartus candidate artifact binding is missing")
-    for relative in ("container-provenance.json", "container-packages.tsv"):
+    required_bindings = fit_audit.REQUIRED_ARTIFACTS
+    declared_bindings = set(artifacts)
+    expected_bindings = set(required_bindings)
+    if declared_bindings != expected_bindings:
+        missing = sorted(expected_bindings - declared_bindings)
+        unknown = sorted(declared_bindings - expected_bindings)
+        raise EvidenceError(
+            "Quartus candidate has unknown or missing audited artifact members: "
+            f"missing={missing!r}, unknown={unknown!r}"
+        )
+    for relative in required_bindings:
+        if Path(relative) not in collected:
+            raise EvidenceError(
+                f"audited candidate requires collected {relative}"
+            )
         if artifacts.get(relative) != _file_identity(output / relative):
             raise EvidenceError(
                 f"Quartus candidate does not bind collected {relative}"
             )
     if audit.get("container_provenance") != validated_container:
         raise EvidenceError("Quartus candidate container document does not match evidence")
+    try:
+        recomputed_document = fit_audit.audit(output)
+    except (fit_audit.AuditError, OSError) as error:
+        raise EvidenceError(
+            f"could not reproduce Quartus candidate from collected evidence: {error}"
+        ) from error
+    if document != recomputed_document:
+        raise EvidenceError(
+            "Quartus candidate document does not match the audit recomputed from "
+            "collected evidence"
+        )
 
 
 def _clear_output(output: Path) -> None:
@@ -192,6 +227,8 @@ def _clear_output(output: Path) -> None:
 def collect_evidence(artifacts: Path, output: Path) -> list[Path]:
     """Copy only present allowlisted files; missing files are valid after a failed fit."""
 
+    if sum(item.max_bytes for item in EVIDENCE_FILES) > MAX_EVIDENCE_BYTES:
+        raise EvidenceError("Quartus evidence allowlist exceeds its total size bound")
     _require_plain_directory(artifacts, "artifact root")
     _require_plain_directory(output, "evidence output")
     if os.path.samefile(artifacts, output):
@@ -213,7 +250,7 @@ def collect_evidence(artifacts: Path, output: Path) -> list[Path]:
                 _copy_source(descriptor, output, item)
                 collected.append(item.relative)
             validated_container = _validate_container_pair(output, collected)
-            _validate_candidate_container_binding(
+            _validate_candidate_binding(
                 output, collected, validated_container
             )
             return collected

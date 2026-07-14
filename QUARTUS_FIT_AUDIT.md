@@ -6,19 +6,27 @@ not accepted as evidence that the design fitted or met timing.
 
 The auditor requires the exact Quartus Prime Lite 21.1.1 Build 850 identity,
 `ap_core` revision, `apf_top` top-level entity, Cyclone V family, and
-`5CEBA4F23C8` device in every flow, fitter, assembler, and TimeQuest report. It
-also requires:
+`5CEBA4F23C8` device. It reads those values from each report's native 21.1.1
+shape: the Analysis & Synthesis Summary plus its three-column Settings table;
+the complete Flow, Fitter, and Assembler summaries; and the Timing Analyzer
+Summary, which identifies the revision, device family, and device but does not
+repeat the top-level entity. It also requires:
 
-- successful flow, fit, assembly, and timing-analysis status;
+- successful synthesis, flow, fit, assembly, and a final zero-error Timing
+  Analyzer completion message;
 - a nonempty, regular, nonsymlink RBF whose SHA-256 matches the sidecar;
 - logic, register, memory-bit, and PLL use (including capacities where Quartus
   reports a finite device capacity);
 - setup, hold, recovery, and removal summary sections with no negative slack or
   TNS; an explicit `No paths to report` is accepted only for recovery/removal;
-- `clk_74a`, `clk_74b`, and `bridge_spiclk` in Clock Summary;
-- explicit zero counts for setup, hold, recovery, and removal in Unconstrained
-  Paths Summary;
-- an inventory of every `Critical Warning` in all text artifacts.
+- `clk_74a`, `clk_74b`, and `bridge_spiclk` in the native `Clocks` panel;
+- the exact six native Unconstrained Paths properties (illegal/unconstrained
+  clocks, input ports/paths, and output ports/paths), with every Setup and Hold
+  count equal to zero;
+- an inventory of every `Critical Warning` in all text artifacts;
+- a review failure for Warning 12241, with the complete Analysis & Synthesis
+  map report retained for exact Connectivity Checks review rather than a broad
+  waiver.
 
 Unknown, missing, duplicate, contradictory, malformed, empty, or symlinked
 inputs fail. Run the focused synthetic suite with:
@@ -44,15 +52,20 @@ The former file binds the immutable local Docker image ID, privacy-stripped
 registry manifest digests (never registry/repository coordinates), the
 validated Quartus labels, and the size/count/SHA-256 of the sorted package
 manifest. The bounded evidence collector revalidates that pair before upload.
-These files identify the environment for one candidate; they are not a second
-fit and do not prove that Quartus emits a reproducible RBF.
+For a candidate JSON, it also requires every audited artifact, checks every
+declared size and SHA-256, recomputes the complete audit document from the
+copied bytes, and requires exact document equality. This prevents a post-audit
+edit from changing gates, timing, provenance, or release claims while
+preserving the artifact hashes. These files identify the environment for one
+candidate; they are not a second fit and do not prove that Quartus emits a
+reproducible RBF.
 
 ## Basis and current limitation
 
-Altera documents the Fitter Summary as the source of fit status, version,
-revision, top-level, family, and resource utilization, and the Assembler Summary
-as the source of assembly status and target identity:
+Altera documents the Analysis & Synthesis Summary, Fitter Summary, and
+Assembler Summary as the sources of their status and target identity fields:
 
+- <https://www.intel.com/content/www/us/en/programmable/quartushelp/16.0/report/rpt/rpt_file_analysis_summary.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/15.1/report/rpt/rpt_file_fitter_summary.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/report/rpt/rpt_file_assembler_summary.htm>
 
@@ -65,10 +78,16 @@ those analyses:
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/24.2/analyze/sta/sta_com_report_unconstrained_paths.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/23.4/report/rpt/rpt_file_multicorner_timing.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/22.4/analyze/sta/sta_com_rep_clocks.htm>
+- <https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/msgs/msgs/wsgn_connectivity_warnings.htm>
 
 No genuine Swan Song Quartus 21.1.1 report set is checked into the repository
-yet. The parser consequently accepts only a deliberately narrow semicolon-table
-format covered by synthetic fixtures. The first real fit may reveal harmless
-format differences; those must be reviewed against the official report and
-added with a regression fixture. Do not weaken a missing/unknown-field failure
-merely to make a build green.
+yet. The parser is pinned to the native table shapes observed in genuine
+Quartus Lite 21.1.1 map and Timing Analyzer reports and covered by narrow
+fixtures. The next real Swan Song fit must still validate those assumptions;
+any format difference must be reviewed against the genuine report and added
+with a regression fixture. The stock Unconstrained Paths Summary exposes Setup
+and Hold property counts; if release policy later requires a separate explicit
+recovery/removal unconstrained-path listing, retain and audit an additional
+`report_ucp` artifact rather than inventing fields the stock report does not
+contain. Do not weaken a missing/unknown-field failure merely to make a build
+green.

@@ -17,14 +17,14 @@ module apf_save_metadata_cdc (
     output reg         rejected_source,
 
     input  wire        clk_74a,
-    output reg  [19:0] save_size_bytes_74a,
-    output reg         has_rtc_74a,
+    (* preserve *) output reg  [19:0] save_size_bytes_74a,
+    (* preserve *) output reg         has_rtc_74a,
     output reg         metadata_valid_74a
 );
   // Assertion is asynchronous so an interrupted transfer is discarded in
   // both domains. Release is synchronized independently to each clock.
-  (* ASYNC_REG = "TRUE" *) reg [1:0] source_reset_sync = 2'b00;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] destination_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] source_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] destination_reset_sync = 2'b00;
   wire source_reset_n = source_reset_sync[1];
   wire destination_reset_n = destination_reset_sync[1];
 
@@ -38,16 +38,19 @@ module apf_save_metadata_cdc (
     else destination_reset_sync <= {destination_reset_sync[0], 1'b1};
   end
 
-  reg [20:0] metadata_hold;
+  // The footer decoder currently emits a sparse set of canonical save sizes.
+  // Preserve every logical payload bit at both ends so Quartus cannot fold
+  // constant-zero bits out of the exact, fail-closed bundled-data constraint.
+  (* preserve *) reg [20:0] metadata_hold;
   reg request_toggle;
   reg commit_previous;
 
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_meta;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sync;
 
   reg acknowledge_toggle;
-  (* ASYNC_REG = "TRUE" *) reg request_meta;
-  (* ASYNC_REG = "TRUE" *) reg request_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sync;
   reg request_seen;
 
   assign busy_source = request_toggle != acknowledge_sync;

@@ -721,9 +721,121 @@ esac
 
     def test_container_build_rejects_quartus_log_write_failure(self) -> None:
         script = CONTAINER_BUILD.read_text()
-        self.assertIn("build_status=${PIPESTATUS[0]}", script)
-        self.assertIn("log_status=${PIPESTATUS[1]}", script)
+        capture = 'pipeline_status=("${PIPESTATUS[@]}")'
+        self.assertIn(capture, script)
+        self.assertIn("build_status=${pipeline_status[0]}", script)
+        self.assertIn("log_status=${pipeline_status[1]}", script)
         self.assertIn("could not write the complete Quartus log", script)
+        self.assertIn('exit "$build_status"', script)
+        self.assertIn(
+            "for required in ap_core.rbf ap_core.map.rpt ap_core.fit.rpt "
+            "ap_core.asm.rpt ap_core.sta.rpt ap_core.flow.rpt; do",
+            script,
+        )
+        self.assertLess(
+            script.index(capture), script.index("set -e", script.index(capture))
+        )
+
+    def test_container_build_snapshots_both_pipeline_statuses_atomically(self) -> None:
+        script = CONTAINER_BUILD.read_text()
+        start = script.index("set +e\n", script.index("/usr/local/bin/toolchain-check"))
+        end = script.index("\noutput_dir=", start)
+        fragment = script[start:end]
+        fragment = fragment.replace(
+            './scripts/build_core.sh 2>&1 | tee "$artifact_root/quartus.log"',
+            'bash -c "exit 37" 2>&1 | tee "$artifact_root/quartus.log"',
+        )
+        self.assertNotIn("./scripts/build_core.sh", fragment)
+        decision_start = script.index("if (( log_status != 0 ));", end)
+        decision_end = script.index("\nfor required", decision_start)
+        decision = script[decision_start:decision_end]
+
+        with tempfile.TemporaryDirectory() as temporary_string:
+            temporary = Path(temporary_string)
+            command = (
+                "set -uo pipefail\n"
+                'artifact_root="$1"\n'
+                + fragment
+                + '\nprintf "%s %s\\n" "$build_status" "$log_status"\n'
+            )
+            successful_log = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    command,
+                    "pipeline-status-probe",
+                    str(temporary),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            fake_bin = temporary / "bin"
+            fake_bin.mkdir()
+            fake_tee = fake_bin / "tee"
+            fake_tee.write_text(
+                "#!/usr/bin/env bash\n"
+                "cat >/dev/null\n"
+                "exit 23\n"
+            )
+            fake_tee.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+            failed_log = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    command,
+                    "pipeline-status-probe",
+                    str(temporary),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            quartus_exit = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -uo pipefail\n"
+                    'artifact_root="$1"\n'
+                    + fragment
+                    + "\n"
+                    + decision,
+                    "pipeline-status-probe",
+                    str(temporary),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            log_exit = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -uo pipefail\n"
+                    'artifact_root="$1"\n'
+                    + fragment
+                    + "\n"
+                    + decision,
+                    "pipeline-status-probe",
+                    str(temporary),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+        self.assertEqual(successful_log.returncode, 0, successful_log.stderr)
+        self.assertEqual(successful_log.stdout, "37 0\n")
+        self.assertEqual(failed_log.returncode, 0, failed_log.stderr)
+        self.assertEqual(failed_log.stdout, "37 23\n")
+        self.assertEqual(quartus_exit.returncode, 37, quartus_exit.stderr)
+        self.assertIn("Quartus compile failed with status 37", quartus_exit.stderr)
+        self.assertEqual(log_exit.returncode, 83, log_exit.stderr)
+        self.assertIn("tee status 23", log_exit.stderr)
 
     def test_vm_fit_workflow_pins_actions_and_preserves_evidence(self) -> None:
         workflow = WORKFLOW.read_text()

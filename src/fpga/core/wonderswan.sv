@@ -187,7 +187,8 @@ module wonderswan (
   // Save initialization is sequenced by clk_mem, but it holds the emulated
   // machine in reset in clk_sys. Assert that reset immediately and release it
   // only after the level has been observed low for three system clocks.
-  (* ASYNC_REG = "TRUE" *) reg [2:0] clearing_save_sys_sync = 3'b000;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
+  reg [2:0] clearing_save_sys_sync = 3'b111;
   always @(posedge clk_sys_36_864 or posedge clearing_save) begin
     if (clearing_save) begin
       clearing_save_sys_sync <= 3'b111;

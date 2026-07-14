@@ -49,8 +49,8 @@ module apf_scaler_selector (
 
   // Assertion is asynchronous so an interrupted update is discarded in both
   // domains. Release is synchronized independently to each destination.
-  (* ASYNC_REG = "TRUE" *) reg [1:0] sys_reset_sync;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] video_reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] sys_reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] video_reset_sync;
   wire sys_reset_n = sys_reset_sync[1];
   wire video_reset_n = video_reset_sync[1];
 
@@ -68,12 +68,12 @@ module apf_scaler_selector (
 
   reg [1:0] slot_hold_sys;
   reg request_toggle_sys;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_meta_sys;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sync_sys;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_meta_sys;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sync_sys;
 
   reg acknowledge_toggle_video;
-  (* ASYNC_REG = "TRUE" *) reg request_meta_video;
-  (* ASYNC_REG = "TRUE" *) reg request_sync_video;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_meta_video;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sync_video;
   reg request_seen_video;
 
   wire transfer_busy_sys = request_toggle_sys != acknowledge_sync_sys;

@@ -60,8 +60,8 @@ module apf_startup_sequencer (
   localparam [2:0] STATUS_IDLE = 3'd3;
   localparam [2:0] STATUS_RUNNING = 3'd4;
 
-  (* ASYNC_REG = "TRUE" *) reg [2:0] reset_sync;
-  (* ASYNC_REG = "TRUE" *) reg [2:0] host_reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [2:0] reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [2:0] host_reset_sync;
   reg [1:0] state;
 
   always @(posedge clk or negedge reset_n_async) begin

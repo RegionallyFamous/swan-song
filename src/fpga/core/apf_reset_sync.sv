@@ -12,10 +12,9 @@ module apf_reset_sync #(
     input  wire reset_n_async,
     output wire reset_n_sync
 );
-  // ASYNC_REG is understood by CDC tooling; the Intel attributes preserve the
-  // chain and explicitly identify it for Quartus metastability optimization.
-  (* ASYNC_REG = "TRUE",
-     altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
+  // Preserve the chain and identify every stage for Quartus metastability
+  // optimization using Intel's supported HDL assignment attribute.
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
   reg [STAGES-1:0] sync_chain = {STAGES{1'b0}};
 
   initial begin

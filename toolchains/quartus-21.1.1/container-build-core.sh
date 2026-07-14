@@ -82,9 +82,17 @@ unset LM_LICENSE_FILE MGLS_LICENSE_FILE QUARTUS_LICENSE_FILE || true
 
 set +e
 ./scripts/build_core.sh 2>&1 | tee "$artifact_root/quartus.log"
-build_status=${PIPESTATUS[0]}
-log_status=${PIPESTATUS[1]}
+# Any command, including a scalar assignment, replaces Bash's PIPESTATUS.
+# Snapshot the complete pipeline before inspecting either element so nounset
+# cannot turn a genuine Quartus failure into an unrelated wrapper failure.
+pipeline_status=("${PIPESTATUS[@]}")
 set -e
+if (( ${#pipeline_status[@]} != 2 )); then
+  echo "could not capture the Quartus/log pipeline status" >&2
+  exit 84
+fi
+build_status=${pipeline_status[0]}
+log_status=${pipeline_status[1]}
 
 output_dir="$work_root/repo/src/fpga/output_files"
 if [[ -d "$output_dir" ]]; then
@@ -102,9 +110,9 @@ if (( build_status != 0 )); then
   exit "$build_status"
 fi
 
-for required in ap_core.rbf ap_core.fit.rpt ap_core.asm.rpt ap_core.sta.rpt ap_core.flow.rpt; do
+for required in ap_core.rbf ap_core.map.rpt ap_core.fit.rpt ap_core.asm.rpt ap_core.sta.rpt ap_core.flow.rpt; do
   test -s "$artifact_root/output_files/$required" || {
-    echo "successful flow did not produce required fit/timing artifact: $required" >&2
+    echo "successful flow did not produce required compilation artifact: $required" >&2
     exit 78
   }
 done

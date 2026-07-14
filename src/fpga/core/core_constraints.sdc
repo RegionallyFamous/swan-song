@@ -87,24 +87,46 @@ set save_metadata_destination_registers [get_registers -nowarn -no_duplicates \
   {ic|save_metadata_command_cdc|save_size_bytes_74a[*] \
    ic|save_metadata_command_cdc|has_rtc_74a}]
 
+# Keep the exact logical collections above for fail-closed cardinality checks,
+# but include any Fitter-generated register duplicates in the applied timing
+# bounds. get_registers includes such duplicates unless -no_duplicates is set.
+set save_metadata_source_registers_expanded [get_registers -nowarn \
+  {ic|save_metadata_command_cdc|metadata_hold[*]}]
+set save_metadata_destination_registers_expanded [get_registers -nowarn \
+  {ic|save_metadata_command_cdc|save_size_bytes_74a[*] \
+   ic|save_metadata_command_cdc|has_rtc_74a}]
+
 # Fail closed if synthesis changes the intended hierarchy. An empty collection
 # would otherwise leave this safety-critical bundled bus unconstrained.
-if {[get_collection_size $save_metadata_source_registers] != 21} {
-  error "save metadata CDC constraint expected 21 metadata_hold registers"
+proc swan_song_register_names {registers} {
+  set names [list]
+  foreach_in_collection register $registers {
+    lappend names [get_object_info -name $register]
+  }
+  return [join [lsort $names] {, }]
 }
-if {[get_collection_size $save_metadata_destination_registers] != 21} {
-  error "save metadata CDC constraint expected 21 destination registers"
+
+set save_metadata_source_count \
+  [get_collection_size $save_metadata_source_registers]
+set save_metadata_destination_count \
+  [get_collection_size $save_metadata_destination_registers]
+
+if {$save_metadata_source_count != 21} {
+  error "save metadata CDC constraint expected 21 metadata_hold registers; found $save_metadata_source_count register(s): [swan_song_register_names $save_metadata_source_registers]"
+}
+if {$save_metadata_destination_count != 21} {
+  error "save metadata CDC constraint expected 21 destination registers; found $save_metadata_destination_count register(s): [swan_song_register_names $save_metadata_destination_registers]"
 }
 
 set_net_delay -max \
   -get_value_from_clock_period dst_clock_period \
   -value_multiplier 1.0 \
-  -from $save_metadata_source_registers \
-  -to $save_metadata_destination_registers
+  -from $save_metadata_source_registers_expanded \
+  -to $save_metadata_destination_registers_expanded
 set_max_skew \
   -get_skew_value_from_clock_period min_clock_period \
   -skew_value_multiplier 1.0 \
-  -from $save_metadata_source_registers \
-  -to $save_metadata_destination_registers
+  -from $save_metadata_source_registers_expanded \
+  -to $save_metadata_destination_registers_expanded
 
 derive_clock_uncertainty

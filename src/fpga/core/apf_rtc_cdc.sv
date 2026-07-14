@@ -18,8 +18,8 @@ module apf_rtc_cdc (
   // domain's clock. This lets the bridge use the always-on PLL lock reset
   // rather than APF Reset Enter/Exit, because command 0090 is delivered while
   // the emulated console is intentionally still held in reset.
-  (* ASYNC_REG = "TRUE" *) reg [1:0] source_reset_sync = 2'b00;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] destination_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] source_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] destination_reset_sync = 2'b00;
   wire source_reset_n = source_reset_sync[1];
   wire destination_reset_n = destination_reset_sync[1];
 
@@ -36,12 +36,12 @@ module apf_rtc_cdc (
   reg [31:0] rtc_epoch_hold;
   reg request_toggle;
 
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_meta;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sync;
 
   reg acknowledge_toggle;
-  (* ASYNC_REG = "TRUE" *) reg request_meta;
-  (* ASYNC_REG = "TRUE" *) reg request_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sync;
   reg request_seen;
 
   assign rtc_busy_src = request_toggle != acknowledge_sync;

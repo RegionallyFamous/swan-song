@@ -132,12 +132,27 @@ Results are copied to:
 build/quartus-docker/<short-commit>/
 ```
 
-A successful run requires nonempty `ap_core.rbf`, `ap_core.fit.rpt`,
-`ap_core.sta.rpt`, and `ap_core.flow.rpt`. It also preserves the full
-`output_files` directory, build log, toolchain version, source metadata,
-generated build ID, and RBF SHA-256. A failed compile still preserves its log
-and any partial reports, but returns failure and does not count as a fit/timing
-pass.
+A successful run requires nonempty `ap_core.rbf`, `ap_core.map.rpt`,
+`ap_core.fit.rpt`, `ap_core.asm.rpt`, `ap_core.sta.rpt`, and
+`ap_core.flow.rpt`. It also preserves the full `output_files` directory, build
+log, toolchain version, source metadata, generated build ID, and RBF SHA-256. A
+failed compile still preserves its log and any bounded, allowlisted partial
+Analysis & Synthesis (`ap_core.map.rpt`), Fitter, and TimeQuest reports, but
+returns the Quartus failure status and does not count as a fit/timing pass. The
+map report retains the detailed Connectivity Checks tables referenced by
+Quartus warning 12241. This follows Quartus's
+[text-format report contract](https://www.intel.com/content/www/us/en/programmable/quartushelp/23.3/reference/glossary/def_rpt.htm),
+which identifies `.map.rpt` as the Analysis & Synthesis report and says partial
+reports retain the results generated before a stopped compilation.
+For a successful candidate, the audit JSON hash-binds every required input,
+including the map report, and the upload collector rejects missing or unknown
+artifact identities and verifies every copied file against its recorded size
+and SHA-256. Warning 12241 is a fail/review gate: the
+[vendor's message documentation](https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/msgs/msgs/wsgn_connectivity_warnings.htm)
+assigns that ID specifically to hierarchy connectivity warnings, so its stable
+numeric ID is detected mechanically while the exact Connectivity Checks tables
+remain in the bound report for human review. No connectivity-warning category
+is waived automatically.
 
 To select a different empty artifact directory or local image tag:
 

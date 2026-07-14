@@ -24,9 +24,9 @@ module apf_rom_plan_cdc (
     output reg  [24:0] rom_size_sys,
     output reg         valid_sys
 );
-  (* ASYNC_REG = "TRUE" *) reg [1:0] source_reset_sync = 2'b00;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] memory_reset_sync = 2'b00;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] system_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] source_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] memory_reset_sync = 2'b00;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] system_reset_sync = 2'b00;
   wire source_reset_n = source_reset_sync[1];
   wire memory_reset_n = memory_reset_sync[1];
   wire system_reset_n = system_reset_sync[1];
@@ -50,19 +50,19 @@ module apf_rom_plan_cdc (
   reg request_toggle;
   reg commit_previous;
 
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_mem_meta;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_mem_sync;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sys_meta;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sys_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_mem_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_mem_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sys_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sys_sync;
 
   reg acknowledge_mem;
-  (* ASYNC_REG = "TRUE" *) reg request_mem_meta;
-  (* ASYNC_REG = "TRUE" *) reg request_mem_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_mem_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_mem_sync;
   reg request_mem_seen;
 
   reg acknowledge_sys;
-  (* ASYNC_REG = "TRUE" *) reg request_sys_meta;
-  (* ASYNC_REG = "TRUE" *) reg request_sys_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sys_meta;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sys_sync;
   reg request_sys_seen;
 
   assign busy_74a = (request_toggle != acknowledge_mem_sync) ||

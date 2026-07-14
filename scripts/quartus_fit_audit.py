@@ -19,8 +19,8 @@ import quartus_container_provenance as container_provenance
 
 MAGIC = "SWAN_SONG_QUARTUS_AUDIT_V1"
 VERSION_RE = re.compile(
-    r"^Version 21[.]1[.]1 Build 850 "
-    r"[0-9]{2}/[0-9]{2}/[0-9]{4} [A-Za-z0-9]+ Lite Edition$"
+    r"^(?:Version )?(21[.]1[.]1 Build 850 "
+    r"[0-9]{2}/[0-9]{2}/[0-9]{4} [A-Za-z0-9]+ Lite Edition)$"
 )
 EXPECTED = {
     "revision": "ap_core",
@@ -30,7 +30,20 @@ EXPECTED = {
 }
 REQUIRED_CLOCKS = ("clk_74a", "clk_74b", "bridge_spiclk")
 ANALYSES = ("setup", "hold", "recovery", "removal")
+IDENTITY_REPORT_KINDS = ("flow", "fit", "assembly")
+UNCONSTRAINED_PROPERTIES = (
+    "illegal clocks",
+    "unconstrained clocks",
+    "unconstrained input ports",
+    "unconstrained input port paths",
+    "unconstrained output ports",
+    "unconstrained output port paths",
+)
 REPORTS = {
+    "synthesis": (
+        "output_files/ap_core.map.rpt",
+        ("analysis & synthesis status", "analysis and synthesis status"),
+    ),
     "flow": ("output_files/ap_core.flow.rpt", ("flow status",)),
     "fit": ("output_files/ap_core.fit.rpt", ("fitter status",)),
     "assembly": ("output_files/ap_core.asm.rpt", ("assembler status",)),
@@ -48,6 +61,10 @@ OTHER_INPUTS = (
     "quartus.log",
     "container-provenance.json",
     "container-packages.tsv",
+)
+REQUIRED_ARTIFACTS = (
+    *OTHER_INPUTS,
+    *(relative for relative, _ in REPORTS.values()),
 )
 
 
@@ -115,16 +132,144 @@ def scalar(lines: Sequence[str], aliases: Iterable[str], label: str) -> str:
 
 
 def validate_version(value: str, label: str) -> str:
-    versions = sorted(
-        {
-            " ".join(line.split())
-            for line in value.splitlines()
-            if VERSION_RE.fullmatch(" ".join(line.split())) is not None
-        }
-    )
+    versions = set()
+    for line in value.splitlines():
+        match = VERSION_RE.fullmatch(" ".join(line.split()))
+        if match is not None:
+            versions.add(f"Version {match.group(1)}")
+    versions = sorted(versions)
     if len(versions) != 1:
         raise AuditError(f"{label}: expected Quartus 21.1.1 Build 850 Lite Edition")
     return versions[0]
+
+
+def unique_title(lines: Sequence[str], aliases: Iterable[str], label: str) -> int:
+    wanted = {norm(alias) for alias in aliases}
+    found = []
+    for index, line in enumerate(lines):
+        row = cells(line)
+        if row is not None and len(row) == 1 and norm(row[0]) in wanted:
+            found.append(index)
+    if len(found) != 1:
+        raise AuditError(f"{label}: expected exactly one report section")
+    return found[0]
+
+
+def key_value_section(
+    lines: Sequence[str], aliases: Iterable[str], label: str
+) -> List[List[str]]:
+    title_index = unique_title(lines, aliases, label)
+    rows: List[List[str]] = []
+    for line in lines[title_index + 1 :]:
+        row = cells(line)
+        if row is None:
+            continue
+        if len(row) == 1:
+            if rows:
+                break
+            continue
+        if len(row) != 2:
+            if rows:
+                break
+            continue
+        rows.append(row)
+    if not rows:
+        raise AuditError(f"{label}: report section is empty")
+    return rows
+
+
+def row_scalar(rows: Sequence[Sequence[str]], aliases: Iterable[str], label: str) -> str:
+    wanted = {norm(alias) for alias in aliases}
+    found = [row[1].strip() for row in rows if len(row) == 2 and norm(row[0]) in wanted]
+    unique = sorted(set(found))
+    if len(unique) != 1 or not unique[0]:
+        raise AuditError(f"{label}: expected one unambiguous value, found {unique!r}")
+    return unique[0]
+
+
+def validate_expected_identity(identity: Dict[str, str], kind: str) -> None:
+    for field, expected in EXPECTED.items():
+        if identity[field] != expected:
+            raise AuditError(f"{kind} {field} is {identity[field]!r}, expected {expected!r}")
+
+
+def validate_synthesis_report(text: str) -> Dict[str, str]:
+    """Validate the genuine map.rpt summary and 3-column Settings device row."""
+
+    lines = text.splitlines()
+    summary = key_value_section(
+        lines, ("Analysis & Synthesis Summary",), "synthesis summary"
+    )
+    status = row_scalar(
+        summary, ("Analysis & Synthesis Status",), "synthesis status"
+    )
+    if re.match(r"^Successful(?:\s|$|-)", status) is None:
+        raise AuditError(f"synthesis status is not successful: {status}")
+    version = validate_version(
+        row_scalar(summary, ("Quartus Prime Version",), "synthesis version"),
+        "synthesis version",
+    )
+    identity = {
+        "revision": row_scalar(summary, ("Revision Name",), "synthesis revision"),
+        "top_level": row_scalar(
+            summary,
+            ("Top-level Entity Name", "Top Level Entity Name"),
+            "synthesis top level",
+        ),
+        "family": row_scalar(summary, ("Family",), "synthesis family"),
+    }
+
+    settings_index = unique_title(
+        lines, ("Analysis & Synthesis Settings",), "synthesis settings"
+    )
+    header, rows, _ = table_after(lines, settings_index)
+    if [norm(value) for value in header] != ["option", "setting", "default value"]:
+        raise AuditError("synthesis settings: unknown table format")
+    devices = sorted(
+        {row[1].strip() for row in rows if len(row) == 3 and norm(row[0]) == "device"}
+    )
+    if len(devices) != 1 or not devices[0]:
+        raise AuditError(f"synthesis device: expected one Settings value, found {devices!r}")
+    identity["device"] = devices[0]
+    validate_expected_identity(identity, "synthesis")
+    return {"status": status, "version": version, **identity}
+
+
+def validate_timing_report(text: str) -> Dict[str, str]:
+    """Validate the genuine sta.rpt summary and successful completion message."""
+
+    lines = text.splitlines()
+    summary = key_value_section(
+        lines,
+        ("Timing Analyzer Summary", "TimeQuest Timing Analyzer Summary"),
+        "timing analysis summary",
+    )
+    version = validate_version(
+        row_scalar(summary, ("Quartus Prime Version",), "timing analysis version"),
+        "timing analysis version",
+    )
+    identity = {
+        "revision": row_scalar(summary, ("Revision Name",), "timing analysis revision"),
+        "family": row_scalar(summary, ("Device Family",), "timing analysis family"),
+        "device": row_scalar(summary, ("Device Name",), "timing analysis device"),
+    }
+    for field, expected in EXPECTED.items():
+        if field == "top_level":
+            continue
+        if identity[field] != expected:
+            raise AuditError(
+                f"timing analysis {field} is {identity[field]!r}, expected {expected!r}"
+            )
+    completion_re = re.compile(
+        r"^Info:\s+Quartus Prime Timing Analyzer was successful[.]\s+"
+        r"0 errors,\s+[0-9]+ warnings?\s*$"
+    )
+    completions = sorted(
+        {" ".join(line.split()) for line in lines if completion_re.fullmatch(line.strip())}
+    )
+    if len(completions) != 1:
+        raise AuditError("timing analysis completion: expected one successful 0-error message")
+    return {"status": completions[0], "version": version, **identity}
 
 
 def validate_report(text: str, kind: str, status_aliases: Sequence[str]) -> Dict[str, str]:
@@ -187,6 +332,11 @@ def table_after(lines: Sequence[str], title_index: int) -> Tuple[List[str], List
     rows: List[List[str]] = []
     no_paths = False
     for line in lines[title_index + 1 :]:
+        # Quartus emits this sentinel as plain text rather than a semicolon
+        # table cell, so it must be recognized before cells() discards it.
+        if norm(line.strip()) == "no paths to report":
+            no_paths = True
+            continue
         row = cells(line)
         if row is None:
             continue
@@ -269,46 +419,43 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
         if not per_analysis[analysis]:
             raise AuditError(f"missing {analysis} timing summary")
 
-    clock_titles = [
-        i for i, line in enumerate(lines)
-        if (cells(line) is not None and cells(line) == ["Clock Summary"])
-    ]
-    if len(clock_titles) != 1:
-        raise AuditError("expected exactly one Clock Summary")
-    header, rows, _ = table_after(lines, clock_titles[0])
+    clock_title = unique_title(lines, ("Clocks",), "clocks")
+    header, rows, _ = table_after(lines, clock_title)
     normalized = [norm(item) for item in header]
     indexes = [i for i, item in enumerate(normalized) if item in ("clock", "clock name")]
     if len(indexes) != 1 or not rows:
-        raise AuditError("unknown Clock Summary format")
+        raise AuditError("unknown Clocks report format")
     clock_names = sorted({row[indexes[0]] for row in rows if len(row) == len(header)})
     missing_clocks = sorted(set(REQUIRED_CLOCKS) - set(clock_names))
     if missing_clocks:
         raise AuditError(f"missing required clocks: {', '.join(missing_clocks)}")
 
-    unconstrained_titles = [
-        i for i, line in enumerate(lines)
-        if (cells(line) is not None and cells(line) == ["Unconstrained Paths Summary"])
-    ]
-    if len(unconstrained_titles) != 1:
-        raise AuditError("expected exactly one Unconstrained Paths Summary")
-    header, rows, _ = table_after(lines, unconstrained_titles[0])
+    unconstrained_title = unique_title(
+        lines, ("Unconstrained Paths Summary",), "unconstrained paths summary"
+    )
+    header, rows, _ = table_after(lines, unconstrained_title)
     normalized = [norm(item) for item in header]
-    type_indexes = [i for i, item in enumerate(normalized) if item in ("analysis", "analysis type")]
-    count_indexes = [i for i, item in enumerate(normalized) if item in ("count", "unconstrained paths")]
-    if len(type_indexes) != 1 or len(count_indexes) != 1 or not rows:
+    if normalized != ["property", "setup", "hold"] or not rows:
         raise AuditError("unknown Unconstrained Paths Summary format")
-    counts: Dict[str, int] = {}
+    counts: Dict[str, Dict[str, int]] = {}
     for row in rows:
-        if len(row) != len(header):
+        if len(row) != 3:
             raise AuditError("ragged Unconstrained Paths Summary row")
-        analysis = norm(row[type_indexes[0]]).removesuffix(" analysis")
-        if analysis not in ANALYSES or analysis in counts:
-            raise AuditError(f"unknown or duplicate unconstrained analysis: {analysis!r}")
-        raw_count = row[count_indexes[0]].replace(",", "").strip()
-        if not raw_count.isdigit():
-            raise AuditError(f"malformed unconstrained path count: {raw_count!r}")
-        counts[analysis] = int(raw_count)
-    if set(counts) != set(ANALYSES) or any(counts.values()):
+        property_name = norm(row[0])
+        if property_name not in UNCONSTRAINED_PROPERTIES or property_name in counts:
+            raise AuditError(
+                f"unknown or duplicate unconstrained property: {property_name!r}"
+            )
+        values = {}
+        for index, analysis in ((1, "setup"), (2, "hold")):
+            raw_count = row[index].replace(",", "").strip()
+            if not raw_count.isdigit():
+                raise AuditError(f"malformed unconstrained {analysis} count: {raw_count!r}")
+            values[analysis] = int(raw_count)
+        counts[property_name] = values
+    if set(counts) != set(UNCONSTRAINED_PROPERTIES) or any(
+        value for properties in counts.values() for value in properties.values()
+    ):
         raise AuditError(f"missing or nonzero unconstrained path counts: {counts}")
 
     return {
@@ -325,6 +472,26 @@ def critical_warnings(texts: Dict[str, str]) -> List[Dict[str, object]]:
             if re.search(r"\bCritical Warning\b", line, re.I):
                 inventory.append(
                     {"artifact": relative, "line": line_number, "message": " ".join(line.split())}
+                )
+    return inventory
+
+
+def numbered_warnings(
+    texts: Dict[str, str], warning_id: int
+) -> List[Dict[str, object]]:
+    """Inventory a stable Quartus warning ID without guessing at its details."""
+
+    pattern = re.compile(rf"\bWarning\s*\(\s*{warning_id}\s*\)\s*:", re.I)
+    inventory = []
+    for relative in sorted(texts):
+        for line_number, line in enumerate(texts[relative].splitlines(), 1):
+            if pattern.search(line):
+                inventory.append(
+                    {
+                        "artifact": relative,
+                        "line": line_number,
+                        "message": " ".join(line.split()),
+                    }
                 )
     return inventory
 
@@ -355,9 +522,9 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     root = artifact_directory.resolve(strict=True)
     if not root.is_dir():
         raise AuditError(f"not an artifact directory: {root}")
-    paths = {relative: safe_input(root, relative) for relative in OTHER_INPUTS}
-    for relative, _ in REPORTS.values():
-        paths[relative] = safe_input(root, relative)
+    paths = {
+        relative: safe_input(root, relative) for relative in REQUIRED_ARTIFACTS
+    }
     artifacts = {relative: digest(path) for relative, path in sorted(paths.items())}
     texts = {
         relative: read_text(path)
@@ -380,9 +547,25 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     if texts["ap_core.rbf.sha256"].strip() != expected_hash_line:
         raise AuditError("ap_core.rbf.sha256 does not match the RBF")
 
-    flow = {}
+    synthesis = validate_synthesis_report(texts[REPORTS["synthesis"][0]])
+    timing_report = validate_timing_report(texts[REPORTS["timing_analysis"][0]])
+    for parsed in (synthesis, timing_report):
+        if parsed["version"] != toolchain_version:
+            raise AuditError("toolchain and report Quartus version lines disagree")
+
+    flow = {
+        "synthesis": {
+            "status": synthesis["status"],
+            "version": synthesis["version"],
+        },
+        "timing_analysis": {
+            "status": timing_report["status"],
+            "version": timing_report["version"],
+        },
+    }
     report_identity = None
-    for kind, (relative, status_aliases) in REPORTS.items():
+    for kind in IDENTITY_REPORT_KINDS:
+        relative, status_aliases = REPORTS[kind]
         parsed = validate_report(texts[relative], kind, status_aliases)
         if parsed["version"] != toolchain_version:
             raise AuditError("toolchain and report Quartus version lines disagree")
@@ -395,7 +578,9 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     resources = resource_summary(texts[REPORTS["fit"][0]])
     timing = timing_summary(texts[REPORTS["timing_analysis"][0]])
     warnings = critical_warnings(texts)
+    connectivity_warnings = numbered_warnings(texts, 12241)
     no_critical = not warnings
+    no_connectivity_warnings = not connectivity_warnings
     gates = {
         "assembly_success": True,
         "compressed_bitstream": None,
@@ -404,6 +589,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
         "flow_success": True,
         "hold_timing": True,
         "no_critical_warnings": no_critical,
+        "no_connectivity_warnings": no_connectivity_warnings,
         "no_unconstrained_paths": True,
         "pocket_hardware": False,
         "recovery_timing": True,
@@ -414,7 +600,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     return {
         "quartus_audit": {
             "magic": MAGIC,
-            "audit_pass": no_critical,
+            "audit_pass": no_critical and no_connectivity_warnings,
             "release_eligible": False,
             "identity": report_identity,
             "provenance": metadata,
@@ -424,11 +610,19 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
             "resources": resources,
             "timing": timing,
             "critical_warnings": {"count": len(warnings), "entries": warnings},
+            "connectivity_warnings": {
+                "warning_id": 12241,
+                "count": len(connectivity_warnings),
+                "entries": connectivity_warnings,
+                "review_required": bool(connectivity_warnings),
+            },
             "candidate_gates": gates,
             "limitations": [
                 "Candidate evidence only; this schema is not SWAN_SONG_RELEASE_EVIDENCE_V1.",
                 "Pocket and Dock hardware gates are always false and require physical testing.",
                 "Compressed-bitstream acceptance is not inferred from an RBF filename.",
+                "Warning 12241 is a fail/review gate; its detailed map-report "
+                "tables are retained for human review, not broadly waived.",
                 "Report parsing remains provisional until genuine Quartus 21.1.1 reports are audited.",
             ],
         }
@@ -462,7 +656,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
     result = payload["quartus_audit"]
     if not result["audit_pass"]:
-        print(f"quartus_fit_audit.py: critical warnings found; candidate written to {output}", file=sys.stderr)
+        failed_review_gates = [
+            name
+            for name in ("no_critical_warnings", "no_connectivity_warnings")
+            if result["candidate_gates"][name] is not True
+        ]
+        print(
+            "quartus_fit_audit.py: candidate review gates failed "
+            f"({', '.join(failed_review_gates)}); candidate written to {output}",
+            file=sys.stderr,
+        )
         return 1
     print(f"Quartus candidate audit passed (non-release evidence): {output}")
     return 0

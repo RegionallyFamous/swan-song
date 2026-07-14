@@ -212,11 +212,23 @@ def verify_contract(core_top_source: str, wonderswan_source: str) -> None:
     if expected_clearing not in clearing_body:
         raise ValueError("save-clearing synchronizer is not async-assert/sync-release")
     if not re.search(
-        r"\(\*\s*ASYNC_REG\s*=\s*\"TRUE\"\s*\*\)\s*"
+        r"\(\*\s*altera_attribute\s*=\s*\""
+        r"-name\s+SYNCHRONIZER_IDENTIFICATION\s+FORCED;\s*"
+        r"-name\s+PRESERVE_REGISTER\s+ON\"\s*\*\)\s*"
         r"reg\s*\[\s*2\s*:\s*0\s*\]\s*clearing_save_sys_sync",
         wonderswan,
     ):
-        raise ValueError("save-clearing synchronizer lacks ASYNC_REG staging")
+        raise ValueError(
+            "save-clearing synchronizer lacks the supported Quartus staging assignment"
+        )
+    if "ASYNC_REG" in wonderswan:
+        raise ValueError("save-clearing synchronizer uses an unsupported Quartus attribute")
+    if not re.search(
+        r"clearing_save_sys_sync\s*=\s*3'b111\s*;", wonderswan
+    ):
+        raise ValueError(
+            "save-clearing synchronizer power-up does not match its asynchronous preset"
+        )
     if not re.search(
         r"\bwire\s+clearing_save_sys\s*=\s*clearing_save_sys_sync\[2\]\s*;",
         wonderswan,
@@ -307,6 +319,8 @@ def main() -> None:
         ("wonderswan", "cart_download_sys | clearing_save_sys", "cart_download | clearing_save_sys", "system reset expression"),
         ("wonderswan", "clearing_save_sys | external_reset", "clearing_save | external_reset", "system reset expression"),
         ("wonderswan", "clearing_save_sys_sync[1:0], 1'b0", "clearing_save_sys_sync[0:0], 2'b00", "save-clearing synchronizer"),
+        ("wonderswan", "clearing_save_sys_sync = 3'b111", "clearing_save_sys_sync = 3'b000", "power-up does not match"),
+        ("wonderswan", "SYNCHRONIZER_IDENTIFICATION FORCED", "ASYNC_REG = \"TRUE\"", "supported Quartus staging assignment"),
         ("wonderswan", ".reset_title         (cart_download_sys)", ".reset_title         (cart_download)", "system RTC save loader"),
         ("wonderswan", "wire ioctl_download = cart_download_sys", "wire ioctl_download = cart_download", "ioctl_download"),
         ("wonderswan", "if (cart_download_sys) begin\n      // Do not carry", "if (cart_download) begin\n      // Do not carry", "clk_sys logic consumes"),

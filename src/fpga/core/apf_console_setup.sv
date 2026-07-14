@@ -51,11 +51,9 @@ module apf_console_setup #(
     end
   end
 
-  (* ASYNC_REG = "TRUE",
-     altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
   reg [2:0] reset_sync_destination = 3'b000;
-  (* ASYNC_REG = "TRUE",
-     altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *)
   reg [2:0] start_sync_destination = 3'b000;
 
   always @(posedge clk_destination or negedge reset_n) begin

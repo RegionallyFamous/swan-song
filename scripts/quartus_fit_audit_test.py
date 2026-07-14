@@ -12,6 +12,11 @@ import quartus_container_provenance as container_provenance
 VERSION = "Version 21.1.1 Build 850 06/23/2021 SJ Lite Edition"
 IMAGE_ID = "sha256:" + "a" * 64
 
+# These fixtures use the table shapes emitted by genuine Quartus 21.1.1
+# map.rpt and sta.rpt files: map Device is a 3-column Settings value, while
+# Timing Analyzer identity, Clocks, Unconstrained Paths, and completion are
+# represented in their separate native sections.
+
 
 def report(summary: str, status_key: str, status: str = "Successful - fixture") -> str:
     return f"""+ fixture +
@@ -26,22 +31,89 @@ def report(summary: str, status_key: str, status: str = "Successful - fixture") 
 """
 
 
-def sta_report(slacks=None, clocks=None, unconstrained=None) -> str:
+def map_report(
+    status: str = "Successful - fixture", device: str = "5CEBA4F23C8"
+) -> str:
+    version = VERSION.removeprefix("Version ")
+    return f"""Analysis & Synthesis report for ap_core
+Quartus Prime Version {version}
+
++--------------------------------------------------------------+
+; Analysis & Synthesis Summary                                 ;
++-------------------------------------+------------------------+
+; Analysis & Synthesis Status         ; {status} ;
+; Quartus Prime Version               ; {version} ;
+; Revision Name                       ; ap_core ;
+; Top-level Entity Name               ; apf_top ;
+; Family                              ; Cyclone V ;
++-------------------------------------+------------------------+
+
++--------------------------------------------------------------+
+; Analysis & Synthesis Settings                                ;
++-----------------------+----------------+---------------------+
+; Option                ; Setting        ; Default Value       ;
++-----------------------+----------------+---------------------+
+; Device                ; {device} ;                     ;
+; Top-level entity name ; apf_top        ; apf_top             ;
+; Family name           ; Cyclone V      ; Cyclone V           ;
++-----------------------+----------------+---------------------+
+"""
+
+
+def sta_report(slacks=None, clocks=None, unconstrained=None, no_path_analyses=()) -> str:
     slacks = slacks or {name: "0.100" for name in audit.ANALYSES}
     clocks = clocks or list(audit.REQUIRED_CLOCKS) + ["pll_core"]
-    unconstrained = unconstrained or {name: 0 for name in audit.ANALYSES}
-    text = report("TimeQuest Timing Analyzer Summary", "TimeQuest Timing Analyzer Status")
+    unconstrained = unconstrained or {
+        name: {"setup": 0, "hold": 0}
+        for name in audit.UNCONSTRAINED_PROPERTIES
+    }
+    text = f"""Timing Analyzer report for ap_core
+Quartus Prime Version 21.1.1 Build 850 06/23/2021 SJ Lite Edition
+
++----------------------------------------------------------------------------+
+; Timing Analyzer Summary                                                    ;
++-----------------------+----------------------------------------------------+
+; Quartus Prime Version ; {VERSION} ;
+; Timing Analyzer       ; Legacy Timing Analyzer ;
+; Revision Name         ; ap_core ;
+; Device Family         ; Cyclone V ;
+; Device Name           ; 5CEBA4F23C8 ;
+; Timing Models         ; Final ;
+; Delay Model           ; Combined ;
+; Rise/Fall Delays      ; Enabled ;
++-----------------------+----------------------------------------------------+
+
++--------------------------------------------------------------------------+
+; Clocks                                                                   ;
++---------------+------+--------+-----------+-------+-------+------------+-----------+-------------+-------+--------+-----------+------------+----------+--------+--------+-----------+
+; Clock Name    ; Type ; Period ; Frequency ; Rise  ; Fall  ; Duty Cycle ; Divide by ; Multiply by ; Phase ; Offset ; Edge List ; Edge Shift ; Inverted ; Master ; Source ; Targets   ;
++---------------+------+--------+-----------+-------+-------+------------+-----------+-------------+-------+--------+-----------+------------+----------+--------+--------+-----------+
+"""
+    for clock in clocks:
+        text += (
+            f"; {clock} ; Base ; 13.468 ; 74.25 MHz ; 0.000 ; 6.734 ; "
+            f"; ; ; ; ; ; ; ; ; ; {{ {clock} }} ;\n"
+        )
+    text += "+---------------+------+--------+-----------+-------+-------+------------+-----------+-------------+-------+--------+-----------+------------+----------+--------+--------+-----------+\n"
     for analysis in audit.ANALYSES:
-        text += f"""; Slow 1100mV 85C Model {analysis.title()} Summary ;
-; Clock ; Slack ; End Point TNS ;
+        text += f"; Slow 1100mV 85C Model {analysis.title()} Summary ;\n"
+        if analysis in no_path_analyses:
+            text += "No paths to report.\n"
+            continue
+        text += f"""; Clock ; Slack ; End Point TNS ;
 ; clk_74a ; {slacks[analysis]} ; 0.000 ;
 """
-    text += "; Clock Summary ;\n; Clock ; Period ;\n"
-    for clock in clocks:
-        text += f"; {clock} ; 13.468 ;\n"
-    text += "; Unconstrained Paths Summary ;\n; Analysis Type ; Unconstrained Paths ;\n"
-    for analysis in audit.ANALYSES:
-        text += f"; {analysis.title()} ; {unconstrained[analysis]} ;\n"
+    text += "; Unconstrained Paths Summary ;\n; Property ; Setup ; Hold ;\n"
+    for property_name in audit.UNCONSTRAINED_PROPERTIES:
+        display = property_name.title()
+        text += (
+            f"; {display} ; {unconstrained[property_name]['setup']} ; "
+            f"{unconstrained[property_name]['hold']} ;\n"
+        )
+    text += (
+        "; Timing Analyzer Messages ;\n"
+        "Info: Quartus Prime Timing Analyzer was successful. 0 errors, 0 warnings\n"
+    )
     return text
 
 
@@ -50,6 +122,10 @@ class Fixture:
         self.root = root
         (root / "output_files").mkdir()
         self.write("output_files/ap_core.rbf", b"fixture-rbf\x01")
+        self.write(
+            "output_files/ap_core.map.rpt",
+            map_report().encode(),
+        )
         self.write(
             "output_files/ap_core.flow.rpt",
             report("Flow Summary", "Flow Status").encode(),
@@ -119,7 +195,26 @@ class QuartusFitAuditTest(unittest.TestCase):
         self.assertFalse(payload["candidate_gates"]["dock_hardware"])
         self.assertIsNone(payload["candidate_gates"]["compressed_bitstream"])
         self.assertEqual(payload["resources"]["plls"], {"available": 6, "used": 4})
+        self.assertEqual(
+            payload["timing"]["clocks"]["required"], list(audit.REQUIRED_CLOCKS)
+        )
+        self.assertEqual(
+            set(payload["timing"]["unconstrained_paths"]),
+            set(audit.UNCONSTRAINED_PROPERTIES),
+        )
+        self.assertTrue(
+            payload["flow"]["timing_analysis"]["status"].startswith(
+                "Info: Quartus Prime Timing Analyzer was successful."
+            )
+        )
         self.assertEqual(payload["container_provenance"]["image_id"], IMAGE_ID)
+        self.assertIn("output_files/ap_core.map.rpt", payload["artifacts"])
+        self.assertEqual(
+            payload["artifacts"]["output_files/ap_core.map.rpt"],
+            audit.digest(self.root / "output_files/ap_core.map.rpt"),
+        )
+        self.assertIn("synthesis", payload["flow"])
+        self.assertEqual(set(payload["artifacts"]), set(audit.REQUIRED_ARTIFACTS))
         self.assertIn("container-provenance.json", payload["artifacts"])
         self.assertIn("container-packages.tsv", payload["artifacts"])
         self.assertNotIn("release_evidence", json.loads(first))
@@ -157,6 +252,29 @@ class QuartusFitAuditTest(unittest.TestCase):
         with self.assertRaisesRegex(audit.AuditError, "negative setup"):
             audit.audit(self.root)
 
+    def test_plain_text_no_paths_is_accepted_only_for_recovery_and_removal(self) -> None:
+        for analysis in ("recovery", "removal"):
+            with self.subTest(accepted=analysis):
+                self.fixture.write(
+                    "output_files/ap_core.sta.rpt",
+                    sta_report(no_path_analyses=(analysis,)).encode(),
+                )
+                timing = audit.audit(self.root)["quartus_audit"]["timing"]
+                entry = timing["analyses"][analysis][0]
+                self.assertEqual(entry["path_count"], 0)
+                self.assertIsNone(entry["worst_slack"])
+
+        for analysis in ("setup", "hold"):
+            with self.subTest(rejected=analysis):
+                self.fixture.write(
+                    "output_files/ap_core.sta.rpt",
+                    sta_report(no_path_analyses=(analysis,)).encode(),
+                )
+                with self.assertRaisesRegex(
+                    audit.AuditError, f"invalid no-paths {analysis}"
+                ):
+                    audit.audit(self.root)
+
     def test_missing_clock_and_unconstrained_path_fail_closed(self) -> None:
         self.fixture.write(
             "output_files/ap_core.sta.rpt",
@@ -164,18 +282,26 @@ class QuartusFitAuditTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(audit.AuditError, "bridge_spiclk"):
             audit.audit(self.root)
-        counts = {name: 0 for name in audit.ANALYSES}
-        counts["hold"] = 1
+        counts = {
+            name: {"setup": 0, "hold": 0}
+            for name in audit.UNCONSTRAINED_PROPERTIES
+        }
+        counts["unconstrained clocks"]["hold"] = 1
         self.fixture.write("output_files/ap_core.sta.rpt", sta_report(unconstrained=counts).encode())
         with self.assertRaisesRegex(audit.AuditError, "nonzero unconstrained"):
             audit.audit(self.root)
 
     def test_exact_identity_version_status_and_resources_are_required(self) -> None:
         cases = (
-            ("output_files/ap_core.flow.rpt", "apf_top", "wrong_top", "top_level"),
+            ("output_files/ap_core.map.rpt", "apf_top", "wrong_top", "top_level"),
             ("output_files/ap_core.fit.rpt", "Cyclone V", "Cyclone 10", "family"),
             ("output_files/ap_core.asm.rpt", "5CEBA4F23C8", "wrong", "device"),
-            ("output_files/ap_core.sta.rpt", "ap_core", "other", "revision"),
+            (
+                "output_files/ap_core.sta.rpt",
+                "Revision Name         ; ap_core",
+                "Revision Name         ; other",
+                "revision",
+            ),
         )
         originals = {name: (self.root / name).read_bytes() for name, *_ in cases}
         for name, old, new, message in cases:
@@ -189,6 +315,14 @@ class QuartusFitAuditTest(unittest.TestCase):
         with self.assertRaisesRegex(audit.AuditError, "not successful"):
             audit.audit(self.root)
         self.fixture.write("output_files/ap_core.flow.rpt", flow)
+        synthesis = (self.root / "output_files/ap_core.map.rpt").read_bytes()
+        self.fixture.write(
+            "output_files/ap_core.map.rpt",
+            synthesis.replace(b"Successful", b"Failed", 1),
+        )
+        with self.assertRaisesRegex(audit.AuditError, "synthesis status"):
+            audit.audit(self.root)
+        self.fixture.write("output_files/ap_core.map.rpt", synthesis)
         tool = (self.root / "toolchain-version.txt").read_bytes()
         self.fixture.write("toolchain-version.txt", tool.replace(b"Build 850", b"Build 851"))
         with self.assertRaisesRegex(audit.AuditError, "21.1.1 Build 850"):
@@ -226,6 +360,61 @@ class QuartusFitAuditTest(unittest.TestCase):
         self.assertEqual(payload["critical_warnings"]["count"], 1)
         self.assertFalse(payload["candidate_gates"]["no_critical_warnings"])
         self.assertFalse(payload["candidate_gates"]["pocket_hardware"])
+
+    def test_connectivity_warning_12241_requires_review_without_waiver(self) -> None:
+        map_report = self.root / "output_files/ap_core.map.rpt"
+        map_report.write_text(
+            map_report.read_text()
+            + "Warning (12241): 31 hierarchies have connectivity warnings - "
+            "see the Connectivity Checks report folder\n"
+            + "; Connectivity Checks ;\n"
+            + "; Port ; Type ; Severity ; Details ;\n"
+            + "; data ; Output ; Warning ; Declared but not connected ;\n"
+        )
+        output = self.root / "candidate.json"
+
+        self.assertEqual(
+            audit.main(
+                ["--artifacts", str(self.root), "--output", str(output)]
+            ),
+            1,
+        )
+        payload = json.loads(output.read_text())["quartus_audit"]
+        self.assertFalse(payload["audit_pass"])
+        self.assertTrue(payload["candidate_gates"]["no_critical_warnings"])
+        self.assertFalse(payload["candidate_gates"]["no_connectivity_warnings"])
+        self.assertEqual(payload["connectivity_warnings"]["warning_id"], 12241)
+        self.assertEqual(payload["connectivity_warnings"]["count"], 1)
+        self.assertTrue(payload["connectivity_warnings"]["review_required"])
+        self.assertEqual(
+            payload["artifacts"]["output_files/ap_core.map.rpt"],
+            audit.digest(map_report),
+        )
+
+    def test_map_report_is_required_for_successful_candidate(self) -> None:
+        map_report = self.root / "output_files/ap_core.map.rpt"
+        map_report.unlink()
+        with self.assertRaisesRegex(
+            audit.AuditError, "missing regular artifact: output_files/ap_core.map.rpt"
+        ):
+            audit.audit(self.root)
+
+    def test_map_settings_device_is_exact_and_timing_completion_is_required(self) -> None:
+        self.fixture.write(
+            "output_files/ap_core.map.rpt",
+            map_report(device="5CEBA4F23C7").encode(),
+        )
+        with self.assertRaisesRegex(audit.AuditError, "synthesis device"):
+            audit.audit(self.root)
+
+        self.fixture.write("output_files/ap_core.map.rpt", map_report().encode())
+        sta = (self.root / "output_files/ap_core.sta.rpt").read_text()
+        self.fixture.write(
+            "output_files/ap_core.sta.rpt",
+            sta.replace("was successful. 0 errors", "was unsuccessful. 1 errors").encode(),
+        )
+        with self.assertRaisesRegex(audit.AuditError, "timing analysis completion"):
+            audit.audit(self.root)
 
     def test_empty_or_symlink_artifact_and_bad_rbf_hash_fail(self) -> None:
         rbf = self.root / "output_files/ap_core.rbf"

@@ -546,6 +546,12 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
         if sources["regression"].count(line) != 1:
             errors.append(error)
 
+    synchronizer_contract_line = (
+        'python3 "$ROOT/scripts/pocket_synchronizer_attribute_contract_test.py"'
+    )
+    if sources["regression"].count(synchronizer_contract_line) != 1:
+        errors.append("regression must run the synchronizer attribute contract")
+
     return errors
 
 
@@ -1241,6 +1247,13 @@ class PocketFirstClassContractTest(unittest.TestCase):
                 "regression must run the startup sequencer bench",
             ),
             (
+                "regression",
+                'python3 "$ROOT/scripts/'
+                'pocket_synchronizer_attribute_contract_test.py"',
+                "# synchronizer attribute contract omitted",
+                "regression must run the synchronizer attribute contract",
+            ),
+            (
                 "rom_loader",
                 "if (fill_active && (fill_due || !raw_write_en)) begin",
                 "if (fill_active && !raw_write_en) begin",
@@ -1316,6 +1329,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
     def test_focused_wrapper_tests_are_executable(self) -> None:
         for relative in (
             "scripts/pocket_control_cdc_contract_test.py",
+            "scripts/pocket_synchronizer_attribute_contract_test.py",
             "sim/rtl/run_apf_host_notify_tb.sh",
             "sim/rtl/run_apf_grayscale_video_tb.sh",
             "sim/rtl/run_apf_dataslot_guard_tb.sh",

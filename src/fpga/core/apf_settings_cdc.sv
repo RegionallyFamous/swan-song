@@ -27,8 +27,8 @@ module apf_settings_cdc #(
 );
   // Assertion is asynchronous so loss of PLL readiness discards an in-flight
   // update in both domains. Release is synchronized independently to each.
-  (* ASYNC_REG = "TRUE" *) reg [1:0] source_reset_sync;
-  (* ASYNC_REG = "TRUE" *) reg [1:0] destination_reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] source_reset_sync;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg [1:0] destination_reset_sync;
   wire source_reset_n = source_reset_sync[1];
   wire destination_reset_n = destination_reset_sync[1];
 
@@ -44,12 +44,12 @@ module apf_settings_cdc #(
 
   reg [10:0] settings_hold_source;
   reg request_toggle_source;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_meta_source;
-  (* ASYNC_REG = "TRUE" *) reg acknowledge_sync_source;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_meta_source;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg acknowledge_sync_source;
 
   reg acknowledge_toggle_destination;
-  (* ASYNC_REG = "TRUE" *) reg request_meta_destination;
-  (* ASYNC_REG = "TRUE" *) reg request_sync_destination;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_meta_destination;
+  (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name PRESERVE_REGISTER ON" *) reg request_sync_destination;
   reg request_seen_destination;
 
   wire transfer_busy_source =
