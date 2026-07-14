@@ -15,9 +15,12 @@ import tempfile
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import quartus_container_provenance as container_provenance
+import quartus_connectivity_policy as connectivity_policy
+from quartus_report_text import decode_quartus_report
 
 
 MAGIC = "SWAN_SONG_QUARTUS_AUDIT_V1"
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
 VERSION_RE = re.compile(
     r"^(?:Version )?(21[.]1[.]1 Build 850 "
     r"[0-9]{2}/[0-9]{2}/[0-9]{4} [A-Za-z0-9]+ Lite Edition)$"
@@ -29,7 +32,14 @@ EXPECTED = {
     "device": "5CEBA4F23C8",
 }
 REQUIRED_CLOCKS = ("clk_74a", "clk_74b", "bridge_spiclk")
-ANALYSES = ("setup", "hold", "recovery", "removal")
+TIMING_PATH_ANALYSES = ("setup", "hold", "recovery", "removal")
+ANALYSES = (*TIMING_PATH_ANALYSES, "minimum_pulse_width")
+EXPECTED_TIMING_CORNERS = (
+    "Slow 1100mV 85C Model",
+    "Slow 1100mV 0C Model",
+    "Fast 1100mV 85C Model",
+    "Fast 1100mV 0C Model",
+)
 IDENTITY_REPORT_KINDS = ("flow", "fit", "assembly")
 UNCONSTRAINED_PROPERTIES = (
     "illegal clocks",
@@ -39,6 +49,34 @@ UNCONSTRAINED_PROPERTIES = (
     "unconstrained output ports",
     "unconstrained output port paths",
 )
+CHECK_TIMING_ROWS = (
+    "reference_pin",
+    "generated_io_delay",
+    "partial_input_delay",
+    "partial_output_delay",
+    "io_min_max_delay_consistency",
+    "partial_min_max_delay",
+    "partial_multicycle",
+    "multicycle_consistency",
+)
+CHECK_TIMING_MARKER = "SWAN_SONG_CHECK_TIMING_V2 checks 8 findings 0"
+TIMING_GATE_MARKER = (
+    "SWAN_SONG_TIMING_GATE_V1 corners 4 analyses 4 negative_paths 0"
+)
+MIN_PULSE_GATE_MARKER = (
+    "SWAN_SONG_MIN_PULSE_GATE_V1 corners 4 worst_checks 4 negative_checks 0"
+)
+SDRAM_DQ_MARKER_RE = re.compile(
+    r"^SWAN_SONG_SDRAM_DQ_V1 corner "
+    r"(slow|fast)\|(85|0)\|(1100) setup_paths 16 setup_worst "
+    r"([^ ]+) hold_paths 16 hold_worst ([^ ]+)$"
+)
+# The compile-time-disabled Pocket Memories controller consumed sixteen M10Ks
+# in the current 305-block fit even though APF could not request it.  Require
+# the exact 289-block result after removing that transport.  The source
+# contract separately checks the capability gate itself; this remains a fitted
+# resource gate, not an estimate derived from logical memory-bit utilization.
+MAX_CANDIDATE_RAM_BLOCKS = 289
 REPORTS = {
     "synthesis": (
         "output_files/ap_core.map.rpt",
@@ -66,6 +104,7 @@ REQUIRED_ARTIFACTS = (
     *OTHER_INPUTS,
     *(relative for relative, _ in REPORTS.values()),
 )
+VENDOR_REPORTS = frozenset(relative for relative, _ in REPORTS.values())
 
 
 class AuditError(RuntimeError):
@@ -87,11 +126,13 @@ def cells(line: str) -> Optional[List[str]]:
     return [part.strip() for part in parts]
 
 
-def read_text(path: Path) -> str:
+def read_text(path: Path, *, vendor_report: bool = False) -> str:
     try:
         data = path.read_bytes()
         if b"\0" in data:
             raise AuditError(f"NUL byte in text artifact: {path.name}")
+        if vendor_report:
+            return decode_quartus_report(data)
         return data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise AuditError(f"non-UTF-8 text artifact: {path.name}") from exc
@@ -140,6 +181,36 @@ def validate_version(value: str, label: str) -> str:
     versions = sorted(versions)
     if len(versions) != 1:
         raise AuditError(f"{label}: expected Quartus 21.1.1 Build 850 Lite Edition")
+    return versions[0]
+
+
+def validate_assembler_version(lines: Sequence[str]) -> str:
+    """Read the version from native Assembler header and/or summary rows."""
+
+    raw_versions: List[str] = []
+    for line in lines:
+        row = cells(line)
+        if (
+            row is not None
+            and len(row) == 2
+            and norm(row[0]) in ("quartus prime version", "quartus version")
+        ):
+            raw_versions.append(row[1].strip())
+        header = re.fullmatch(r"\s*Quartus Prime Version\s+(.+?)\s*", line)
+        if header is not None:
+            raw_versions.append(header.group(1))
+
+    if not raw_versions:
+        raise AuditError(
+            "assembly version: expected one unambiguous Quartus version line"
+        )
+    versions = sorted(
+        {validate_version(value, "assembly version") for value in raw_versions}
+    )
+    if len(versions) != 1:
+        raise AuditError(
+            "assembly version: expected one unambiguous Quartus version line"
+        )
     return versions[0]
 
 
@@ -277,8 +348,15 @@ def validate_report(text: str, kind: str, status_aliases: Sequence[str]) -> Dict
     status = scalar(lines, status_aliases, f"{kind} status")
     if re.match(r"^Successful(?:\s|$|-)", status) is None:
         raise AuditError(f"{kind} status is not successful: {status}")
-    version = scalar(lines, ("Quartus Prime Version", "Quartus Version"), f"{kind} version")
-    version = validate_version(version, f"{kind} version")
+    if kind == "assembly":
+        version = validate_assembler_version(lines)
+    else:
+        version = scalar(
+            lines,
+            ("Quartus Prime Version", "Quartus Version"),
+            f"{kind} version",
+        )
+        version = validate_version(version, f"{kind} version")
     identity = {
         "revision": scalar(lines, ("Revision Name",), f"{kind} revision"),
         "top_level": scalar(
@@ -317,6 +395,7 @@ def resource_summary(fit_text: str) -> Dict[str, Dict[str, Optional[int]]]:
         "logic": (("Logic utilization (in ALMs)", "Total ALMs", "Total logic elements"), True),
         "registers": (("Total registers",), False),
         "memory_bits": (("Total block memory bits", "Total memory bits"), True),
+        "ram_blocks": (("Total RAM Blocks",), True),
         "plls": (("Total PLLs",), True),
     }
     result = {}
@@ -365,13 +444,68 @@ def decimal_value(value: str, label: str) -> Decimal:
         raise AuditError(f"malformed {label}: {value!r}") from exc
     if not parsed.is_finite():
         raise AuditError(f"non-finite {label}: {value!r}")
+    if cleaned.startswith("-"):
+        raise AuditError(f"negative {label}: {value!r}")
     return parsed
+
+
+def check_timing_summary(sta_text: str) -> Dict[str, object]:
+    """Validate the native Quartus 21.1 check_timing table, not its exit code."""
+
+    lines = sta_text.splitlines()
+    headers = []
+    for index, line in enumerate(lines):
+        row = cells(line)
+        if row is not None and [item.strip() for item in row] == [
+            "Check",
+            "Number of Issues Found",
+        ]:
+            headers.append(index)
+    if len(headers) != 1:
+        raise AuditError(
+            "check_timing Summary: expected exactly one native 2-column table"
+        )
+
+    rows: List[List[str]] = []
+    for line in lines[headers[0] + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith("+"):
+            if rows:
+                break
+            continue
+        row = cells(line)
+        if row is None:
+            if rows:
+                break
+            continue
+        if len(row) != 2:
+            raise AuditError("check_timing Summary contains a ragged row")
+        rows.append([item.strip() for item in row])
+
+    expected = [[name, "0"] for name in CHECK_TIMING_ROWS]
+    if rows != expected:
+        raise AuditError(
+            f"check_timing Summary rows are missing, reordered, unknown, or nonzero: {rows}"
+        )
+    marker_lines = [
+        index for index, line in enumerate(lines) if line.strip() == CHECK_TIMING_MARKER
+    ]
+    if len(marker_lines) != 1 or marker_lines[0] <= headers[0]:
+        raise AuditError("check_timing zero-findings marker is missing or misplaced")
+    return {
+        "checks": list(CHECK_TIMING_ROWS),
+        "findings": 0,
+        "marker": CHECK_TIMING_MARKER,
+    }
 
 
 def timing_summary(sta_text: str) -> Dict[str, object]:
     lines = sta_text.splitlines()
     per_analysis: Dict[str, List[Dict[str, object]]] = {name: [] for name in ANALYSES}
-    title_re = re.compile(r"^(.+ Model) (Setup|Hold|Recovery|Removal) Summary$", re.I)
+    title_re = re.compile(
+        r"^(.+ Model) (Setup|Hold|Recovery|Removal|Minimum Pulse Width) Summary$",
+        re.I,
+    )
     for index, line in enumerate(lines):
         row = cells(line)
         if row is None or len(row) != 1:
@@ -379,14 +513,15 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
         match = title_re.match(row[0].strip())
         if match is None:
             continue
-        corner, analysis = match.group(1), match.group(2).lower()
+        corner = match.group(1)
+        analysis = match.group(2).lower().replace(" ", "_")
         if any(entry["corner"] == corner for entry in per_analysis[analysis]):
             raise AuditError(f"duplicate {analysis} summary for {corner}")
         header, rows, no_paths = table_after(lines, index)
         normalized = [norm(item) for item in header]
         slack_indexes = [i for i, item in enumerate(normalized) if item in ("slack", "worst case slack")]
         if no_paths:
-            if rows or analysis in ("setup", "hold"):
+            if rows or analysis in ("setup", "hold", "minimum_pulse_width"):
                 raise AuditError(f"invalid no-paths {analysis} summary for {corner}")
             per_analysis[analysis].append({"corner": corner, "path_count": 0, "worst_slack": None})
             continue
@@ -397,6 +532,8 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
             i for i, item in enumerate(normalized)
             if item in ("tns", "end point tns", "total negative slack", "design wide tns")
         ]
+        if len(tns_indexes) != 1:
+            raise AuditError(f"unknown {analysis} TNS table format for {corner}")
         slacks: List[Decimal] = []
         tns_values: List[Decimal] = []
         for data in rows:
@@ -405,8 +542,6 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
             slacks.append(decimal_value(data[slack_index], f"{analysis} slack"))
             for tns_index in tns_indexes:
                 tns_values.append(decimal_value(data[tns_index], f"{analysis} TNS"))
-        if min(slacks) < 0 or (tns_values and min(tns_values) < 0):
-            raise AuditError(f"negative {analysis} slack or TNS for {corner}")
         per_analysis[analysis].append(
             {
                 "corner": corner,
@@ -416,8 +551,14 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
             }
         )
     for analysis in ANALYSES:
-        if not per_analysis[analysis]:
-            raise AuditError(f"missing {analysis} timing summary")
+        observed_corners = {
+            str(entry["corner"]) for entry in per_analysis[analysis]
+        }
+        if observed_corners != set(EXPECTED_TIMING_CORNERS):
+            raise AuditError(
+                f"missing or unexpected {analysis} timing corners: "
+                f"{sorted(observed_corners)}"
+            )
 
     clock_title = unique_title(lines, ("Clocks",), "clocks")
     header, rows, _ = table_after(lines, clock_title)
@@ -430,37 +571,114 @@ def timing_summary(sta_text: str) -> Dict[str, object]:
     if missing_clocks:
         raise AuditError(f"missing required clocks: {', '.join(missing_clocks)}")
 
-    unconstrained_title = unique_title(
-        lines, ("Unconstrained Paths Summary",), "unconstrained paths summary"
-    )
-    header, rows, _ = table_after(lines, unconstrained_title)
-    normalized = [norm(item) for item in header]
-    if normalized != ["property", "setup", "hold"] or not rows:
-        raise AuditError("unknown Unconstrained Paths Summary format")
-    counts: Dict[str, Dict[str, int]] = {}
-    for row in rows:
-        if len(row) != 3:
-            raise AuditError("ragged Unconstrained Paths Summary row")
-        property_name = norm(row[0])
-        if property_name not in UNCONSTRAINED_PROPERTIES or property_name in counts:
-            raise AuditError(
-                f"unknown or duplicate unconstrained property: {property_name!r}"
-            )
-        values = {}
-        for index, analysis in ((1, "setup"), (2, "hold")):
-            raw_count = row[index].replace(",", "").strip()
-            if not raw_count.isdigit():
-                raise AuditError(f"malformed unconstrained {analysis} count: {raw_count!r}")
-            values[analysis] = int(raw_count)
-        counts[property_name] = values
-    if set(counts) != set(UNCONSTRAINED_PROPERTIES) or any(
-        value for properties in counts.values() for value in properties.values()
-    ):
-        raise AuditError(f"missing or nonzero unconstrained path counts: {counts}")
+    # The native report contains one summary and the required detailed
+    # `report_ucp` append contains a second.  Require both exact tables and
+    # exact equality instead of silently selecting one and ignoring a
+    # contradictory appended diagnostic.
+    unconstrained_titles = []
+    for index, line in enumerate(lines):
+        row = cells(line)
+        if row == ["Unconstrained Paths Summary"]:
+            unconstrained_titles.append(index)
+    if len(unconstrained_titles) != 2:
+        raise AuditError(
+            "unconstrained paths summary: expected exactly two report sections"
+        )
+    unconstrained_tables: List[Dict[str, Dict[str, int]]] = []
+    for unconstrained_title in unconstrained_titles:
+        header, rows, _ = table_after(lines, unconstrained_title)
+        normalized = [norm(item) for item in header]
+        if normalized != ["property", "setup", "hold"] or not rows:
+            raise AuditError("unknown Unconstrained Paths Summary format")
+        counts: Dict[str, Dict[str, int]] = {}
+        for row in rows:
+            if len(row) != 3:
+                raise AuditError("ragged Unconstrained Paths Summary row")
+            property_name = norm(row[0])
+            if property_name not in UNCONSTRAINED_PROPERTIES or property_name in counts:
+                raise AuditError(
+                    f"unknown or duplicate unconstrained property: {property_name!r}"
+                )
+            values = {}
+            for value_index, analysis in ((1, "setup"), (2, "hold")):
+                raw_count = row[value_index].replace(",", "").strip()
+                if not raw_count.isdigit():
+                    raise AuditError(
+                        f"malformed unconstrained {analysis} count: {raw_count!r}"
+                    )
+                values[analysis] = int(raw_count)
+            counts[property_name] = values
+        if set(counts) != set(UNCONSTRAINED_PROPERTIES) or any(
+            value for properties in counts.values() for value in properties.values()
+        ):
+            raise AuditError(f"missing or nonzero unconstrained path counts: {counts}")
+        unconstrained_tables.append(counts)
+    if unconstrained_tables[0] != unconstrained_tables[1]:
+        raise AuditError("native and detailed unconstrained path summaries differ")
+    counts = unconstrained_tables[0]
+
+    timing_gate_lines = [
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == TIMING_GATE_MARKER
+    ]
+    if len(timing_gate_lines) != 1:
+        raise AuditError("four-corner timing-gate zero-findings marker is missing")
+    pulse_gate_lines = [
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == MIN_PULSE_GATE_MARKER
+    ]
+    if len(pulse_gate_lines) != 1:
+        raise AuditError("minimum-pulse-width zero-findings marker is missing")
+    dq_corners: Dict[str, Dict[str, str]] = {}
+    for line in lines:
+        match = SDRAM_DQ_MARKER_RE.fullmatch(line.strip())
+        if match is None:
+            continue
+        corner_key = "|".join(match.group(1, 2, 3))
+        if corner_key in dq_corners:
+            raise AuditError(f"duplicate SDRAM DQ timing marker: {corner_key}")
+        setup = decimal_value(match.group(4), f"SDRAM DQ setup slack at {corner_key}")
+        hold = decimal_value(match.group(5), f"SDRAM DQ hold slack at {corner_key}")
+        dq_corners[corner_key] = {
+            "setup_paths": 16,
+            "setup_worst": str(setup),
+            "hold_paths": 16,
+            "hold_worst": str(hold),
+        }
+    expected_dq_corners = {
+        "slow|85|1100",
+        "slow|0|1100",
+        "fast|85|1100",
+        "fast|0|1100",
+    }
+    if set(dq_corners) != expected_dq_corners:
+        raise AuditError(
+            "missing or unexpected SDRAM DQ timing markers: "
+            f"{sorted(dq_corners)}"
+        )
 
     return {
         "analyses": per_analysis,
         "clocks": {"observed": clock_names, "required": list(REQUIRED_CLOCKS)},
+        "check_timing": check_timing_summary(sta_text),
+        "signoff_gate": {
+            "corners": list(EXPECTED_TIMING_CORNERS),
+            "analyses": list(TIMING_PATH_ANALYSES),
+            "negative_paths": 0,
+            "marker": TIMING_GATE_MARKER,
+            "minimum_pulse_width": {
+                "worst_checks": 4,
+                "negative_checks": 0,
+                "marker": MIN_PULSE_GATE_MARKER,
+            },
+        },
+        "sdram_dq": {
+            "corners": {key: dq_corners[key] for key in sorted(dq_corners)},
+            "setup_multicycle_end": 2,
+            "hold_multicycle_end": 0,
+        },
         "unconstrained_paths": counts,
     }
 
@@ -482,6 +700,26 @@ def numbered_warnings(
     """Inventory a stable Quartus warning ID without guessing at its details."""
 
     pattern = re.compile(rf"\bWarning\s*\(\s*{warning_id}\s*\)\s*:", re.I)
+    inventory = []
+    for relative in sorted(texts):
+        for line_number, line in enumerate(texts[relative].splitlines(), 1):
+            if pattern.search(line):
+                inventory.append(
+                    {
+                        "artifact": relative,
+                        "line": line_number,
+                        "message": " ".join(line.split()),
+                    }
+                )
+    return inventory
+
+
+def message_warnings(
+    texts: Dict[str, str], phrase: str
+) -> List[Dict[str, object]]:
+    """Inventory an unnumbered Quartus warning by its stable message phrase."""
+
+    pattern = re.compile(re.escape(phrase), re.I)
     inventory = []
     for relative in sorted(texts):
         for line_number, line in enumerate(texts[relative].splitlines(), 1):
@@ -527,7 +765,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     }
     artifacts = {relative: digest(path) for relative, path in sorted(paths.items())}
     texts = {
-        relative: read_text(path)
+        relative: read_text(path, vendor_report=relative in VENDOR_REPORTS)
         for relative, path in paths.items()
         if relative != "output_files/ap_core.rbf"
     }
@@ -579,8 +817,47 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     timing = timing_summary(texts[REPORTS["timing_analysis"][0]])
     warnings = critical_warnings(texts)
     connectivity_warnings = numbered_warnings(texts, 12241)
+    pll_self_reset_warnings = numbered_warnings(texts, 15069)
+    pll_reset_port_warnings = message_warnings(
+        texts, "RST port on the PLL is not properly connected"
+    )
+    constraint_replacement_warnings = numbered_warnings(texts, 332054)
     no_critical = not warnings
     no_connectivity_warnings = not connectivity_warnings
+    pll_self_reset_configured = not pll_self_reset_warnings
+    pll_reset_port_connected = not pll_reset_port_warnings
+    io_delay_constraints_preserved = not constraint_replacement_warnings
+    ram_block_headroom = (
+        resources["ram_blocks"]["used"] <= MAX_CANDIDATE_RAM_BLOCKS
+    )
+    if connectivity_warnings:
+        try:
+            connectivity_review = connectivity_policy.review_report(
+                texts[REPORTS["synthesis"][0]], SOURCE_ROOT
+            )
+        except connectivity_policy.PolicyError as error:
+            raise AuditError(f"invalid connectivity-warning policy: {error}") from error
+    else:
+        connectivity_review = {
+            "accepted": True,
+            "status": "not_required_no_warning_12241",
+            "warning_id": 12241,
+        }
+    if connectivity_warnings:
+        expected_summary = connectivity_review["observed"]["summary_message"]
+        unexpected_summaries = [
+            entry
+            for entry in connectivity_warnings
+            if entry["message"] != expected_summary
+        ]
+        connectivity_review["summary_entries"] = {
+            "count": len(connectivity_warnings),
+            "unexpected": unexpected_summaries,
+        }
+        if unexpected_summaries:
+            connectivity_review["accepted"] = False
+            connectivity_review["status"] = "rejected_summary_entries"
+    connectivity_review_pass = connectivity_review["accepted"] is True
     gates = {
         "assembly_success": True,
         "compressed_bitstream": None,
@@ -588,10 +865,15 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
         "fit_success": True,
         "flow_success": True,
         "hold_timing": True,
+        "io_delay_constraints_preserved": io_delay_constraints_preserved,
         "no_critical_warnings": no_critical,
         "no_connectivity_warnings": no_connectivity_warnings,
+        "connectivity_warnings_reviewed": connectivity_review_pass,
         "no_unconstrained_paths": True,
+        "pll_self_reset_configured": pll_self_reset_configured,
+        "pll_reset_port_connected": pll_reset_port_connected,
         "pocket_hardware": False,
+        "ram_block_headroom": ram_block_headroom,
         "recovery_timing": True,
         "removal_timing": True,
         "setup_timing": True,
@@ -600,7 +882,12 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
     return {
         "quartus_audit": {
             "magic": MAGIC,
-            "audit_pass": no_critical and no_connectivity_warnings,
+            "audit_pass": no_critical
+            and connectivity_review_pass
+            and pll_self_reset_configured
+            and pll_reset_port_connected
+            and io_delay_constraints_preserved
+            and ram_block_headroom,
             "release_eligible": False,
             "identity": report_identity,
             "provenance": metadata,
@@ -614,16 +901,47 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
                 "warning_id": 12241,
                 "count": len(connectivity_warnings),
                 "entries": connectivity_warnings,
-                "review_required": bool(connectivity_warnings),
+                "review_required": bool(connectivity_warnings)
+                and not connectivity_review_pass,
+                "exact_review": connectivity_review,
+            },
+            "pll_self_reset_warnings": {
+                "warning_id": 15069,
+                "count": len(pll_self_reset_warnings),
+                "entries": pll_self_reset_warnings,
+            },
+            "pll_reset_port_warnings": {
+                "message": "RST port on the PLL is not properly connected",
+                "count": len(pll_reset_port_warnings),
+                "entries": pll_reset_port_warnings,
+            },
+            "constraint_replacement_warnings": {
+                "warning_id": 332054,
+                "count": len(constraint_replacement_warnings),
+                "entries": constraint_replacement_warnings,
             },
             "candidate_gates": gates,
             "limitations": [
                 "Candidate evidence only; this schema is not SWAN_SONG_RELEASE_EVIDENCE_V1.",
                 "Pocket and Dock hardware gates are always false and require physical testing.",
                 "Compressed-bitstream acceptance is not inferred from an RBF filename.",
-                "Warning 12241 is a fail/review gate; its detailed map-report "
-                "tables are retained for human review, not broadly waived.",
-                "Report parsing remains provisional until genuine Quartus 21.1.1 reports are audited.",
+                "Warning 12241 passes only when every detailed map-report row "
+                "matches the source-bound exact reviewed set; no warning ID or "
+                "count is broadly waived.",
+                "Warning 15069 always fails because Quartus reports that PLL "
+                "self-reset cannot function correctly without a valid gated "
+                "lock counter.",
+                "The unnumbered PLL RST-port warning always fails because it "
+                "means the generated PLL does not see a valid deliberate reset.",
+                "Warning 332054 always fails because it proves one or more "
+                "SDRAM input/output delay assignments were replaced.",
+                f"A candidate may use at most {MAX_CANDIDATE_RAM_BLOCKS} physical "
+                "M10K blocks. The source contract separately proves the disabled "
+                "Memories boundary gate; logical memory-bit percentage is not a "
+                "substitute for this fitted-resource gate.",
+                "Report parsing is pinned to Quartus 21.1.1 Build 850 and has "
+                "been exercised against genuine engineering-fit reports; no "
+                "current-source release candidate is inferred.",
             ],
         }
     }
@@ -658,7 +976,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not result["audit_pass"]:
         failed_review_gates = [
             name
-            for name in ("no_critical_warnings", "no_connectivity_warnings")
+            for name in (
+                "no_critical_warnings",
+                "connectivity_warnings_reviewed",
+                "pll_self_reset_configured",
+                "pll_reset_port_connected",
+                "io_delay_constraints_preserved",
+                "ram_block_headroom",
+            )
             if result["candidate_gates"][name] is not True
         ]
         print(

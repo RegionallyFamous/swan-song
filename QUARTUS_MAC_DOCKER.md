@@ -151,8 +151,11 @@ and SHA-256. Warning 12241 is a fail/review gate: the
 [vendor's message documentation](https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/msgs/msgs/wsgn_connectivity_warnings.htm)
 assigns that ID specifically to hierarchy connectivity warnings, so its stable
 numeric ID is detected mechanically while the exact Connectivity Checks tables
-remain in the bound report for human review. No connectivity-warning category
-is waived automatically.
+remain in the bound report. The audit accepts the reviewed intentional rows
+only when the full hierarchy, port, direction, and detail-text set matches and
+the relevant source/configuration SHA-256 bindings still match. It rejects a
+same-count substitution, missing or added row, malformed table, or source
+change. No connectivity-warning category or numeric count is broadly waived.
 
 To select a different empty artifact directory or local image tag:
 
@@ -160,6 +163,28 @@ To select a different empty artifact directory or local image tag:
 ./scripts/quartus_docker.sh build /absolute/path/to/empty-output
 QUARTUS_IMAGE=my-local-tag:21.1.1 ./scripts/quartus_docker.sh check-image
 ```
+
+### Current exact-source engineering result
+
+A trusted DigitalOcean run of temporary non-public source commit
+`1e32ff6a01ea37bbe290ec7d32ec981652ad9c03` at epoch `1784047383` completed
+synthesis, fit, assembly, RBF generation, and strict four-corner TimeQuest
+signoff. The retained RBF SHA-256 is
+`fde228ce80fb43e6155cd64dd51022216121cd3f4ae8ac9623da78d20655a580`.
+The fit uses 11,761/18,480 ALMs, 13,827 registers,
+2,622,848/3,153,920 memory bits, 289/308 RAM blocks, 23/66 DSP blocks, and
+1/4 PLLs. All global setup/hold, recovery/removal, minimum-pulse-width, and
+SDRAM DQ checks are positive at all four corners; Warning 15069 and the
+unnumbered PLL RST-port warning are absent. Exact timing and DQ margins are
+recorded in [`QUARTUS_FIT_AUDIT.md`](QUARTUS_FIT_AUDIT.md).
+
+The surrounding command returned 1 solely because the source-bound
+connectivity policy still binds older source. The retained RBF is engineering
+evidence, not an accepted candidate, final public-commit artifact,
+reproducibility proof, or physical Pocket/Dock result. Refresh and review the
+connectivity policy against the frozen source before running the ordinary
+candidate lane; do not relabel this policy rejection as a Quartus compile or
+timing failure.
 
 ## Licensing and platform boundary
 
@@ -302,6 +327,14 @@ requires two independent clean Quartus 21.1.1 fits of the same commit with
 identical RBF hashes. The lane also cannot certify PocketOS commands, LCD/Dock
 behavior, SDRAM on the actual board, or Sleep/Wake; those remain
 physical-Pocket gates.
+
+Publish source-derived status in source-first order. Commit and publish the
+reviewed implementation, evidence identity, and repository documentation
+before synchronizing `docs/wiki/` to the separate GitHub wiki repository. Wiki
+pages become live from that repository's default branch and may link back to
+files on public `main`; publishing the wiki first can therefore expose claims
+or links whose supporting source is not yet public. Recheck the live source and
+wiki links after both publications.
 
 Finally, SHA-1 is used because it is the digest the vendor publishes for this
 release. These checks detect corruption and package mix-ups against that pinned
