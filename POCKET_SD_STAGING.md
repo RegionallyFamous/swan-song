@@ -160,18 +160,38 @@ python3 scripts/stage_pocket_sd.py \
   --apply
 ```
 
-Writes use same-directory temporary files followed by atomic replacement. The
-entire destination plan is checked before the first write. Planning opens the
-selected root without following a symlink and records its filesystem identity;
-apply must reopen that same directory. Apply then holds no-follow descriptors
-from that root through every destination parent, snapshots every managed file,
-and keeps the descriptors open for the transaction. If any replacement fails,
-all completed replacements are restored and newly created managed files and
-empty directories are removed. Rollback never overwrites a concurrently
-changed file. Folder creation is component-by-component and rejects symlinks,
-non-directories, traversal, and case collisions. Existing identical files are
-left alone. Existing managed files are replaced; unrelated content is
-preserved. Nothing is pruned.
+Writes use same-directory temporary files and a native atomic **no-clobber**
+rename. The target filesystem must provide that primitive; staging fails closed
+instead of falling back to a partially atomic link/unlink sequence. The entire
+destination plan is checked before the first write. Planning opens the selected
+root without following a symlink and records its filesystem identity; apply
+must reopen that same directory. Apply then holds no-follow descriptors from
+that root through every destination parent, snapshots every managed file, and
+keeps the descriptors open for the transaction.
+
+Publication is conditional on the planned name still being absent or still
+naming the exact original inode. An existing original is moved to a private
+quarantine and retained until every prepared file—including files whose bytes
+were already current—passes the final identity, content, and mode check. On a
+failure, rollback first moves the public name to another exclusive quarantine,
+then validates its inode before restoring the original. It never overwrites or
+deletes a concurrently supplied public file. The original inode is restored,
+so its mode, extended attributes, ACLs, and hard-link relationships survive a
+successful rollback. A successful install creates managed files as mode `0644`;
+it intentionally does not copy old-file metadata to the new release.
+
+File contents are flushed before publication. New, renamed, and removed parent
+directory entries are also flushed where the mounted filesystem supports
+directory `fsync`; filesystems that reject directory syncing receive
+best-effort metadata durability, so this is not a power-loss atomicity promise
+and the SD must still be safely ejected. There is no portable conditional
+remove-directory-by-inode operation. After a failed transaction, the tool
+therefore retains and reports any directories it created instead of risking
+the deletion of concurrent contents; they are benign and may be removed only
+after manual inspection. Folder creation is component-by-component and rejects
+symlinks, non-directories, traversal, and case collisions. Existing identical
+files are left alone, existing managed files are replaced, unrelated content
+is preserved, and nothing is pruned.
 
 ## Existing upstream core and user-data namespaces
 

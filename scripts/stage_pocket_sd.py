@@ -12,6 +12,7 @@ are never removed.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import errno
 import hashlib
 import io
@@ -120,7 +121,10 @@ class _PreparedManagedFile:
     parent_descriptor: int
     parent_identity: tuple[int, int]
     original: bytes | None
+    original_identity: tuple[int, int] | None
+    original_mode: int | None
     installed_identity: tuple[int, int] | None = None
+    original_quarantine: str | None = None
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -1105,6 +1109,7 @@ def _open_parent_at(
                     pass
                 else:
                     created_here = True
+                    _fsync_directory(current)
                 _case_safe_name_at(current, part, "managed destination identity")
             try:
                 metadata = os.stat(part, dir_fd=current, follow_symlinks=False)
@@ -1148,7 +1153,7 @@ def _open_parent_at(
 
 def _read_regular_snapshot_at(
     directory: int, name: str
-) -> tuple[bytes, tuple[int, int]] | None:
+) -> tuple[bytes, tuple[int, int], int] | None:
     if not _case_safe_name_at(directory, name, "managed destination identity"):
         return None
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -1182,7 +1187,7 @@ def _read_regular_snapshot_at(
     )
     if not stable_identity or len(payload) != after.st_size:
         raise StagingError(f"managed destination changed while being read: {name}")
-    return payload, (after.st_dev, after.st_ino)
+    return payload, (after.st_dev, after.st_ino), stat.S_IMODE(after.st_mode)
 
 
 def _read_regular_at(directory: int, name: str) -> bytes | None:
@@ -1190,16 +1195,129 @@ def _read_regular_at(directory: int, name: str) -> bytes | None:
     return None if snapshot is None else snapshot[0]
 
 
+_UNCONDITIONAL_REPLACE = object()
+
+
+def _fsync_directory(directory: int) -> bool:
+    """Sync directory metadata when the mounted filesystem supports it."""
+
+    try:
+        os.fsync(directory)
+        return True
+    except OSError as error:
+        unsupported = {errno.EINVAL, getattr(errno, "ENOTSUP", errno.EINVAL)}
+        if error.errno in unsupported:
+            return False
+        raise
+
+
+def _rename_noreplace(
+    source_directory: int,
+    source_name: str,
+    destination_directory: int,
+    destination_name: str,
+) -> None:
+    """Atomically rename while refusing to replace an existing destination."""
+
+    def raise_native_error(error_number: int) -> None:
+        unavailable = {
+            errno.ENOSYS,
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+        }
+        if error_number in unavailable:
+            raise StagingError(
+                "target filesystem lacks the native atomic no-clobber rename "
+                "required for safe staging"
+            )
+        raise OSError(error_number, os.strerror(error_number), destination_name)
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    source = os.fsencode(source_name)
+    destination = os.fsencode(destination_name)
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        function = libc.renameatx_np
+        function.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        function.restype = ctypes.c_int
+        result = function(
+            source_directory,
+            source,
+            destination_directory,
+            destination,
+            0x00000004,  # RENAME_EXCL
+        )
+        if result == 0:
+            return
+        error_number = ctypes.get_errno()
+        raise_native_error(error_number)
+    if hasattr(libc, "renameat2"):
+        function = libc.renameat2
+        function.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        function.restype = ctypes.c_int
+        result = function(
+            source_directory,
+            source,
+            destination_directory,
+            destination,
+            1,  # RENAME_NOREPLACE
+        )
+        if result == 0:
+            return
+        error_number = ctypes.get_errno()
+        raise_native_error(error_number)
+
+    # A link-then-unlink fallback has a partially-published failure state if
+    # unlink fails. Safe staging therefore requires a native, single-operation
+    # no-clobber rename and fails closed when the platform lacks one.
+    raise StagingError(
+        "platform lacks the native atomic no-clobber rename required for safe staging"
+    )
+
+
+def _rename_to_unique(
+    directory: int, name: str, purpose: str
+) -> str:
+    for _ in range(32):
+        quarantine = f".swan-song-{purpose}-{secrets.token_hex(12)}"
+        try:
+            _rename_noreplace(directory, name, directory, quarantine)
+        except FileExistsError:
+            continue
+        return quarantine
+    raise StagingError(f"could not allocate an exclusive {purpose} quarantine")
+
+
+def _restore_quarantine(directory: int, quarantine: str, name: str) -> None:
+    _rename_noreplace(directory, quarantine, directory, name)
+    _fsync_directory(directory)
+
+
 def _atomic_write_at(
     directory: int,
     name: str,
     payload: bytes,
     *,
+    mode: int = 0o644,
+    expected_identity=_UNCONDITIONAL_REPLACE,
     on_replace=None,
 ) -> tuple[int, int]:
     temporary_name: str | None = None
     descriptor: int | None = None
     installed_identity: tuple[int, int] | None = None
+    original_quarantine: str | None = None
     flags = (
         os.O_WRONLY
         | os.O_CREAT
@@ -1222,30 +1340,66 @@ def _atomic_write_at(
             descriptor = None
             stream.write(payload)
             stream.flush()
-            os.fchmod(stream.fileno(), 0o644)
+            os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
             metadata = os.fstat(stream.fileno())
             installed_identity = (metadata.st_dev, metadata.st_ino)
         _case_safe_name_at(directory, name, "managed destination identity")
-        os.replace(
-            temporary_name,
-            name,
-            src_dir_fd=directory,
-            dst_dir_fd=directory,
-        )
+        if expected_identity is _UNCONDITIONAL_REPLACE:
+            os.replace(
+                temporary_name,
+                name,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+            )
+        else:
+            if expected_identity is not None:
+                try:
+                    original_quarantine = _rename_to_unique(
+                        directory, name, "original"
+                    )
+                    _fsync_directory(directory)
+                    snapshot = _read_regular_snapshot_at(
+                        directory, original_quarantine
+                    )
+                    if snapshot is None or snapshot[1] != expected_identity:
+                        raise StagingError(
+                            f"managed destination changed after snapshot: {name}"
+                        )
+                except Exception:
+                    if original_quarantine is not None:
+                        try:
+                            _restore_quarantine(
+                                directory, original_quarantine, name
+                            )
+                            original_quarantine = None
+                        except Exception as restore_error:
+                            raise StagingError(
+                                f"managed destination changed and its quarantined "
+                                f"inode could not be restored: {name}: {restore_error}"
+                            )
+                    raise
+            try:
+                _rename_noreplace(
+                    directory, temporary_name, directory, name
+                )
+            except Exception:
+                if original_quarantine is not None:
+                    try:
+                        _restore_quarantine(directory, original_quarantine, name)
+                        original_quarantine = None
+                    except Exception as restore_error:
+                        raise StagingError(
+                            f"conditional publication failed and the original "
+                            f"inode remains quarantined as {original_quarantine}: "
+                            f"{restore_error}"
+                        )
+                raise
         temporary_name = None
         assert installed_identity is not None
         if on_replace is not None:
-            on_replace(installed_identity)
-        try:
-            os.fsync(directory)
-        except OSError as error:
-            # Some removable filesystems accept atomic rename but do not
-            # implement directory fsync. The file contents were fsynced before
-            # replacement; do not turn a successful merge into a false retry.
-            unsupported = {errno.EINVAL, getattr(errno, "ENOTSUP", errno.EINVAL)}
-            if error.errno not in unsupported:
-                raise
+            on_replace(installed_identity, original_quarantine)
+        _fsync_directory(directory)
         return installed_identity
     finally:
         if descriptor is not None:
@@ -1253,84 +1407,144 @@ def _atomic_write_at(
         if temporary_name is not None:
             try:
                 os.unlink(temporary_name, dir_fd=directory)
+                _fsync_directory(directory)
             except FileNotFoundError:
                 pass
+
+
+def _discard_quarantined_file(
+    directory: int, quarantine: str, expected_identity: tuple[int, int]
+) -> None:
+    """Remove a private quarantine only while it still names the expected inode."""
+
+    discard = _rename_to_unique(directory, quarantine, "discard")
+    try:
+        _fsync_directory(directory)
+        snapshot = _read_regular_snapshot_at(directory, discard)
+        if snapshot is None or snapshot[1] != expected_identity:
+            raise StagingError(
+                f"quarantined file identity changed before cleanup: {quarantine}"
+            )
+        os.unlink(discard, dir_fd=directory)
+        _fsync_directory(directory)
+    except Exception:
+        try:
+            _restore_quarantine(directory, discard, quarantine)
+        except Exception as restore_error:
+            raise StagingError(
+                f"cleanup failed and quarantine {discard} could not be restored: "
+                f"{restore_error}"
+            )
+        raise
+
+
+def _original_state_matches(
+    item: _PreparedManagedFile,
+    snapshot: tuple[bytes, tuple[int, int], int] | None,
+) -> bool:
+    if item.original_identity is None:
+        return snapshot is None
+    return (
+        snapshot is not None
+        and snapshot[0] == item.original
+        and snapshot[1] == item.original_identity
+        and snapshot[2] == item.original_mode
+    )
 
 
 def _rollback_files(prepared: list[_PreparedManagedFile]) -> list[str]:
     failures: list[str] = []
     for item in reversed(prepared):
+        relative = item.managed.relative.as_posix()
         try:
             snapshot = _read_regular_snapshot_at(
                 item.parent_descriptor, item.managed.relative.name
             )
-            current = None if snapshot is None else snapshot[0]
-            current_identity = None if snapshot is None else snapshot[1]
             if item.installed_identity is None:
-                if current != item.original:
-                    failures.append(
-                        f"rollback conflict at {item.managed.relative.as_posix()}"
-                    )
+                if not _original_state_matches(item, snapshot):
+                    failures.append(f"rollback conflict at {relative}")
                 continue
-            if current_identity != item.installed_identity:
-                failures.append(
-                    f"rollback conflict at {item.managed.relative.as_posix()}"
-                )
-                continue
-            if current != item.managed.payload:
-                failures.append(
-                    f"installed file changed before rollback at "
-                    f"{item.managed.relative.as_posix()}"
-                )
-                continue
-            if item.original is None:
-                os.unlink(item.managed.relative.name, dir_fd=item.parent_descriptor)
+
+            # Move the current name away without replacing anything, then
+            # validate the moved inode. This closes the check/use gap that an
+            # lstat followed by unlink/replace would leave at the public name.
+            installed_quarantine = _rename_to_unique(
+                item.parent_descriptor, item.managed.relative.name, "rollback"
+            )
+            _fsync_directory(item.parent_descriptor)
+            installed_snapshot = _read_regular_snapshot_at(
+                item.parent_descriptor, installed_quarantine
+            )
+            if (
+                installed_snapshot is None
+                or installed_snapshot[1] != item.installed_identity
+                or installed_snapshot[0] != item.managed.payload
+            ):
                 try:
-                    os.fsync(item.parent_descriptor)
-                except OSError as error:
-                    unsupported = {
-                        errno.EINVAL,
-                        getattr(errno, "ENOTSUP", errno.EINVAL),
-                    }
-                    if error.errno not in unsupported:
-                        raise
-            else:
-                _atomic_write_at(
-                    item.parent_descriptor,
-                    item.managed.relative.name,
-                    item.original,
+                    _restore_quarantine(
+                        item.parent_descriptor,
+                        installed_quarantine,
+                        item.managed.relative.name,
+                    )
+                except Exception as restore_error:
+                    failures.append(
+                        f"rollback conflict at {relative}; current inode remains "
+                        f"quarantined as {installed_quarantine}: {restore_error}"
+                    )
+                else:
+                    failures.append(f"rollback conflict at {relative}")
+                continue
+
+            if item.original_identity is not None:
+                if item.original_quarantine is None:
+                    failures.append(
+                        f"original inode is unavailable for rollback at {relative}; "
+                        f"installed inode remains quarantined as {installed_quarantine}"
+                    )
+                    continue
+                try:
+                    _restore_quarantine(
+                        item.parent_descriptor,
+                        item.original_quarantine,
+                        item.managed.relative.name,
+                    )
+                    item.original_quarantine = None
+                except Exception as restore_error:
+                    failures.append(
+                        f"could not restore original inode at {relative}; installed "
+                        f"inode remains quarantined as {installed_quarantine}: "
+                        f"{restore_error}"
+                    )
+                    continue
+
+            _discard_quarantined_file(
+                item.parent_descriptor,
+                installed_quarantine,
+                item.installed_identity,
+            )
+            restored = _read_regular_snapshot_at(
+                item.parent_descriptor, item.managed.relative.name
+            )
+            if not _original_state_matches(item, restored):
+                failures.append(
+                    f"original metadata was not restored at {relative}"
                 )
         except Exception as error:  # Preserve the original transaction failure.
             failures.append(
-                f"{item.managed.relative.as_posix()}: {type(error).__name__}: {error}"
+                f"{relative}: {type(error).__name__}: {error}"
             )
     return failures
 
 
 def _rollback_directories(created: list[_CreatedDirectory]) -> list[str]:
-    failures: list[str] = []
-    for item in reversed(created):
-        try:
-            metadata = os.stat(
-                item.name, dir_fd=item.parent_descriptor, follow_symlinks=False
-            )
-            if (
-                not stat.S_ISDIR(metadata.st_mode)
-                or (metadata.st_dev, metadata.st_ino) != item.identity
-            ):
-                # The name now belongs to another actor. Never remove it.
-                continue
-            os.rmdir(item.name, dir_fd=item.parent_descriptor)
-        except FileNotFoundError:
-            # A concurrent rename did not redirect any file operation because
-            # all writes used held descriptors. Do not chase the moved path.
-            pass
-        except OSError as error:
-            if error.errno not in {errno.ENOTEMPTY, errno.EEXIST, errno.ENOTDIR}:
-                failures.append(
-                    f"{item.relative.as_posix()}: {type(error).__name__}: {error}"
-                )
-    return failures
+    # There is no portable conditional rmdir-by-inode. Even an exclusive
+    # rename followed by inode validation leaves a race in which another actor
+    # can add entries before rmdir. Retaining benign directories is safer than
+    # ever deleting state that may no longer be ours.
+    return [
+        f"retained created directory after rollback: {item.relative.as_posix()}"
+        for item in created
+    ]
 
 
 def _verify_installed_paths(
@@ -1376,8 +1590,41 @@ def _verify_installed_paths(
                         "managed destination file changed during transaction: "
                         + item.managed.relative.as_posix()
                     )
+                if snapshot[2] != 0o644:
+                    raise StagingError(
+                        "managed destination file mode changed during transaction: "
+                        + item.managed.relative.as_posix()
+                    )
+            else:
+                snapshot = _read_regular_snapshot_at(
+                    current_parent, item.managed.relative.name
+                )
+                if not _original_state_matches(item, snapshot):
+                    raise StagingError(
+                        "unchanged managed destination changed during transaction: "
+                        + item.managed.relative.as_posix()
+                    )
         finally:
             os.close(current_parent)
+
+
+def _cleanup_originals(prepared: list[_PreparedManagedFile]) -> list[str]:
+    failures: list[str] = []
+    for item in prepared:
+        if item.original_quarantine is None or item.original_identity is None:
+            continue
+        quarantine = item.original_quarantine
+        try:
+            _discard_quarantined_file(
+                item.parent_descriptor, quarantine, item.original_identity
+            )
+            item.original_quarantine = None
+        except Exception as error:
+            failures.append(
+                f"{item.managed.relative.as_posix()} ({quarantine}): "
+                f"{type(error).__name__}: {error}"
+            )
+    return failures
 
 
 def _close_prepared(prepared: list[_PreparedManagedFile]) -> None:
@@ -1422,24 +1669,37 @@ def apply_staging(plan: StagingPlan, *, allow_volume: bool = False) -> None:
                 parent_descriptor=parent_descriptor,
                 parent_identity=(parent_metadata.st_dev, parent_metadata.st_ino),
                 original=None,
+                original_identity=None,
+                original_mode=None,
             )
             prepared.append(item)
-            item.original = _read_regular_at(
+            snapshot = _read_regular_snapshot_at(
                 parent_descriptor, managed.relative.name
             )
+            if snapshot is not None:
+                item.original, item.original_identity, item.original_mode = snapshot
         for item in prepared:
             if item.original == item.managed.payload:
                 continue
             # Record before the call because a late fsync failure can occur
             # after the atomic replacement has already succeeded.
             changed.append(item)
+
+            def record_publication(
+                identity: tuple[int, int],
+                quarantine: str | None,
+                *,
+                target: _PreparedManagedFile = item,
+            ) -> None:
+                target.installed_identity = identity
+                target.original_quarantine = quarantine
+
             item.installed_identity = _atomic_write_at(
                 item.parent_descriptor,
                 item.managed.relative.name,
                 item.managed.payload,
-                on_replace=lambda identity, target=item: setattr(
-                    target, "installed_identity", identity
-                ),
+                expected_identity=item.original_identity,
+                on_replace=record_publication,
             )
         _verify_installed_paths(
             root, root_descriptor, plan.root_identity, prepared
@@ -1451,10 +1711,18 @@ def apply_staging(plan: StagingPlan, *, allow_volume: bool = False) -> None:
         _close_created(created)
         if rollback_failures:
             raise StagingError(
-                "staging transaction failed and rollback was incomplete: "
+                f"staging transaction failed ({type(error).__name__}: {error}); "
+                "safety-preserving rollback report: "
                 + "; ".join(rollback_failures)
             ) from error
         raise
+    else:
+        cleanup_failures = _cleanup_originals(changed)
+        if cleanup_failures:
+            raise StagingError(
+                "staging files were installed and verified, but obsolete-file cleanup "
+                "was incomplete: " + "; ".join(cleanup_failures)
+            )
     finally:
         _close_prepared(prepared)
         _close_created(created)

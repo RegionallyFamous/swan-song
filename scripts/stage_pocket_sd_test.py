@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
 import shutil
 import tempfile
@@ -293,17 +294,33 @@ class StagePocketSDTest(unittest.TestCase):
                 unrelated = stage / "Cores/Another.Core/keep.bin"
                 unrelated.parent.mkdir(parents=True)
                 unrelated.write_bytes(b"unrelated")
+                initial_plan = self.plan(staging_dir=stage)
+                for managed_file in initial_plan.files:
+                    (stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
+                        parents=True, exist_ok=True
+                    )
                 before = self.tree_snapshot(stage)
                 plan = self.plan(staging_dir=stage)
                 self.assertEqual(len(plan.files), 15)
                 calls = 0
 
                 def fail_after_replace(
-                    directory: int, name: str, payload: bytes, *, on_replace=None
+                    directory: int,
+                    name: str,
+                    payload: bytes,
+                    *,
+                    mode: int = 0o644,
+                    expected_identity=staging._UNCONDITIONAL_REPLACE,
+                    on_replace=None,
                 ) -> tuple[int, int]:
                     nonlocal calls
                     identity = original_atomic_write(
-                        directory, name, payload, on_replace=on_replace
+                        directory,
+                        name,
+                        payload,
+                        mode=mode,
+                        expected_identity=expected_identity,
+                        on_replace=on_replace,
                     )
                     calls += 1
                     if calls == fail_at:
@@ -326,7 +343,13 @@ class StagePocketSDTest(unittest.TestCase):
         swapped = False
 
         def swap_after_snapshot(
-            directory: int, name: str, payload: bytes, *, on_replace=None
+            directory: int,
+            name: str,
+            payload: bytes,
+            *,
+            mode: int = 0o644,
+            expected_identity=staging._UNCONDITIONAL_REPLACE,
+            on_replace=None,
         ) -> tuple[int, int]:
             nonlocal swapped
             if not swapped:
@@ -334,7 +357,12 @@ class StagePocketSDTest(unittest.TestCase):
                 replacement.mkdir()
                 swapped = True
             return original_atomic_write(
-                directory, name, payload, on_replace=on_replace
+                directory,
+                name,
+                payload,
+                mode=mode,
+                expected_identity=expected_identity,
+                on_replace=on_replace,
             )
 
         with mock.patch.object(
@@ -346,7 +374,10 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertTrue(replacement.is_dir())
         self.assertEqual(list(replacement.iterdir()), [])
         self.assertTrue(detached.is_dir())
-        self.assertEqual(list(detached.rglob("*")), [])
+        self.assertEqual(
+            [path for path in detached.rglob("*") if path.is_file()], []
+        )
+        self.assertTrue((detached / "RegionallyFamous.SwanSong").is_dir())
 
     def test_rollback_never_removes_identical_concurrent_replacement_inode(self) -> None:
         managed_parent = self.stage / "Cores/RegionallyFamous.SwanSong"
@@ -365,15 +396,29 @@ class StagePocketSDTest(unittest.TestCase):
         replaced = False
 
         def replace_with_identical_inode(
-            directory: int, name: str, payload: bytes, *, on_replace=None
+            directory: int,
+            name: str,
+            payload: bytes,
+            *,
+            mode: int = 0o644,
+            expected_identity=staging._UNCONDITIONAL_REPLACE,
+            on_replace=None,
         ) -> tuple[int, int]:
             nonlocal replacement_identity, replaced
             identity = original_atomic_write(
-                directory, name, payload, on_replace=on_replace
+                directory,
+                name,
+                payload,
+                mode=mode,
+                expected_identity=expected_identity,
+                on_replace=on_replace,
             )
             if not replaced:
                 replacement_identity = original_atomic_write(
-                    directory, name, payload
+                    directory,
+                    name,
+                    payload,
+                    expected_identity=staging._UNCONDITIONAL_REPLACE,
                 )
                 replaced = True
                 raise OSError("concurrent identical replacement")
@@ -382,7 +427,7 @@ class StagePocketSDTest(unittest.TestCase):
         with mock.patch.object(
             staging, "_atomic_write_at", replace_with_identical_inode
         ):
-            with self.assertRaisesRegex(StagingError, "rollback was incomplete"):
+            with self.assertRaisesRegex(StagingError, "rollback report"):
                 apply_staging(plan)
         self.assertTrue(replaced)
         self.assertEqual(managed.read_bytes(), target_payload)
@@ -390,6 +435,264 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertEqual(
             (metadata.st_dev, metadata.st_ino), replacement_identity
         )
+
+    def test_conditional_publish_preserves_concurrent_create_after_absent_snapshot(self) -> None:
+        plan = self.plan()
+        for managed_file in plan.files:
+            (self.stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+        target = self.stage / "Cores/RegionallyFamous.SwanSong/audio.json"
+        original_rename = staging._rename_noreplace
+        actor_identity: tuple[int, int] | None = None
+        injected = False
+
+        def create_before_publish(
+            source_directory: int,
+            source_name: str,
+            destination_directory: int,
+            destination_name: str,
+        ) -> None:
+            nonlocal actor_identity, injected
+            if destination_name == "audio.json" and source_name.endswith(".tmp") and not injected:
+                target.write_bytes(b"concurrent creator")
+                metadata = target.stat()
+                actor_identity = (metadata.st_dev, metadata.st_ino)
+                injected = True
+            original_rename(
+                source_directory,
+                source_name,
+                destination_directory,
+                destination_name,
+            )
+
+        with mock.patch.object(staging, "_rename_noreplace", create_before_publish):
+            with self.assertRaisesRegex(StagingError, "FileExistsError|rollback conflict"):
+                apply_staging(plan)
+        self.assertTrue(injected)
+        self.assertEqual(target.read_bytes(), b"concurrent creator")
+        metadata = target.stat()
+        self.assertEqual((metadata.st_dev, metadata.st_ino), actor_identity)
+
+    def test_conditional_publish_preserves_replacement_after_existing_snapshot(self) -> None:
+        target = self.stage / "Cores/RegionallyFamous.SwanSong/audio.json"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original before plan")
+        plan = self.plan()
+        original_quarantine = staging._rename_to_unique
+        actor_identity: tuple[int, int] | None = None
+        injected = False
+
+        def replace_before_claim(directory: int, name: str, purpose: str) -> str:
+            nonlocal actor_identity, injected
+            if name == "audio.json" and purpose == "original" and not injected:
+                actor = target.with_name("actor.tmp")
+                actor.write_bytes(b"concurrent replacement")
+                os.replace(actor, target)
+                metadata = target.stat()
+                actor_identity = (metadata.st_dev, metadata.st_ino)
+                injected = True
+            return original_quarantine(directory, name, purpose)
+
+        with mock.patch.object(staging, "_rename_to_unique", replace_before_claim):
+            with self.assertRaisesRegex(StagingError, "changed after snapshot"):
+                apply_staging(plan)
+        self.assertTrue(injected)
+        self.assertEqual(target.read_bytes(), b"concurrent replacement")
+        metadata = target.stat()
+        self.assertEqual((metadata.st_dev, metadata.st_ino), actor_identity)
+
+    def test_rollback_retains_created_directories_and_concurrent_replacement(self) -> None:
+        plan = self.plan()
+        original_directory = self.root / "prepared-images-directory"
+        actor_directory = self.stage / "Platforms/_images"
+        actor_identity: tuple[int, int] | None = None
+        injected = False
+
+        def fail_after_directory_replacement(
+            directory: int,
+            name: str,
+            payload: bytes,
+            *,
+            mode: int = 0o644,
+            expected_identity=staging._UNCONDITIONAL_REPLACE,
+            on_replace=None,
+        ) -> tuple[int, int]:
+            nonlocal actor_identity, injected
+            if not injected:
+                actor_directory.rename(original_directory)
+                actor_directory.mkdir()
+                metadata = actor_directory.stat()
+                actor_identity = (metadata.st_dev, metadata.st_ino)
+                injected = True
+            raise OSError("failure before first publication")
+
+        with mock.patch.object(
+            staging, "_atomic_write_at", fail_after_directory_replacement
+        ):
+            with self.assertRaisesRegex(
+                StagingError, "retained created directory after rollback"
+            ):
+                apply_staging(plan)
+        self.assertTrue(original_directory.is_dir())
+        self.assertTrue(actor_directory.is_dir())
+        metadata = actor_directory.stat()
+        self.assertEqual((metadata.st_dev, metadata.st_ino), actor_identity)
+
+    def test_postcheck_detects_changed_unchanged_file_and_preserves_actor_inode(self) -> None:
+        apply_staging(self.plan())
+        changed = self.stage / "Cores/RegionallyFamous.SwanSong/audio.json"
+        changed.write_bytes(b"force one managed replacement")
+        unchanged = self.stage / "Cores/RegionallyFamous.SwanSong/core.json"
+        unchanged_payload = unchanged.read_bytes()
+        plan = self.plan()
+        original_atomic_write = staging._atomic_write_at
+        actor_identity: tuple[int, int] | None = None
+        injected = False
+
+        def replace_unchanged_after_publish(
+            directory: int,
+            name: str,
+            payload: bytes,
+            *,
+            mode: int = 0o644,
+            expected_identity=staging._UNCONDITIONAL_REPLACE,
+            on_replace=None,
+        ) -> tuple[int, int]:
+            nonlocal actor_identity, injected
+            identity = original_atomic_write(
+                directory,
+                name,
+                payload,
+                mode=mode,
+                expected_identity=expected_identity,
+                on_replace=on_replace,
+            )
+            if name == "audio.json" and not injected:
+                directory_fd = os.open(unchanged.parent, staging._directory_flags())
+                try:
+                    actor_identity = original_atomic_write(
+                        directory_fd,
+                        unchanged.name,
+                        unchanged_payload,
+                        expected_identity=staging._UNCONDITIONAL_REPLACE,
+                    )
+                finally:
+                    os.close(directory_fd)
+                injected = True
+            return identity
+
+        with mock.patch.object(
+            staging, "_atomic_write_at", replace_unchanged_after_publish
+        ):
+            with self.assertRaisesRegex(StagingError, "unchanged managed destination"):
+                apply_staging(plan)
+        self.assertTrue(injected)
+        self.assertEqual(changed.read_bytes(), b"force one managed replacement")
+        self.assertEqual(unchanged.read_bytes(), unchanged_payload)
+        metadata = unchanged.stat()
+        self.assertEqual((metadata.st_dev, metadata.st_ino), actor_identity)
+
+    def test_rollback_restores_original_inode_mode_and_contents(self) -> None:
+        target = self.stage / "Cores/RegionallyFamous.SwanSong/audio.json"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"private original")
+        target.chmod(0o600)
+        original_metadata = target.stat()
+        original_identity = (original_metadata.st_dev, original_metadata.st_ino)
+        plan = self.plan()
+        for managed_file in plan.files:
+            (self.stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+        original_atomic_write = staging._atomic_write_at
+        failed = False
+
+        def fail_after_publication(
+            directory: int,
+            name: str,
+            payload: bytes,
+            *,
+            mode: int = 0o644,
+            expected_identity=staging._UNCONDITIONAL_REPLACE,
+            on_replace=None,
+        ) -> tuple[int, int]:
+            nonlocal failed
+            identity = original_atomic_write(
+                directory,
+                name,
+                payload,
+                mode=mode,
+                expected_identity=expected_identity,
+                on_replace=on_replace,
+            )
+            if name == "audio.json" and not failed:
+                failed = True
+                raise OSError("failure after publication")
+            return identity
+
+        with mock.patch.object(staging, "_atomic_write_at", fail_after_publication):
+            with self.assertRaises(OSError):
+                apply_staging(plan)
+        metadata = target.stat()
+        self.assertEqual(target.read_bytes(), b"private original")
+        self.assertEqual((metadata.st_dev, metadata.st_ino), original_identity)
+        self.assertEqual(metadata.st_mode & 0o777, 0o600)
+
+    def test_directory_entry_sync_and_native_no_clobber_requirement(self) -> None:
+        plan = self.plan()
+        original_sync = staging._fsync_directory
+        synced: list[int] = []
+
+        def record_sync(directory: int) -> bool:
+            synced.append(directory)
+            return original_sync(directory)
+
+        with mock.patch.object(staging, "_fsync_directory", record_sync):
+            apply_staging(plan)
+        self.assertGreaterEqual(len(synced), len(plan.files) + 5)
+
+        class NoNativeRename:
+            pass
+
+        with mock.patch.object(staging.ctypes, "CDLL", return_value=NoNativeRename()):
+            with self.assertRaisesRegex(StagingError, "native atomic no-clobber"):
+                staging._rename_noreplace(-1, "source", -1, "destination")
+
+    def test_directory_sync_failure_after_quarantine_still_restores_original(self) -> None:
+        target = self.stage / "Cores/RegionallyFamous.SwanSong/audio.json"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"original before directory sync failure")
+        original_metadata = target.stat()
+        original_identity = (original_metadata.st_dev, original_metadata.st_ino)
+        plan = self.plan()
+        for managed_file in plan.files:
+            (self.stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+        original_sync = staging._fsync_directory
+        injected = False
+
+        def fail_after_original_quarantine(directory: int) -> bool:
+            nonlocal injected
+            if not injected and any(
+                name.startswith(".swan-song-original-") for name in os.listdir(directory)
+            ):
+                injected = True
+                raise OSError("injected directory sync failure")
+            return original_sync(directory)
+
+        with mock.patch.object(
+            staging, "_fsync_directory", fail_after_original_quarantine
+        ):
+            with self.assertRaisesRegex(OSError, "directory sync failure"):
+                apply_staging(plan)
+        self.assertTrue(injected)
+        self.assertEqual(
+            target.read_bytes(), b"original before directory sync failure"
+        )
+        metadata = target.stat()
+        self.assertEqual((metadata.st_dev, metadata.st_ino), original_identity)
 
     def test_root_swap_during_plan_is_rejected_by_opened_identity(self) -> None:
         outside = self.root / "plan-swap-outside"
@@ -588,19 +891,19 @@ class StagePocketSDTest(unittest.TestCase):
         outside = self.root / "outside-swap-target"
         outside.mkdir()
         detached = self.root / "detached-cores"
-        original_read_regular_at = staging._read_regular_at
+        original_read_snapshot = staging._read_regular_snapshot_at
         swapped = False
 
-        def swap_parent_after_open(directory: int, name: str) -> bytes | None:
+        def swap_parent_after_open(directory: int, name: str):
             nonlocal swapped
             if not swapped:
                 (self.stage / "Cores").rename(detached)
                 (self.stage / "Cores").symlink_to(outside, target_is_directory=True)
                 swapped = True
-            return original_read_regular_at(directory, name)
+            return original_read_snapshot(directory, name)
 
         with mock.patch.object(
-            staging, "_read_regular_at", swap_parent_after_open
+            staging, "_read_regular_snapshot_at", swap_parent_after_open
         ):
             with self.assertRaisesRegex(StagingError, "unsafe|symlink"):
                 apply_staging(plan)
