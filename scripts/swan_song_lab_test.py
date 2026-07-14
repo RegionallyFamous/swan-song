@@ -283,6 +283,32 @@ class SwanSongLabTest(unittest.TestCase):
         self.assertIn("ServerAliveInterval=30", command)
         self.assertIn("ServerAliveCountMax=3", command)
 
+    def test_status_distinguishes_warm_source_from_recorded_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "name": "swan-song-quartus-lab",
+                "phase": "dispatched",
+                "repo": lab.DEFAULT_REPO,
+                "commit": "a" * 40,
+                "default_branch": "main",
+                "workflow_profile": "connectivity-refresh",
+                "workflow_branch": "codex/connectivity-refresh-bbbbbbbb",
+                "workflow_commit": "b" * 40,
+                "ssh_cidr": "192.0.2.9/32",
+            })
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch("builtins.print") as output:
+                    lab.status(argparse.Namespace(state=str(path)))
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list)
+            self.assertIn(f"source: {lab.DEFAULT_REPO}@{'a' * 40}", rendered)
+            self.assertIn(
+                f"workflow: connectivity-refresh "
+                f"codex/connectivity-refresh-bbbbbbbb@{'b' * 40}",
+                rendered,
+            )
+
     def test_resume_reverifies_image_without_reuploading_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
@@ -359,6 +385,7 @@ class SwanSongLabTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
             old_commit = "a" * 40
+            workflow_commit = "c" * 40
             new_commit = "b" * 40
             old_nonce = "1" * 32
             new_nonce = "2" * 32
@@ -372,6 +399,9 @@ class SwanSongLabTest(unittest.TestCase):
                 "runner_id": 4,
                 "workflow_run_id": 55,
                 "workflow_run_url": "https://github.com/example/run/55",
+                "workflow_branch": "codex/connectivity-refresh-old",
+                "workflow_commit": workflow_commit,
+                "workflow_profile": "connectivity-refresh",
                 "lab_nonce": old_nonce,
                 "resource_names": {
                     "runner": "old-runner",
@@ -382,8 +412,8 @@ class SwanSongLabTest(unittest.TestCase):
             workflow = {
                 "status": "completed",
                 "conclusion": "failure",
-                "head_sha": old_commit,
-                "head_branch": "main",
+                "head_sha": workflow_commit,
+                "head_branch": "codex/connectivity-refresh-old",
                 "event": "workflow_dispatch",
                 "display_title": f"Quartus fit candidate {old_nonce}",
             }
@@ -437,6 +467,20 @@ class SwanSongLabTest(unittest.TestCase):
             self.assertNotEqual(persisted["lab_nonce"], old_nonce)
             self.assertNotIn("workflow_run_id", persisted)
             self.assertEqual(persisted["completed_workflow_runs"][0]["id"], 55)
+            self.assertEqual(
+                persisted["completed_workflow_runs"][0]["commit"], workflow_commit
+            )
+            self.assertEqual(
+                persisted["completed_workflow_runs"][0]["branch"],
+                "codex/connectivity-refresh-old",
+            )
+            self.assertEqual(
+                persisted["completed_workflow_runs"][0]["profile"],
+                "connectivity-refresh",
+            )
+            self.assertNotIn("workflow_branch", persisted)
+            self.assertNotIn("workflow_commit", persisted)
+            self.assertNotIn("workflow_profile", persisted)
 
     def test_rearm_refuses_incomplete_run_or_existing_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -657,6 +701,66 @@ class SwanSongLabTest(unittest.TestCase):
                         with self.assertRaisesRegex(lab.LabError, "hosted regression proof failed"):
                             lab.dispatch(argparse.Namespace(state=str(path), apply=True))
             self.assertEqual(lab.load_state(path), state)
+
+    def test_connectivity_refresh_dispatch_records_profile_branch_and_sha(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            prepared_commit = "b" * 40
+            workflow_commit = "a" * 40
+            nonce = "f" * 32
+            branch = "codex/connectivity-refresh-a1b2c3d4"
+            lab.save_state(path, {
+                "magic": lab.MAGIC,
+                "name": "swan-song-quartus-lab",
+                "phase": "ready",
+                "repo": lab.DEFAULT_REPO,
+                "commit": prepared_commit,
+                "default_branch": "main",
+                "runner_id": 4,
+                "lab_nonce": nonce,
+                "resource_names": {"workflow_run": nonce},
+                "pending_resources": [],
+            })
+            args = argparse.Namespace(
+                state=str(path),
+                apply=True,
+                profile="connectivity-refresh",
+                ref=branch,
+                connectivity_refresh_sha=workflow_commit,
+            )
+            responses = [
+                {"commit": {"sha": workflow_commit}},
+                {"workflow_run_id": 55, "html_url": "https://github.com/example/run/55"},
+            ]
+            workflow = {
+                "head_sha": workflow_commit,
+                "head_branch": branch,
+                "event": "workflow_dispatch",
+                "display_title": f"Quartus fit candidate {nonce}",
+            }
+            with mock.patch.object(lab, "require_tools"):
+                with mock.patch.object(lab, "json_command", side_effect=responses) as api:
+                    with mock.patch.object(lab, "resource_get", return_value=workflow):
+                        with mock.patch.object(
+                            lab,
+                            "prove_hosted_regression",
+                            side_effect=AssertionError("refresh required hosted regression"),
+                        ):
+                            with mock.patch("builtins.print"):
+                                lab.dispatch(args)
+            payload = api.call_args_list[1].kwargs["input_body"]
+            self.assertEqual(payload["ref"], branch)
+            self.assertEqual(payload["inputs"], {
+                "profile": "connectivity-refresh",
+                "lab_nonce": nonce,
+                "connectivity_refresh_sha": workflow_commit,
+            })
+            persisted = lab.load_state(path)
+            self.assertEqual(persisted["phase"], "dispatched")
+            self.assertEqual(persisted["workflow_branch"], branch)
+            self.assertEqual(persisted["workflow_commit"], workflow_commit)
+            self.assertEqual(persisted["workflow_profile"], "connectivity-refresh")
+            self.assertNotIn("hosted_regression_run_id", persisted)
 
     def test_dispatch_rejects_recorded_run_with_github_base_title(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

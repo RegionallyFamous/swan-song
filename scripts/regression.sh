@@ -108,6 +108,7 @@ python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_non_power_two_probe_test.py"
+python3 "$ROOT/sim/verilator/generate_provenance_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sram_32k_probe_test.py"
@@ -235,10 +236,10 @@ python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$BUILD/bootstrap/events.csv" \
   --output "$BUILD/bootstrap/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=80202 --expect-count match=80202 \
-  --expect-count collision=0 --expect-count cpu_exact=79760 \
+  --expect-count fetches=80452 --expect-count match=80452 \
+  --expect-count collision=0 --expect-count cpu_exact=80010 \
   --expect-count initial_powerup=442 --expect-count gdma_rom=0 \
-  --expect-count cpu_rom_movsb=52512 \
+  --expect-count cpu_rom_movsb=52516 \
   --expect-count cpu_rom_movsb_bytes=4096 \
   --expect-count cpu_rom_movsb_origins=2
 BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
@@ -248,9 +249,9 @@ BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
 echo "$BOOTSTRAP_BG_SUMMARY"
 require_bg_layers "$BOOTSTRAP_BG_SUMMARY" screen1 screen2
 require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
-  cells=26224 screen1=13112 screen2=13112 bpp2=26224 bpp4=0 \
+  cells=26226 screen1=13113 screen2=13113 bpp2=26226 bpp4=0 \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
-  cpu_rom_movsb_cells=26222 cpu_rom_movsb_bytes=4096 \
+  cpu_rom_movsb_cells=26224 cpu_rom_movsb_bytes=4096 \
   cpu_rom_movsb_origins=2
 
 # Prove that cycle-addressed controller replay crosses the real keypad matrix.
@@ -654,9 +655,9 @@ for variant in planar packed; do
     "$BPP4_VARIANT_OUT/events.csv" \
     --output "$BPP4_VARIANT_OUT/provenance.csv" \
     --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-    --expect-count fetches=25921 --expect-count match=25921 \
-    --expect-count collision=0 --expect-count cpu_exact=8493 \
-    --expect-count initial_powerup=17300 --expect-count gdma_rom=128 \
+    --expect-count fetches=26168 --expect-count match=26168 \
+    --expect-count collision=0 --expect-count cpu_exact=8494 \
+    --expect-count initial_powerup=17546 --expect-count gdma_rom=128 \
     --expect-count cpu_rom_movsb=0 \
     --expect-count cpu_rom_movsb_bytes=0 \
     --expect-count cpu_rom_movsb_origins=0
@@ -667,7 +668,7 @@ for variant in planar packed; do
   echo "$BPP4_BG_SUMMARY"
   require_bg_layers "$BPP4_BG_SUMMARY" screen1
   require_bg_counts "$BPP4_BG_SUMMARY" \
-    cells=8493 screen1=8493 screen2=0 bpp2=0 bpp4=8493 \
+    cells=8494 screen1=8494 screen2=0 bpp2=0 bpp4=8494 \
     raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
     cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
     cpu_rom_movsb_origins=0
@@ -724,8 +725,8 @@ python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
   --require-complete-coverage \
   --expect-count sprite_rows=48 --expect-count bpp2=0 \
   --expect-count bpp4=48 --expect-count planar=0 \
-  --expect-count packed=48 --expect-count raw_table_groups=128 \
-  --expect-count raw_table_unused=122 --expect-count raw_tile_groups=48 \
+  --expect-count packed=48 --expect-count raw_table_groups=250 \
+  --expect-count raw_table_unused=244 --expect-count raw_tile_groups=48 \
   --expect-count raw_tile_unpromoted=0 \
   --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
   --expect-count descriptor_collision=0 --expect-count row_collision=0 \
@@ -751,9 +752,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=25363 --expect-count match=25363 \
-  --expect-count collision=0 --expect-count cpu_exact=24742 \
-  --expect-count initial_powerup=429 --expect-count gdma_rom=192 \
+  --expect-count fetches=25610 --expect-count match=25610 \
+  --expect-count collision=0 --expect-count cpu_exact=24758 \
+  --expect-count initial_powerup=660 --expect-count gdma_rom=192 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -763,7 +764,7 @@ SJIS_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
 echo "$SJIS_BG_SUMMARY"
 require_bg_layers "$SJIS_BG_SUMMARY" screen1
 require_bg_counts "$SJIS_BG_SUMMARY" \
-  cells=8307 screen1=8307 screen2=0 bpp2=8307 bpp4=0 \
+  cells=8308 screen1=8308 screen2=0 bpp2=8308 bpp4=0 \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
   cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
   cpu_rom_movsb_origins=0
@@ -790,9 +791,9 @@ rm -rf "$WONDERFUL_SRAM_OUT"
   --frames 2 --max-cycles 4000000 --out "$WONDERFUL_SRAM_OUT" \
   --event-trace "$WONDERFUL_SRAM_OUT/events.csv" \
   --trace-events cpu,mem,bg_cell \
-  --trace-pc 0xfff30-0xfffa7,0xff14b-0xff1c7 \
+  --trace-pc 0xfff20-0xfffa2,0xff130-0xff1b7 \
   --trace-mem-space cart_sram \
-  --trace-mem-address 0x10012-0x10013,0x10016-0x10017 \
+  --trace-mem-address 0x10012-0x10015 \
   >/dev/null
 python3 "$ROOT/sim/verilator/verify_wonderful_medium_sram_fixture.py" \
   "$WONDERFUL_SRAM_FIXTURE" \
@@ -937,7 +938,7 @@ INTERNAL_EEPROM_OUT="$BUILD/internal-eeprom-fixture"
 rm -rf "$INTERNAL_EEPROM_OUT"
 for internal_eeprom_run in a b; do
   "$SIM" --rom "$INTERNAL_EEPROM_FIXTURE/internal.ws" \
-    --frames 6 --max-cycles 2884481 \
+    --frames 6 --max-cycles 2887553 \
     --out "$INTERNAL_EEPROM_OUT/$internal_eeprom_run/frames" \
     --event-trace "$INTERNAL_EEPROM_OUT/$internal_eeprom_run/events.csv" \
     --trace-events cpu,bg_cell >/dev/null
@@ -966,9 +967,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=16034 --expect-count match=16034 \
-  --expect-count collision=0 --expect-count cpu_exact=15600 \
-  --expect-count initial_powerup=434 --expect-count gdma_rom=0 \
+  --expect-count fetches=16281 --expect-count match=16281 \
+  --expect-count collision=0 --expect-count cpu_exact=15611 \
+  --expect-count initial_powerup=670 --expect-count gdma_rom=0 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -978,7 +979,7 @@ EXT_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
 echo "$EXT_BG_SUMMARY"
 require_bg_layers "$EXT_BG_SUMMARY" screen1
 require_bg_counts "$EXT_BG_SUMMARY" \
-  cells=5176 screen1=5176 screen2=0 bpp2=5176 bpp4=0 \
+  cells=5177 screen1=5177 screen2=0 bpp2=5177 bpp4=0 \
   raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
   cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
   cpu_rom_movsb_origins=0
@@ -987,8 +988,8 @@ python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
   --require-complete-coverage \
   --expect-count sprite_rows=32 --expect-count bpp2=32 \
   --expect-count bpp4=0 --expect-count planar=32 \
-  --expect-count packed=0 --expect-count raw_table_groups=128 \
-  --expect-count raw_table_unused=124 --expect-count raw_tile_groups=32 \
+  --expect-count packed=0 --expect-count raw_table_groups=250 \
+  --expect-count raw_table_unused=246 --expect-count raw_tile_groups=32 \
   --expect-count raw_tile_unpromoted=0 \
   --expect-count raw_table_inflight=0 --expect-count raw_tile_inflight=0 \
   --expect-count descriptor_collision=0 --expect-count row_collision=0 \

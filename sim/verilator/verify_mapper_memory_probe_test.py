@@ -77,7 +77,7 @@ def trace_rows(rom: Path, present: bool) -> list[dict[str, object]]:
         item["event"] == "mem" and item["space"] == "cart_rom_linear"
         for item in items
     )
-    for index in range(36782 - existing_linear):
+    for index in range(37038 - existing_linear):
         address = 0x80000 + ((index * 2) & 0xFFFE)
         items.append(
             mem_row(

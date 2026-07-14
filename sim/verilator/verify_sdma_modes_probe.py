@@ -45,39 +45,39 @@ class ExpectedRow:
 # Two byte-identical translated-RTL captures.  The verifier also independently
 # checks these rows against the generator's origins and canonical ROM bytes.
 EXPECTED_ROWS = (
-    ExpectedRow("pre-enable-readback", 2255, "bank", 0xC0, ord("P"), instruction_id=40, origin_pc=983130),
-    ExpectedRow("one-shot-byte-0", 3906, "mem", 0xF1000, 20017, mapped_offset=0x11000),
-    ExpectedRow("one-shot-byte-1", 5454, "mem", 0xF1001, 78, mapped_offset=0x11001),
-    ExpectedRow("one-shot-byte-2", 7050, "mem", 0xF1002, 34923, mapped_offset=0x11002),
-    ExpectedRow("one-shot-terminal", 8483, "bank", 0xC0, ord("O"), instruction_id=158, origin_pc=983207),
-    ExpectedRow("zero-length-restart-rejected", 31427, "bank", 0xC0, ord("N"), instruction_id=443, origin_pc=983292),
-    ExpectedRow("pause-first-byte", 33618, "mem", 0xF1010, 7681, mapped_offset=0x11010),
-    ExpectedRow("pause-frozen-counters", 57419, "bank", 0xC0, ord("S"), instruction_id=787, origin_pc=983447),
-    ExpectedRow("resume-next-byte", 58686, "mem", 0xF1011, 30, mapped_offset=0x11011),
-    ExpectedRow("resume-final-byte", 60222, "mem", 0xF1012, 22587, mapped_offset=0x11012),
-    ExpectedRow("resume-terminal", 61439, "bank", 0xC0, ord("R"), instruction_id=860, origin_pc=983515),
-    ExpectedRow("active-edit-original-byte", 63630, "mem", 0xF1020, 61137, mapped_offset=0x11020),
-    ExpectedRow("active-edit-readback", 65027, "bank", 0xC0, ord("E"), instruction_id=928, origin_pc=983615),
-    ExpectedRow("active-edit-new-byte-0", 65178, "mem", 0xF1030, 48801, mapped_offset=0x11030),
-    ExpectedRow("active-edit-new-byte-1", 66714, "mem", 0xF1031, 190, mapped_offset=0x11031),
-    ExpectedRow("active-edit-terminal", 67943, "bank", 0xC0, ord("A"), instruction_id=981, origin_pc=983679),
-    ExpectedRow("repeat-original-byte", 70122, "mem", 0xF1040, 36465, mapped_offset=0x11040),
-    ExpectedRow("repeat-shadow-byte-0", 71658, "mem", 0xF1050, 24129, mapped_offset=0x11050),
-    ExpectedRow("repeat-shadow-byte-1", 73242, "mem", 0xF1051, 94, mapped_offset=0x11051),
-    ExpectedRow("repeat-shadow-reload", 74771, "bank", 0xC0, ord("T"), instruction_id=1108, origin_pc=983804),
-    ExpectedRow("decrement-byte-3", 76650, "mem", 0xF1063, 104, mapped_offset=0x11063),
-    ExpectedRow("decrement-byte-2", 78162, "mem", 0xF1062, 26699, mapped_offset=0x11062),
-    ExpectedRow("decrement-byte-1", 79698, "mem", 0xF1061, 46, mapped_offset=0x11061),
-    ExpectedRow("decrement-byte-0", 81282, "mem", 0xF1060, 11793, mapped_offset=0x11060),
-    ExpectedRow("decrement-terminal", 82715, "bank", 0xC0, ord("D"), instruction_id=1259, origin_pc=983905),
-    ExpectedRow("hold-frozen-byte-1", 84954, "mem", 0xF1070, 65249, mapped_offset=0x11070),
-    ExpectedRow("hold-live-zero-byte", 86502, "mem", 0xF1070, 65249, mapped_offset=0x11070),
-    ExpectedRow("hold-reenabled-byte", 89466, "mem", 0xF1070, 65249, mapped_offset=0x11070),
-    ExpectedRow("hold-zero-and-frozen", 90851, "bank", 0xC0, ord("H"), instruction_id=1412, origin_pc=984172),
-    ExpectedRow("unhold-next-byte", 91062, "mem", 0xF1070, 65249, mapped_offset=0x11070),
-    ExpectedRow("unhold-final-byte", 92538, "mem", 0xF1071, 254, mapped_offset=0x11071),
-    ExpectedRow("unhold-terminal", 93923, "bank", 0xC0, ord("U"), instruction_id=1470, origin_pc=984249),
-    ExpectedRow("terminal-success", 94019, "bank", 0xC0, ord("Z"), instruction_id=1472, origin_pc=984253),
+    ExpectedRow("pre-enable-readback", 2351, "bank", 0xC0, ord("P"), instruction_id=42, origin_pc=983134),
+    ExpectedRow("one-shot-byte-0", 4002, "mem", 0xF1000, 20017, mapped_offset=0x11000),
+    ExpectedRow("one-shot-byte-1", 5550, "mem", 0xF1001, 78, mapped_offset=0x11001),
+    ExpectedRow("one-shot-byte-2", 7146, "mem", 0xF1002, 34923, mapped_offset=0x11002),
+    ExpectedRow("one-shot-terminal", 8579, "bank", 0xC0, ord("O"), instruction_id=160, origin_pc=983211),
+    ExpectedRow("zero-length-restart-rejected", 31523, "bank", 0xC0, ord("N"), instruction_id=445, origin_pc=983296),
+    ExpectedRow("pause-first-byte", 33714, "mem", 0xF1010, 7681, mapped_offset=0x11010),
+    ExpectedRow("pause-frozen-counters", 57515, "bank", 0xC0, ord("S"), instruction_id=789, origin_pc=983451),
+    ExpectedRow("resume-next-byte", 58782, "mem", 0xF1011, 30, mapped_offset=0x11011),
+    ExpectedRow("resume-final-byte", 60318, "mem", 0xF1012, 22587, mapped_offset=0x11012),
+    ExpectedRow("resume-terminal", 61535, "bank", 0xC0, ord("R"), instruction_id=862, origin_pc=983519),
+    ExpectedRow("active-edit-original-byte", 63726, "mem", 0xF1020, 61137, mapped_offset=0x11020),
+    ExpectedRow("active-edit-readback", 65123, "bank", 0xC0, ord("E"), instruction_id=930, origin_pc=983619),
+    ExpectedRow("active-edit-new-byte-0", 65274, "mem", 0xF1030, 48801, mapped_offset=0x11030),
+    ExpectedRow("active-edit-new-byte-1", 66810, "mem", 0xF1031, 190, mapped_offset=0x11031),
+    ExpectedRow("active-edit-terminal", 68039, "bank", 0xC0, ord("A"), instruction_id=983, origin_pc=983683),
+    ExpectedRow("repeat-original-byte", 70218, "mem", 0xF1040, 36465, mapped_offset=0x11040),
+    ExpectedRow("repeat-shadow-byte-0", 71754, "mem", 0xF1050, 24129, mapped_offset=0x11050),
+    ExpectedRow("repeat-shadow-byte-1", 73338, "mem", 0xF1051, 94, mapped_offset=0x11051),
+    ExpectedRow("repeat-shadow-reload", 74867, "bank", 0xC0, ord("T"), instruction_id=1110, origin_pc=983808),
+    ExpectedRow("decrement-byte-3", 76746, "mem", 0xF1063, 104, mapped_offset=0x11063),
+    ExpectedRow("decrement-byte-2", 78258, "mem", 0xF1062, 26699, mapped_offset=0x11062),
+    ExpectedRow("decrement-byte-1", 79794, "mem", 0xF1061, 46, mapped_offset=0x11061),
+    ExpectedRow("decrement-byte-0", 81378, "mem", 0xF1060, 11793, mapped_offset=0x11060),
+    ExpectedRow("decrement-terminal", 82811, "bank", 0xC0, ord("D"), instruction_id=1261, origin_pc=983909),
+    ExpectedRow("hold-frozen-byte-1", 85050, "mem", 0xF1070, 65249, mapped_offset=0x11070),
+    ExpectedRow("hold-live-zero-byte", 86598, "mem", 0xF1070, 65249, mapped_offset=0x11070),
+    ExpectedRow("hold-reenabled-byte", 89562, "mem", 0xF1070, 65249, mapped_offset=0x11070),
+    ExpectedRow("hold-zero-and-frozen", 90947, "bank", 0xC0, ord("H"), instruction_id=1414, origin_pc=984176),
+    ExpectedRow("unhold-next-byte", 91158, "mem", 0xF1070, 65249, mapped_offset=0x11070),
+    ExpectedRow("unhold-final-byte", 92634, "mem", 0xF1071, 254, mapped_offset=0x11071),
+    ExpectedRow("unhold-terminal", 94019, "bank", 0xC0, ord("U"), instruction_id=1472, origin_pc=984253),
+    ExpectedRow("terminal-success", 94115, "bank", 0xC0, ord("Z"), instruction_id=1474, origin_pc=984257),
 )
 
 EXPECTED_MARKERS = b"PONSREATDHUZ"
@@ -105,11 +105,11 @@ EXPECTED_MEM_ADDRESSES = (
     0xF1071,
 )
 
-ROM_SHA256 = "5a1a79455c4df0eca7ef57b69d8798f44af32db867e28edcb6ea9ff123fb78ad"
+ROM_SHA256 = "e2e5c9d5535b7fa7cd7ae1f9fb94e825321c213d6abc11dcba34d58899951ca0"
 SCRIPT_SHA256 = "80deca26f30ce57dec5c71718938cd1342dc9c9b60133c62a52a062f1c54b505"
-TRACE_SHA256 = "cb4b1f7f9c197da9cd5a9a8db2f7b7e06af70c882c34682d3e797bd716f68e15"
-CAPTURE_CYCLES = 442_241
-BIOS_FNV1A64 = "bde71f09ac34c168"
+TRACE_SHA256 = "dab9a865ecdd244aca866d74b2055948afec0d1d02177f66396a3b31089515ea"
+CAPTURE_CYCLES = 445_313
+BIOS_FNV1A64 = "ef7d73ef979bfc94"
 EXPECTED_SCRIPT_IDENTITY = ScriptIdentity(
     source_size_bytes=67,
     source_fnv1a64="149ec2aa599440d0",

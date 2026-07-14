@@ -35,8 +35,10 @@ and the example scaffold at
 [`811b739`](https://github.com/WonderfulToolchain/target-wswan-examples/tree/811b739ab1f0203336a08da8db34365d29869617).
 In Verilator it proves:
 
-- the CRT selects DS=`1000h`, clears `.bss` in cartridge SRAM, and copies
-  initialized `.data` there from ROM;
+- the fixture's pinned, zlib-derived CRT requires physical Color hardware,
+  enables System Control 2 bit 7 before selecting its high stack, selects
+  DS=`1000h`, clears `.bss` in cartridge SRAM, and copies initialized `.data`
+  there from ROM;
 - medium-model CRT code far-jumps into `main` and calls current console
   libraries across segments;
 - far ROM strings remain in the cartridge image;
@@ -44,13 +46,23 @@ In Verilator it proves:
   after program writes; and
 - the successful branch renders `MEDIUM-SRAM OK` and reaches HLT in two frames.
 
-`medium-sram` needs deliberate memory planning:
+`medium-sram` needs deliberate startup and memory planning:
 
-- With Wonderful 0.2.0 and `SRAM_32KB`, `__wf_heap_top` is `8000h` and the CRT
-  uses that as SP while SS remains console IRAM. Use a Color cartridge/model,
-  whose 64 KiB IRAM contains that address. The same build with a mono header
-  falls outside the original WonderSwan's 16 KiB IRAM and did not reach `main`
-  in simulation.
+- With Wonderful 0.2.0 and `SRAM_32KB`, `__wf_heap_top` is `8000h` and SS
+  remains console IRAM. The stock
+  [`crt0.s`](https://codeberg.org/WonderfulToolchain/target-wswan-syslibs/src/commit/d7d97ce9490c54aff3ad8ad5f4b60f1c547757ab/crts/src/crt0.s)
+  clears `$60.7` before its first push, while [WSdev documents that bit as the
+  gate for extra RAM and DMA](https://ws.nesdev.org/w/index.php?title=SoC&oldid=641).
+  A normal call at the start of `main` is too late because CRT and function
+  prologues already use the stack. The regression therefore links a pinned,
+  explicitly altered CRT that checks physical Color hardware and enables
+  `$60.7` before selecting SP=`8000h`. This is a homebrew startup workaround,
+  not a reason for an emulator or FPGA core to expose Color RAM while the bit
+  is clear.
+- Capping the pre-main stack at `4000h` was tested and rejected. It removed
+  unmapped accesses, but the stack collided with the console/font workspace
+  and `wsx_console_init_default` never returned. Preserve the normal high
+  stack and enable Color RAM in startup code before any stack operation.
 - Wonderful names header value `01h` `SRAM_8KB`; current WSdev/emulator research
   and Swan Song treat both `01h` and `02h` as 32 KiB. Prefer Wonderful's
   `SRAM_32KB`/type `02h` spelling for an unambiguous current project.

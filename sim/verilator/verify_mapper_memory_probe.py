@@ -20,10 +20,10 @@ PRESENT_SHA256 = "c65deea47f2e05671c27c07b8d4180e758bfaa94a9f38ca9114dbadf937b08
 ABSENT_SHA256 = "ffe265c47d79621f76708b9e9b2ed85f8d1a9f5f8c460e11b46fc1b507e575b5"
 BIOS_SHA256 = "ed118ffbe6e80ae7de050e729ab268d8e48fdfe37a8ab19ab0ed1b7ead1dd76c"
 EXPECTED_EVENTS = {"cpu": False, "bank": True, "vram": False, "mem": True, "bg_cell": False}
-EXPECTED_COUNTS = Counter({"mem": 36817, "bank": 5})
+EXPECTED_COUNTS = Counter({"mem": 37073, "bank": 5})
 EXPECTED_SPACES = Counter(
     {
-        "cart_rom_linear": 36782,
+        "cart_rom_linear": 37038,
         "boot_rom": 22,
         "sram_variant": 5,
         "unmapped": 4,

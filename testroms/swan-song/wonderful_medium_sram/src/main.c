@@ -18,7 +18,8 @@ const char __far ok_message[] = "MEDIUM-SRAM OK";
 const char __far fail_message[] = "MEDIUM-SRAM FAIL";
 
 void main(void) {
-	bool valid = initialized_word == 0x5AA5 && zero_word == 0;
+	bool valid = ws_system_set_mode(WS_MODE_COLOR);
+	valid = valid && initialized_word == 0x5AA5 && zero_word == 0;
 	initialized_word = 0xA55A;
 	zero_word = 0xC33C;
 	valid = valid && initialized_word == 0xA55A && zero_word == 0xC33C;

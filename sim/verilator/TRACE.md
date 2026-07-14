@@ -634,7 +634,7 @@ checked-in native Shift-JIS fixture over `日本語かな漢`. The dedicated gly
 verifier binds the licensed Unicode/Shift-JIS manifest to 96 packed ROM bytes,
 48 ordered GDMA read/write pairs, six exact CPU map writers, every promoted
 glyph row and source offset, and the final 224×144 RGB pixels. It also requires
-the reporter to produce 592 provenance-preserving epochs and a seven-image
+the reporter to produce 591 provenance-preserving epochs and a seven-image
 unique-exact contact sheet whose six ROM-sourced entries have the expected
 maps, fingerprints, IRAM spans, writer origins, and ROM offsets. This proves the
 general Japanese-text provenance path while deliberately leaving any
@@ -675,7 +675,7 @@ Paired generated 2 MiB mapper
 probes add complete-from-reset CPU coverage of all eight trace-space labels:
 `iram`, `cart_sram`, `absent_sram`, `cart_rom0`, `cart_rom1`,
 `cart_rom_linear`, `boot_rom`, and mono `unmapped`. The verifier binds the ROM
-and boot-image inputs, requires the complete 36,817-event memory history plus
+and boot-image inputs, requires the complete 37,073-event memory history plus
 five exact bank writes in each trace, and checks resolved offsets, masks,
 values, aliases, instruction IDs, and origin PCs. Separate mono and Color boot
 probes execute from byte zero and prove A0 lockout changes physical addresses
@@ -705,25 +705,25 @@ result is claimed as hardware-correct. The SRAM probe uses `ramtype=0x03`
 the corrected, research-consistent 32 KiB `0x01`/`0x02` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
-The six-frame display-provenance regression requires 80,202/80,202
+The six-frame display-provenance regression requires 80,452/80,452
 non-collision physical display reads to match the complete-from-reset IRAM
-scoreboard: 79,760 are tied to exact CPU writer instructions and 442 reads to
+scoreboard: 80,010 are tied to exact CPU writer instructions and 442 reads to
 the defined power-up value. Any value mismatch fails regression.
 Within that bootstrap trace, the conservative CPU classifier observes exactly
 two 2,048-byte chains: ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` at
 origin `0xf00a4`, and ROM `0x00a52..0x01251` to IRAM `0x2000..0x27ff` at
 origin `0xf0100`. The resulting totals are 4,096 accepted source bytes, two
-origins, 52,512 `cpu_rom_movsb` display words, and 26,222
+origins, 52,516 `cpu_rom_movsb` display words, and 26,224
 `cpu_rom_movsb` atomic cells whose contributing tile-row bytes are
 MOVSB-sourced (their map bytes remain separately classified). The
 extended-range and Shift-JIS fixtures each
 report zero CPU-ROM-MOVSB bytes, origins, display words, and atomic cells; the
 classification is therefore not applied merely because CPU ROM traffic is
 unattributed.
-The atomic-cell gate validates 26,224 bootstrap cells across both screen layers;
-the extended-range Color fixture adds 5,176 Screen 1 cells and the Shift-JIS
-fixture adds 8,307. Of the latter, 96 records are the two complete promotions
-of all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,493
+The atomic-cell gate validates 26,226 bootstrap cells across both screen layers;
+the extended-range Color fixture adds 5,177 Screen 1 cells and the Shift-JIS
+fixture adds 8,308. Of the latter, 96 records are the two complete promotions
+of all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,494
 Screen 1 cells; 64 are the two complete promotions of the four diagnostic
 placements, with both raw words and all four GDMA/ROM byte provenances exact.
 The focused unit test locks 2bpp/4bpp

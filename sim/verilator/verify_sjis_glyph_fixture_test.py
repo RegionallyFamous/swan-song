@@ -110,7 +110,7 @@ def map_rows() -> list[dict[str, str]]:
 
 
 def glyph_report_rows() -> list[dict[str, str]]:
-    rows = [{field: "" for field in GLYPH_REPORT_FIELDS} for _ in range(592)]
+    rows = [{field: "" for field in GLYPH_REPORT_FIELDS} for _ in range(591)]
     blank = "/".join(("00000000",) * 8)
     blank_fingerprint = hashlib.sha256(blank.encode("ascii")).hexdigest()
     for index, row in enumerate(rows):
@@ -138,7 +138,7 @@ def glyph_report_rows() -> list[dict[str, str]]:
                 "bitmap_fingerprint": blank_fingerprint,
             }
         )
-    for index in [0, *range(559, 592)]:
+    for index in [0, *range(559, 591)]:
         rows[index]["confidence"] = "incomplete"
     rows[32]["occurrence_count"] = "2"
     for index, glyph in enumerate(GLYPHS):

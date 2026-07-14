@@ -43,7 +43,7 @@ from verify_trace import FIELDS_V5
 
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_ARTIFACTS = REPO / "build/sim/4bpp-probe"
+DEFAULT_ARTIFACTS = REPO / "build/sim/regression/4bpp-probe"
 TEST_TILE_BYTES = {
     PLANAR: bytes.fromhex(
         "aa661e0155667880cc3c0300cc3cfc03"

@@ -125,6 +125,26 @@ Codex can invoke these same commands in the repository terminal:
 ./Swan\ Song\ Lab.command dispatch --apply
 ```
 
+When a reviewed QSF/QIP source change makes the exact connectivity policy
+stale, the same one-job controller can safely record the workflow's restricted
+refresh profile and branch:
+
+```sh
+./Swan\ Song\ Lab.command dispatch --apply \
+  --profile connectivity-refresh \
+  --ref codex/connectivity-refresh-COMMIT \
+  --connectivity-refresh-sha FULL_40_HEX_COMMIT
+```
+
+The branch must start with `codex/connectivity-refresh-`, and its head must
+equal the explicit SHA. The warm Quartus image is source-independent, so that
+workflow commit may be newer than the default-branch commit used to prepare the
+server; the job still checks out and builds only its exact requested SHA. The
+state file records the workflow commit, non-default branch, and profile,
+allowing `rearm --apply` to verify that exact completed refresh before rotating
+the JIT runner back to a default-branch candidate. Candidate dispatch remains
+the default and refuses a non-default ref or refresh SHA.
+
 `dispatch` is a dry run unless `--apply` is present. It rechecks that the
 default branch has not moved and requires a completed successful hosted
 `.github/workflows/regression.yml` push run bound to that exact commit,

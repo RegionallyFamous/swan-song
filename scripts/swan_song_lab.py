@@ -18,6 +18,7 @@ import tempfile
 import time
 import uuid
 from typing import Any, Sequence
+from urllib.parse import quote
 
 import verify_hosted_regression as regression_proof
 
@@ -155,6 +156,34 @@ def state_lab_nonce(state: dict[str, Any]) -> str:
     if resource_names.get("workflow_run") != nonce:
         raise LabError("recorded lab nonce and workflow-run nonce do not match")
     return nonce
+
+
+def recorded_workflow_branch(state: dict[str, Any]) -> str:
+    """Return the exact branch used by the recorded one-shot workflow."""
+    branch = state.get("workflow_branch", state.get("default_branch"))
+    if not isinstance(branch, str) or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+        raise LabError("recorded workflow branch is missing or unsafe")
+    return branch
+
+
+def recorded_workflow_profile(state: dict[str, Any]) -> str:
+    """Keep older candidate-only state files forward compatible."""
+    profile = state.get("workflow_profile", "candidate")
+    if profile not in {"candidate", "connectivity-refresh"}:
+        raise LabError("recorded workflow profile is invalid")
+    return profile
+
+
+def recorded_workflow_commit(state: dict[str, Any]) -> str:
+    """Return the checked-out source commit, independent of the warm image."""
+    commit = state.get("workflow_commit", state.get("commit"))
+    if not isinstance(commit, str):
+        raise LabError("recorded workflow commit is missing")
+    return validate_commit(commit)
+
+
+def branch_api_path(repo: str, branch: str) -> str:
+    return f"repos/{repo}/branches/{quote(branch, safe='')}"
 
 
 def jit_labels(state: dict[str, Any]) -> list[str]:
@@ -744,8 +773,8 @@ def recover_pending(state: dict[str, Any], path: Path) -> None:
                 item for item in runs
                 if isinstance(item, dict)
                 and item.get("display_title") == f"Quartus fit candidate {nonce}"
-                and item.get("head_sha") == state["commit"]
-                and item.get("head_branch") == state["default_branch"]
+                and item.get("head_sha") == recorded_workflow_commit(state)
+                and item.get("head_branch") == recorded_workflow_branch(state)
                 and item.get("event") == "workflow_dispatch"
             ]
             if len(matches) > 1:
@@ -1021,6 +1050,12 @@ def status(args: argparse.Namespace) -> None:
     require_tools()
     print(f"lab: {state['name']} ({state.get('phase', 'unknown')})")
     print(f"source: {state['repo']}@{state['commit']}")
+    if any(key in state for key in ("workflow_profile", "workflow_branch", "workflow_commit")):
+        print(
+            "workflow: "
+            f"{recorded_workflow_profile(state)} "
+            f"{recorded_workflow_branch(state)}@{recorded_workflow_commit(state)}"
+        )
     droplet = None
     if state.get("droplet_id"):
         droplet = resource_get(["doctl", "compute", "droplet", "get", str(state["droplet_id"])])
@@ -1215,11 +1250,13 @@ def rearm(args: argparse.Namespace) -> None:
     old_nonce = state_lab_nonce(state)
     require_tools()
     workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
+    prior_branch = recorded_workflow_branch(state)
+    prior_commit = recorded_workflow_commit(state)
     if (
         workflow is None
         or workflow.get("status") != "completed"
-        or workflow.get("head_sha") != state.get("commit")
-        or workflow.get("head_branch") != state.get("default_branch")
+        or workflow.get("head_sha") != prior_commit
+        or workflow.get("head_branch") != prior_branch
         or workflow.get("event") != "workflow_dispatch"
         or workflow.get("display_title") != f"Quartus fit candidate {old_nonce}"
     ):
@@ -1260,7 +1297,9 @@ trap - EXIT
     run(ssh_base(state) + ["bash", "-s"], input_text=remote, timeout=900)
     history.append({
         "id": run_id,
-        "commit": state["commit"],
+        "commit": prior_commit,
+        "branch": prior_branch,
+        "profile": recorded_workflow_profile(state),
         "conclusion": workflow.get("conclusion"),
         "url": state.get("workflow_run_url"),
     })
@@ -1276,6 +1315,9 @@ trap - EXIT
     state.pop("runner_id", None)
     state.pop("workflow_run_id", None)
     state.pop("workflow_run_url", None)
+    state.pop("workflow_branch", None)
+    state.pop("workflow_commit", None)
+    state.pop("workflow_profile", None)
     state.pop("failure", None)
     save_state(path, state)
     try:
@@ -1296,11 +1338,36 @@ def dispatch(args: argparse.Namespace) -> None:
     path = state_path(args)
     state = load_state(path)
     assert state is not None
+    nonce = state_lab_nonce(state) if args.apply else None
+    profile = getattr(args, "profile", "candidate")
+    branch = getattr(args, "ref", None) or state.get("default_branch")
+    refresh_sha = getattr(args, "connectivity_refresh_sha", None)
+    if profile not in {"candidate", "connectivity-refresh"}:
+        raise LabError("workflow profile must be candidate or connectivity-refresh")
+    if not isinstance(branch, str) or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+        raise LabError("workflow branch is missing or unsafe")
+    if profile == "candidate":
+        if branch != state.get("default_branch"):
+            raise LabError("candidate profile must run on the GitHub default branch")
+        if refresh_sha not in (None, ""):
+            raise LabError("candidate profile cannot carry a connectivity refresh SHA")
+        workflow_commit = validate_commit(state.get("commit", ""))
+    else:
+        if not branch.startswith("codex/connectivity-refresh-"):
+            raise LabError(
+                "connectivity-refresh profile requires a codex/connectivity-refresh-* branch"
+            )
+        if not isinstance(refresh_sha, str):
+            raise LabError("connectivity refresh SHA must be an explicit full commit")
+        workflow_commit = validate_commit(refresh_sha)
     if not args.apply:
-        print(f"Would dispatch .github/workflows/quartus-fit.yml on {state['repo']} default branch.")
+        print(
+            f"Would dispatch .github/workflows/quartus-fit.yml profile {profile} "
+            f"on {state['repo']} branch {branch}."
+        )
         print("No workflow was dispatched. Re-run with --apply after status shows the runner online.")
         return
-    nonce = state_lab_nonce(state)
+    assert nonce is not None
     if state.get("phase") != "ready" or not state.get("runner_id"):
         raise LabError("the prepared JIT runner is not ready")
     if state.get("workflow_run_id"):
@@ -1308,8 +1375,8 @@ def dispatch(args: argparse.Namespace) -> None:
         workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
         if (
             workflow is None
-            or workflow.get("head_sha") != state["commit"]
-            or workflow.get("head_branch") != state["default_branch"]
+            or workflow.get("head_sha") != recorded_workflow_commit(state)
+            or workflow.get("head_branch") != recorded_workflow_branch(state)
             or workflow.get("event") != "workflow_dispatch"
             or workflow.get("display_title") != f"Quartus fit candidate {nonce}"
         ):
@@ -1321,16 +1388,29 @@ def dispatch(args: argparse.Namespace) -> None:
     if "workflow_run" in state.get("pending_resources", []):
         raise LabError("this one-job lab already has a recorded or uncertain workflow dispatch")
     require_tools()
-    branch = one_object(
-        json_command(["gh", "api", f"repos/{state['repo']}/branches/{state['default_branch']}"]),
-        "GitHub default branch",
+    remote_branch = one_object(
+        json_command(["gh", "api", branch_api_path(state["repo"], branch)]),
+        "GitHub workflow branch",
     )
-    branch_commit = branch.get("commit", {}).get("sha") if isinstance(branch.get("commit"), dict) else None
-    if branch_commit != state["commit"]:
-        raise LabError("default-branch head moved after image preparation; destroy and relaunch at the new head")
-    proven_regression = prove_hosted_regression(state)
-    state["hosted_regression_run_id"] = proven_regression["id"]
+    branch_commit = (
+        remote_branch.get("commit", {}).get("sha")
+        if isinstance(remote_branch.get("commit"), dict)
+        else None
+    )
+    if branch_commit != workflow_commit:
+        raise LabError("workflow branch does not equal the exact requested workflow commit")
+    if profile == "candidate":
+        proven_regression = prove_hosted_regression(state)
+        state["hosted_regression_run_id"] = proven_regression["id"]
+    else:
+        state.pop("hosted_regression_run_id", None)
+    state["workflow_branch"] = branch
+    state["workflow_commit"] = workflow_commit
+    state["workflow_profile"] = profile
     mark_pending(state, path, "workflow_run")
+    inputs = {"profile": profile, "lab_nonce": nonce}
+    if profile == "connectivity-refresh":
+        inputs["connectivity_refresh_sha"] = refresh_sha
     response = one_object(
         json_command(
             [
@@ -1340,8 +1420,8 @@ def dispatch(args: argparse.Namespace) -> None:
                 "--input", "-",
             ],
             input_body={
-                "ref": state["default_branch"],
-                "inputs": {"lab_nonce": nonce},
+                "ref": branch,
+                "inputs": inputs,
                 "return_run_details": True,
             },
         ),
@@ -1356,8 +1436,8 @@ def dispatch(args: argparse.Namespace) -> None:
     workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
     if (
         workflow is None
-        or workflow.get("head_sha") != state["commit"]
-        or workflow.get("head_branch") != state["default_branch"]
+        or workflow.get("head_sha") != workflow_commit
+        or workflow.get("head_branch") != branch
         or workflow.get("event") != "workflow_dispatch"
         or workflow.get("display_title") != f"Quartus fit candidate {nonce}"
     ):
@@ -1526,6 +1606,19 @@ def parser() -> argparse.ArgumentParser:
     rearm_parser.set_defaults(handler=rearm)
     dispatch_parser = sub.add_parser("dispatch", parents=[common], help="plan or dispatch the Quartus workflow")
     dispatch_parser.add_argument("--apply", action="store_true")
+    dispatch_parser.add_argument(
+        "--profile",
+        choices=("candidate", "connectivity-refresh"),
+        default="candidate",
+    )
+    dispatch_parser.add_argument(
+        "--ref",
+        help="exact GitHub branch; candidate defaults to the repository default branch",
+    )
+    dispatch_parser.add_argument(
+        "--connectivity-refresh-sha",
+        help="exact prepared commit required by the connectivity-refresh profile",
+    )
     dispatch_parser.set_defaults(handler=dispatch)
     destroy_parser = sub.add_parser("destroy", parents=[common], help="plan or delete every recorded lab resource")
     destroy_parser.add_argument("--apply", action="store_true")

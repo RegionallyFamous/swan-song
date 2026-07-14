@@ -9,7 +9,7 @@ import tempfile
 from copy import deepcopy
 from pathlib import Path
 
-from generate_sdma_probe import generate
+from generate_sdma_probe import PROGRAM, generate
 from verify_sdma_probe import (
     DEFAULT_COLOR_BIOS_FNV1A64,
     DEFAULT_COLOR_BIOS_SIZE,
@@ -111,6 +111,7 @@ def mutated_case(
 
 
 def main() -> None:
+    assert PROGRAM.startswith(bytes((0xFA, 0xB0, 0x80, 0xE6, 0x60)))
     with tempfile.TemporaryDirectory(prefix="swansong-sdma-test-") as directory:
         root = Path(directory)
         rom_path = generate(root)

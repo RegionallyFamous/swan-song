@@ -162,6 +162,7 @@ def _check_counters(code: Builder, source_low: int, length: int) -> None:
 def program() -> Program:
     code = Builder()
     code.emit(0xFA)  # cli
+    code.out(0x60, 0x80)  # enable Color mode before Color-only SDMA ports
 
     # Writes must be visible before first enable, including 20-bit masks.
     _set_source(code, 0x00)

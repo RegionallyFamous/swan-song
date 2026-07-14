@@ -14,6 +14,14 @@ RTL = ROOT / "src/fpga/core/rtl/soc_control.vhd"
 def validate(source: str) -> None:
     assert 'A0_WRITE_MASK   : std_logic_vector(7 downto 0) := x"0D"' in source
     assert 'DISP_MODE_MASK  : std_logic_vector(7 downto 0) := x"EB"' in source
+    assert 'COLOR_RESET_60  : std_logic_vector(7 downto 0) := x"0A"' in source
+    assert re.search(
+        r"if \(reset = '1'\) then.*?if \(is_color_model = '1'\) then\s+"
+        r"disp_mode_reg <= COLOR_RESET_60;\s+else\s+"
+        r"disp_mode_reg <= \(others => '0'\);\s+end if;",
+        source,
+        re.DOTALL,
+    )
     assert "boot_rom_locked_reg <= boot_rom_locked_reg or masked_a0(0);" in source
     assert "rom_word_reg        <= masked_a0(2);" in source
     assert "rom_slow_reg        <= masked_a0(3);" in source
@@ -46,6 +54,7 @@ def validate(source: str) -> None:
     )
     assert "Mesen2 retains undocumented $60 bit 2" in source
     assert "SoC&oldid=641" in source
+    assert "Boot_ROM&oldid=679" in source
     assert "ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2" in source
     assert "Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2" in source
 
@@ -70,6 +79,12 @@ def main() -> None:
     mutants = {
         "A0 reserved-bit mask": mutate_once(source, 'x"0D"', 'x"0F"'),
         "Color $60 mask": mutate_once(source, 'x"EB"', 'x"EF"'),
+        "Color $60 reset value": mutate_once(source, 'x"0A"', 'x"00"'),
+        "Color $60 reset disabled": mutate_once(
+            source,
+            "disp_mode_reg <= COLOR_RESET_60;",
+            "disp_mode_reg <= (others => '0');",
+        ),
         "mono $60 incorrectly mapped": mutate_once(
             source,
             "port_60_mapped <= is_color_model;",
@@ -116,7 +131,7 @@ def main() -> None:
 
     print(
         "PASS soc_control source contract and mutants "
-        "A0-mask,60-mask,mono-map,boot-sticky,60-replace,mono-write,"
+        "A0-mask,60-mask,60-reset,mono-map,boot-sticky,60-replace,mono-write,"
         "video-prerequisites,normalized-mode"
     )
 

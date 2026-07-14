@@ -12,6 +12,7 @@ FOOTER_SIZE = 16
 
 # 80186 machine code, entered at F000:0000 by the carrier reset vector:
 #   cli
+#   mov al,0x80; out 0x60,al   ; enable Color mode before Color-only GDMA
 #   mov al,0x00; out 0x40,al   ; source f0100
 #   mov al,0x01; out 0x41,al
 #   mov al,0x0f; out 0x42,al
@@ -24,6 +25,7 @@ FOOTER_SIZE = 16
 PROGRAM = bytes(
     (
         0xFA,
+        0xB0, 0x80, 0xE6, 0x60,
         0xB0, 0x00, 0xE6, 0x40,
         0xB0, 0x01, 0xE6, 0x41,
         0xB0, 0x0F, 0xE6, 0x42,

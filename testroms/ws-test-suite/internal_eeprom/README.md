@@ -51,7 +51,7 @@ The exact target frame is reconstructed from the bound ROM font, the source's
 labels and successful read/write values, and the deterministic simulator's
 default protected internal-EEPROM value `0x1921`. Its 224x144 RGB SHA-256 is
 `830503147842b803d26b707675009e6b8e3b0faa1ee3ad1aef15c3e9e74e444d`.
-The manifest target is reset-release capture, 2,884,481 cycles, six completed
+The manifest target is reset-release capture, 2,887,553 cycles, six completed
 frames, the default 4-KiB mono BIOS identity, zeroed initial IRAM, and complete
 CPU/background history with no trace filters.
 
@@ -59,11 +59,11 @@ CPU/background history with no trace filters.
 
 Two independent current-code captures are byte-identical, remain in the
 terminal loop, and pass all **23 of 23** mono-hardware result positions. The
-strict verifier reports 184 complete PASS-tile rows, a terminal tail of 36,216
+strict verifier reports 184 complete PASS-tile rows, a terminal tail of 36,267
 CPU rows, and the target final RGB SHA-256
 `830503147842b803d26b707675009e6b8e3b0faa1ee3ad1aef15c3e9e74e444d`.
 The paired trace SHA-256 is
-`0b734a9609979bb2d010130fe082f7406b9e6fa4c3f96f56c484ff93eb326340`.
+`f134c4255f3aafd90b846620190a7db6428d3130febff20042ad749d99573b57`.
 A focused controller bench separately covers data-latch isolation, EWDS/EWEN,
 WRAL/ERAL, protected/user regions, invalid controls, DONE/READY transitions,
 and restoration of a saved disabled-write latch. The deterministic ten-enable

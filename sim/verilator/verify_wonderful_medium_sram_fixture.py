@@ -15,16 +15,17 @@ from verify_trace import FIELDS_V5
 
 ROM_NAME = "medium_sram_probe.wsc"
 ROM_SIZE = 128 * 1024
-ROM_SHA256 = "b7f6a4e1e3a73eb4fa615a73f5e9a4cbb8c46a6b5157ade4e1d814c30da034aa"
-ROM_FNV1A64 = "f222b8fcc1bef2e7"
+ROM_SHA256 = "ae3ea85cc6b5c3b32e1fac23d37dd4fce8ccb38ec2fcd80d4b80b868e59dc4b7"
+ROM_FNV1A64 = "2f63161f20bfa9fb"
 FRAME_SHA256 = (
-    "b404fb94d84fa4bd527d8eabaf2d13393f5c43f03d838c4aa2a8c95855aef511",
+    "479ee01521330c5d2aaf824e16c33e1b458f9640d23765973aac472bf4a0bfd7",
     "3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b",
 )
 FILE_SHA256 = {
-    "Makefile": "8610b2e241bcea4cf30ef1d38ec546ef2ee15336c45cba07138e860669c33af5",
+    "Makefile": "5026b50f2c9683147711e7be724f1b466eeb46d222f9ca6b541841c78fa3cb20",
     "wfconfig.toml": "b4d5bfab3ad942636af54e41a7ff403363de0c0b46cfe6b6221441a662950e78",
-    "src/main.c": "171f22aff22e8f2aa8fae780665004ff4e720593e4bc4f1e23fbf748268915a9",
+    "src/crt0_color.s": "7a9111e8195d651c97b9b160b089fa2bcd093deac1819cf2dc5a547ad1d1af6d",
+    "src/main.c": "6d12112f0ccdfaf50c049896f93f99dc08c9796f5492f885a6188d2fa1a672f2",
     "LICENSE.target-wswan-examples": (
         "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
     ),
@@ -34,21 +35,21 @@ FILE_SHA256 = {
 }
 MESSAGE = b"MEDIUM-SRAM OK\0"
 FAIL_MESSAGE = b"MEDIUM-SRAM FAIL\0"
-MESSAGE_OFFSET = 0x1EE05
-FAIL_MESSAGE_OFFSET = 0x1EE14
+MESSAGE_OFFSET = 0x1EDC3
+FAIL_MESSAGE_OFFSET = 0x1EDD2
 
 # cycle, address, value, access, byte-enable, offset, instruction ID, origin PC
 SRAM_EVENTS = (
-    (1848, 0x10012, 0x0000, "write", 1, 0x12, 38, 0xFFF63),
-    (1866, 0x10013, 0x0000, "write", 1, 0x13, 38, 0xFFF63),
-    (2331, 0x10016, 0x00A5, "write", 1, 0x16, 50, 0xFFF58),
-    (2334, 0x10017, 0x005A, "write", 1, 0x17, 50, 0xFFF58),
-    (3918, 0x10016, 0x5AA5, "read", 0, 0x16, 88, 0xFF14E),
-    (4026, 0x10012, 0x0000, "read", 0, 0x12, 91, 0xFF184),
-    (4104, 0x10016, 0xA55A, "write", 3, 0x16, 94, 0xFF18C),
-    (4140, 0x10012, 0xC33C, "write", 3, 0x12, 95, 0xFF193),
-    (4182, 0x10016, 0xA55A, "read", 0, 0x16, 96, 0xFF19A),
-    (4266, 0x10012, 0xC33C, "read", 0, 0x12, 99, 0xFF1A3),
+    (2616, 0x10012, 0x0000, "write", 1, 0x12, 58, 0xFFF64),
+    (2634, 0x10013, 0x0000, "write", 1, 0x13, 58, 0xFFF64),
+    (3051, 0x10014, 0x00A5, "write", 1, 0x14, 70, 0xFFF59),
+    (3054, 0x10015, 0x005A, "write", 1, 0x15, 70, 0xFFF59),
+    (5226, 0x10014, 0x5AA5, "read", 0, 0x14, 124, 0xFF13E),
+    (5334, 0x10012, 0x0000, "read", 0, 0x12, 127, 0xFF174),
+    (5412, 0x10014, 0xA55A, "write", 3, 0x14, 130, 0xFF17C),
+    (5448, 0x10012, 0xC33C, "write", 3, 0x12, 131, 0xFF183),
+    (5490, 0x10014, 0xA55A, "read", 0, 0x14, 132, 0xFF18A),
+    (5574, 0x10012, 0xC33C, "read", 0, 0x12, 135, 0xFF193),
 )
 
 
@@ -63,17 +64,98 @@ def unique_offset(data: bytes, value: bytes) -> int:
     return offsets[0]
 
 
+def verify_source_contract(source: str) -> None:
+    """Require Color mode before the fixture observes or displays test state."""
+    main_marker = "void main(void) {"
+    try:
+        body = source[source.index(main_marker) + len(main_marker):]
+    except ValueError as error:
+        raise ValueError("fixture source lost main entry") from error
+
+    mode = "bool valid = ws_system_set_mode(WS_MODE_COLOR);"
+    if not body.lstrip().startswith(mode):
+        raise ValueError("main must enable Color mode as its first source-level statement")
+    mode_offset = body.index(mode)
+    ordered_after_mode = (
+        "valid = valid && initialized_word == 0x5AA5 && zero_word == 0;",
+        "initialized_word = 0xA55A;",
+        "zero_word = 0xC33C;",
+        "wsx_console_init_default(&wse_screen1);",
+        "ws_display_set_control(WS_DISPLAY_CTRL_SCR1_ENABLE);",
+    )
+    cursor = mode_offset
+    for statement in ordered_after_mode:
+        offset = body.find(statement, cursor + 1)
+        if offset < 0:
+            raise ValueError(f"fixture source lost ordered statement {statement!r}")
+        cursor = offset
+
+
+def verify_startup_contract(source: str) -> None:
+    """Bind the physical-Color guard and pre-stack upper-IRAM enable."""
+    try:
+        prefix = source[source.index("_start:"):source.index("_start_parse_data_block:")]
+        finish = source[
+            source.index("_start_finish_data_block:"):source.index("_start_run_array:")
+        ]
+    except ValueError as error:
+        raise ValueError("fixture CRT lost pinned startup labels") from error
+
+    ordered = (
+        "in\tal, 0xA0",
+        "test\tal, 0x02",
+        "jnz\t_start_enable_color",
+        "_start_requires_color:",
+        "hlt",
+        "_start_enable_color:",
+        "in\tal, 0x60",
+        "and\tal, 0x1F",
+        "or\tal, 0x80",
+        "out\t0x60, al",
+        'mov\tsp, offset "__wf_heap_top"',
+    )
+    cursor = -1
+    for statement in ordered:
+        offset = prefix.find(statement, cursor + 1)
+        if offset < 0:
+            raise ValueError(f"fixture CRT lost ordered startup statement {statement!r}")
+        cursor = offset
+    if "push" in prefix:
+        raise ValueError("fixture CRT touches the stack before enabling upper Color IRAM")
+    if "0x60" in finish or "out\t0x60" in finish:
+        raise ValueError("fixture CRT changes Color mode after selecting its high stack")
+    if "push\tes" not in finish or finish.index("push\tes") > finish.index("call _start_run_array"):
+        raise ValueError("fixture CRT lost its pinned first stack operation")
+
+
+def verify_build_contract(makefile: str) -> None:
+    required = (
+        "CRT0_LOCAL\t:= src/crt0_color.s",
+        "CRT0_OBJ\t:= $(BUILDDIR)/$(CRT0_LOCAL).o",
+        "$(ELF_STAGE1): $(OBJS) $(CRT0_OBJ)",
+        "$(CC) -r -o $(ELF_STAGE1) $(CRT0_OBJ) $(OBJS) $(LDFLAGS)",
+    )
+    for statement in required:
+        if statement not in makefile:
+            raise ValueError(f"fixture Makefile lost local CRT binding {statement!r}")
+    if "$(WF_CRT0)" in makefile:
+        raise ValueError("fixture Makefile reverted to the incompatible stock CRT")
+
+
 def verify_fixture(directory: Path) -> bytes:
     for relative, wanted in FILE_SHA256.items():
         actual = sha256((directory / relative).read_bytes())
         if actual != wanted:
             raise ValueError(f"fixture source {relative} sha256 {actual} != {wanted}")
+    verify_source_contract((directory / "src/main.c").read_text(encoding="utf-8"))
+    verify_startup_contract((directory / "src/crt0_color.s").read_text(encoding="utf-8"))
+    verify_build_contract((directory / "Makefile").read_text(encoding="utf-8"))
 
     data = (directory / ROM_NAME).read_bytes()
     digest = sha256(data)
     if len(data) != ROM_SIZE or digest != ROM_SHA256:
         raise ValueError(f"unexpected ROM size/hash: {len(data)} {digest}")
-    if data[-16:-11] != bytes.fromhex("ea0000f3ff"):
+    if data[-16:-11] != bytes.fromhex("ea0000f2ff"):
         raise ValueError("ROM reset vector is not the pinned far jump")
     if data[-9] != 1 or data[-5] != 2:
         raise ValueError("ROM is not Color + SRAM type 02")
@@ -83,9 +165,25 @@ def verify_fixture(directory: Path) -> bytes:
         raise ValueError("success message moved")
     if unique_offset(data, FAIL_MESSAGE) != FAIL_MESSAGE_OFFSET:
         raise ValueError("failure message moved")
-    if unique_offset(data, bytes.fromhex("b800108ec0")) != 0x1FF31:
+    guard_offset = unique_offset(data, bytes.fromhex("e4a0a8027503f4ebfd"))
+    enable_offset = unique_offset(data, bytes.fromhex("e460241f0c80e660"))
+    stack_offset = 0x1FF3F
+    push_offset = 0x1FF71
+    if data[stack_offset:stack_offset + 3] != bytes.fromhex("bc0080"):
+        raise ValueError("CRT no longer selects SP=8000h after enabling Color IRAM")
+    if data[push_offset:push_offset + 2] != bytes.fromhex("061f"):
+        raise ValueError("CRT first push/pop moved")
+    if (guard_offset, enable_offset, stack_offset, push_offset) != (
+        0x1FF21, 0x1FF2A, 0x1FF3F, 0x1FF71
+    ):
+        raise ValueError("CRT Color guard/enable/high-stack/first-push sequence moved")
+    if not guard_offset < enable_offset < stack_offset < push_offset:
+        raise ValueError("CRT touches its high stack before enabling upper Color IRAM")
+    if bytes.fromhex("e460") in data[enable_offset + 8:push_offset]:
+        raise ValueError("CRT clears Color mode before its first stack operation")
+    if unique_offset(data, bytes.fromhex("b800108ec0")) != 0x1FF32:
         raise ValueError("CRT no longer selects SRAM segment 1000h")
-    if unique_offset(data, bytes.fromhex("ea0b0014ff")) != 0x1FF86:
+    if unique_offset(data, bytes.fromhex("ea000013ff")) != 0x1FF81:
         raise ValueError("CRT no longer far-jumps to pinned main entry")
     return data
 
@@ -112,7 +210,7 @@ def verify_manifest(trace: Path) -> None:
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64,
         "bios_size": 8192,
-        "bios_fnv1a64": "bde71f09ac34c168",
+        "bios_fnv1a64": "ef7d73ef979bfc94",
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {
@@ -171,17 +269,20 @@ def verify_sram(rows: list[dict[str, str]]) -> None:
 
 def verify_cpu(rows: list[dict[str, str]]) -> None:
     pcs = [integer(row, "physical_pc") for row in rows if row["event"] == "cpu"]
-    required = (0xFFF30, 0xFFF86, 0xFF14B, 0xFF184, 0xFF1AC, 0xFF1BE, 0xFF1C3, 0xFF180)
+    required = (
+        0xFFF20, 0xFFF21, 0xFFF2A, 0xFFF3F, 0xFFF71, 0xFFF81,
+        0xFF130, 0xFF174, 0xFF19C, 0xFF1AE, 0xFF1B3, 0xFF170,
+    )
     cursor = -1
     for pc in required:
         try:
             cursor = pcs.index(pc, cursor + 1)
         except ValueError as error:
             raise ValueError(f"CPU did not reach ordered PC {pc:05x}") from error
-    for failure_pc in (0xFF157, 0xFF165, 0xFF177):
+    for failure_pc in (0xFF147, 0xFF155, 0xFF167):
         if failure_pc in pcs:
             raise ValueError(f"CPU entered failure path at {failure_pc:05x}")
-    if len(pcs) != 129 or pcs[-1] != 0xFF180:
+    if len(pcs) != 150 or pcs[-1] != 0xFF170:
         raise ValueError("unexpected filtered CPU path or terminal HLT")
 
 
@@ -217,7 +318,7 @@ def verify(directory: Path, trace: Path, frames: tuple[Path, Path]) -> None:
     verify_manifest(trace)
     rows = read_trace(trace)
     counts = Counter(row["event"] for row in rows)
-    if counts != Counter(cpu=129, mem=10, bg_cell=4153):
+    if counts != Counter(cpu=150, mem=10, bg_cell=4154):
         raise ValueError(f"unexpected trace event counts: {counts}")
     verify_sram(rows)
     verify_cpu(rows)

@@ -168,8 +168,11 @@ begin
       tick;
       reset <= '0';
       expect_port(16#A0#, 16#82#, '1', "color reset A0");
-      expect_port(16#60#, 16#00#, '1', "color reset 60");
+      expect_port(16#60#, 16#0A#, '1', "color reset 60");
       assert port_60_mapped = '1' report "color $60 was not mapped" severity failure;
+      assert state_data_out = x"0A00"
+         report "color reset state did not preserve physical $60 defaults" severity failure;
+      expect_exports('0', '0', '0', '0', "000", '1', '1', '0', "color reset");
 
       write_port(16#60#, 16#FF#);
       expect_port(16#60#, 16#EB#, '1', "color 60 mask");
@@ -260,9 +263,10 @@ begin
       state_load <= '0';
       reset <= '0';
       expect_port(16#A0#, 16#82#, '1', "reset priority over A0 restore");
-      expect_port(16#60#, 16#00#, '1', "reset priority over 60 restore");
-      assert state_data_out = x"0000"
+      expect_port(16#60#, 16#0A#, '1', "reset priority over 60 restore");
+      assert state_data_out = x"0A00"
          report "reset did not override simultaneous restore/write" severity failure;
+      expect_exports('0', '0', '0', '0', "000", '1', '1', '0', "color reset priority");
 
       -- The model input is a physical/read-only property.  Its $A0 bit and
       -- Color-only mapping change without mutating the writable A0 state.
@@ -286,7 +290,7 @@ begin
       expect_port(16#5F#, 16#00#, '0', "unowned address below 60");
       expect_port(16#61#, 16#00#, '0', "unowned address above 60");
 
-      report "PASS soc_control $A0 controls, raw $60 storage, normalized video modes/prerequisites, mono handoff, reset priority, register-image replay, and exact state"
+      report "PASS soc_control $A0 controls, physical Color $60 reset, raw $60 storage, normalized video modes/prerequisites, mono handoff, reset priority, register-image replay, and exact state"
          severity note;
       std.env.stop;
       wait;

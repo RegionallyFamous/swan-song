@@ -21,7 +21,7 @@ from verify_trace import FIELDS_V5
 
 
 BIOS_SIZE = 4096
-BIOS_FNV1A64 = "2c83c0c1976b8168"
+BIOS_FNV1A64 = "5e1a15a782d2bc94"
 EXPECTED_EVENTS = {
     "cpu": True,
     "bank": False,

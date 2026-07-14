@@ -110,7 +110,7 @@ that this pinned Wonderful-generated ROM entered its CRT, ran its constructor,
 entered main, initialized the text display, and reached its terminal loop in
 the translated system model.
 
-## Current medium-SRAM regression (2026-07-13)
+## Current medium-SRAM regression (2026-07-14)
 
 The repository now carries a second, deterministic Wonderful-generated open
 ROM and source under
@@ -119,12 +119,22 @@ It uses the current `wswan/medium-sram` target, system libraries at
 `d7d97ce9490c54aff3ad8ad5f4b60f1c547757ab`, and example scaffold at
 `811b739ab1f0203336a08da8db34365d29869617`.
 
-`make regression` binds its exact source and 131,072-byte ROM hash, the CRT's
-DS=`1000h` SRAM selection, `.bss` zeroing, `.data=0x5AA5` initialization, far
-jump to `main`, exact program mutation/readback to `0xA55A`/`0xC33C`, the
-successful `MEDIUM-SRAM OK` console cells, terminal HLT, and final raw RGB
-SHA-256 `3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b`.
-The focused verifier rejects source and ROM mutations.
+`make regression` binds its exact source and 131,072-byte ROM hash, including
+the fixture-local zlib-derived CRT's physical-Color guard and `$60.7` enable
+before SP=`8000h` or any stack access. It then binds DS=`1000h` SRAM selection,
+`.bss` zeroing, `.data=0x5AA5` initialization, the far jump to `main`, exact
+program mutation/readback to `0xA55A`/`0xC33C`, the successful
+`MEDIUM-SRAM OK` console cells, terminal HLT, and final raw RGB SHA-256
+`3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b`.
+The focused verifier rejects source, build-binding, startup-order, and ROM
+mutations.
+
+That local startup is required because pinned Wonderful 0.2.0's stock
+medium-SRAM CRT selects the same high stack but clears `$60.7` before its first
+push. Moving the stack down to `4000h` was also tested and rejected: it avoided
+unmapped accesses but collided with the console/font workspace and never
+returned from console initialization. This is a source/runtime compatibility
+finding, not evidence for weakening the core's documented Color-RAM gate.
 
 The complete targeting guidance is in
 [`HOMEBREW_WONDERWITCH.md`](HOMEBREW_WONDERWITCH.md). Current Wonderful can
