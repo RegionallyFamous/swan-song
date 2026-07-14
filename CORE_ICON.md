@@ -4,8 +4,9 @@ Swan Song includes an original, generic pixel-swan mark at
 `dist/Cores/RegionallyFamous.SwanSong/icon.bin`. It represents the
 Regionally Famous-maintained Swan Song APF identity; it does not reproduce
 Bandai's WonderSwan wordmark, console trade dress, or third-party artwork. The
-existing platform image remains separately credited to spiritualized1997 in
-`README.md`.
+same logical grid is the sole figurative source for Regionally Famous's
+deterministic **Swan Wake** platform image; see [`PLATFORM_ART.md`](PLATFORM_ART.md).
+These authorship statements do not make a project-wide license declaration.
 
 The live [Analogue packaging documentation](https://www.analogue.co/developer/docs/packaging-a-core),
 accessed 2026-07-13, defines the core-author icon contract:

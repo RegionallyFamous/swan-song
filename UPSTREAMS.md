@@ -22,6 +22,28 @@ Pinned on 2026-07-12:
 | ares behavioral reference | https://github.com/ares-emulator/ares | `449b93716fb162632de2fd43bf2eba2064fa43f2` | ares core under ISC-style notice; bundled notices vary |
 | Mesen behavioral reference | https://github.com/SourMesen/Mesen2 | `b9fa69ddc6d0a331fb103fdb5eef6904305703c2` | GPL v3 |
 
+## Platform-art provenance
+
+The Pocket predecessor's initial commit `8aee749` imported
+`dist/Platforms/_images/wonderswan.bin` as a 171,930-byte binary (Git blob
+`9013322d9815c4e14fca8bf66d184efd6622c412`, SHA-256
+`775b748d8bdd20a1718b78879a6d624112ab763cfa27a3da9fe05756a44647f9`).
+Swan Song historically credited that platform image to
+[spiritualized1997](https://github.com/spiritualized1997). The binary itself
+contains no embedded authorship or license metadata, so this provenance record
+does not infer a redistribution grant.
+
+On 2026-07-14 the live distribution copy was replaced with **Swan Wake**, an
+original Regionally Famous design generated solely from integer geometric
+primitives and the Regionally Famous-authored swan grid already used by
+`icon.bin`. The generator, independent test, reviewed digest, and design record
+are in `scripts/generate_platform_art.py`,
+`scripts/generate_platform_art_test.py`, and [`PLATFORM_ART.md`](PLATFORM_ART.md).
+The predecessor blob remains available through Git history so replacing the
+distributed asset does not erase its authorship credit. This asset replacement
+does not change any inherited source notice or resolve the separate combined
+bitstream licensing review below.
+
 The repository history preserves Adam Gastineau's port commits. Robert Peip is
 the original WonderSwan FPGA core author. The following findings come from the
 checked-in history, not from repository-host license classification:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
 import unittest
@@ -12,6 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 CORE_DIR = DIST / "Cores/RegionallyFamous.SwanSong"
 AUDIT = ROOT / "POCKET_LAUNCHER_LIBRARY.md"
+PLATFORM_ART_SHA256 = "0161970791a9d7913bfd1d146cb92324644607dd4a287c61d7f5a6d8e8f8045e"
 
 
 def load_json(path: pathlib.Path) -> dict:
@@ -79,6 +81,9 @@ class PocketLauncherLibraryContractTest(unittest.TestCase):
         image = DIST / "Platforms/_images/wonderswan.bin"
         self.assertTrue(image.is_file())
         self.assertEqual(image.stat().st_size, 521 * 165 * 2)
+        self.assertEqual(
+            hashlib.sha256(image.read_bytes()).hexdigest(), PLATFORM_ART_SHA256
+        )
 
     def test_documentation_keeps_the_supported_boundary_explicit(self) -> None:
         audit = AUDIT.read_text(encoding="utf-8")
@@ -91,6 +96,7 @@ class PocketLauncherLibraryContractTest(unittest.TestCase):
             "does not provide a supported way",
             "/Platforms/_images/wonderswan.bin",
             "/System/Library/Images/<platform>/<crc32>.bin",
+            "PLATFORM_ART.md",
             "no public supported PocketOS plug-in",
             "will not ship such a patch",
         ):

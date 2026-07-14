@@ -41,8 +41,10 @@ The two similarly named image systems have different consumers:
 
 - `/Platforms/_images/wonderswan.bin` is named from the openFPGA platform
   shortname. Analogue documents it as the graphic for a user-supplied
-  openFPGA platform. Swan Song already ships the correctly placed platform
-  image and metadata.
+  openFPGA platform. Swan Song ships the correctly placed, deterministic,
+  Regionally Famous-authored **Swan Wake** image and matching metadata; its
+  source and binary identity are documented in
+  [`PLATFORM_ART.md`](PLATFORM_ART.md).
 - `/System/Library/Images/<platform>/<crc32>.bin` is Library artwork. Analogue
   documents the lowercase CRC32 of one asset, or of the deterministic
   concatenation of multiple assets, as the filename. The image decorates an
