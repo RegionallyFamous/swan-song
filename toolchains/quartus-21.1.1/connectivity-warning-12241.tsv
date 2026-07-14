@@ -57,23 +57,17 @@ swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_offs
 swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_instruction_id	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_origin_pc	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-debug	core_top:ic|wonderswan:wonderswan|SwanTop:SwanTop	debug_mem_origin_status	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch2_addr	Input	Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) "ch2_addr[26..25]" will be connected to GND.
-agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch3_addr	Input	Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) "ch3_addr[26..25]" will be connected to GND.
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch2_addr	Input	"Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) ""ch2_addr[26..25]"" will be connected to GND."
+agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	ch3_addr	Input	"Input port expression (24 bits) is smaller than the input port (26 bits) it drives.  Extra input bit(s) ""ch3_addr[26..25]"" will be connected to GND."
 agg23-predecessor	core_top:ic|wonderswan:wonderswan|sdram:sdram	SDRAM_nCS	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|wonderswan:wonderswan|synch_3:rom_prepare_to_system	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|wonderswan:wonderswan|synch_3:rom_prepare_to_system	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	core_top:ic|wonderswan:wonderswan	use_rewind_capture	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
-agg23-predecessor	core_top:ic|synch_3:cont1_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|synch_3:cont1_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	core_top:ic|data_loader:bios_data_loader	write_complete	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
-agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_out	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_out	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_in	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|save_state_controller:save_state_controller|synch_3:savestate_in	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|synch_3:execution_ready_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
@@ -106,15 +100,15 @@ agg23-predecessor	io_bridge_peripheral:ibs	pmp_addr_valid	Output	Declared by ent
 agg23-predecessor	io_pad_controller:ipm|synch_3:s00	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	io_pad_controller:ipm|synch_3:s00	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	io_pad_controller:ipm	rx_timed_out	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	mf_ddio_bidir_12:isclk	datain_h	Input	Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_h[11..1]" will be connected to GND.
-agg23-predecessor	mf_ddio_bidir_12:isclk	datain_l	Input	Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_l[11..1]" will be connected to GND.
-agg23-predecessor	mf_ddio_bidir_12:isclk	padio	Bidir	Output or bidir port (12 bits) is wider than the port expression (1 bits) it drives; bit(s) "padio[11..1]" have no fanouts
+agg23-predecessor	mf_ddio_bidir_12:isclk	datain_h	Input	"Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) ""datain_h[11..1]"" will be connected to GND."
+agg23-predecessor	mf_ddio_bidir_12:isclk	datain_l	Input	"Input port expression (1 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) ""datain_l[11..1]"" will be connected to GND."
+agg23-predecessor	mf_ddio_bidir_12:isclk	padio	Bidir	"Output or bidir port (12 bits) is wider than the port expression (1 bits) it drives; bit(s) ""padio[11..1]"" have no fanouts"
 agg23-predecessor	mf_ddio_bidir_12:isclk	inclock	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
 agg23-predecessor	mf_ddio_bidir_12:isclk	dataout_h	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	mf_ddio_bidir_12:isclk	dataout_l	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	mf_ddio_bidir_12:iscc	datain_h	Input	Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_h[11..4]" will be connected to GND.
-agg23-predecessor	mf_ddio_bidir_12:iscc	datain_l	Input	Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) "datain_l[11..4]" will be connected to GND.
-agg23-predecessor	mf_ddio_bidir_12:iscc	padio	Bidir	Output or bidir port (12 bits) is wider than the port expression (4 bits) it drives; bit(s) "padio[11..4]" have no fanouts
+agg23-predecessor	mf_ddio_bidir_12:iscc	datain_h	Input	"Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) ""datain_h[11..4]"" will be connected to GND."
+agg23-predecessor	mf_ddio_bidir_12:iscc	datain_l	Input	"Input port expression (4 bits) is smaller than the input port (12 bits) it drives.  Extra input bit(s) ""datain_l[11..4]"" will be connected to GND."
+agg23-predecessor	mf_ddio_bidir_12:iscc	padio	Bidir	"Output or bidir port (12 bits) is wider than the port expression (4 bits) it drives; bit(s) ""padio[11..4]"" have no fanouts"
 agg23-predecessor	mf_ddio_bidir_12:iscc	inclock	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
 agg23-predecessor	mf_ddio_bidir_12:iscc	dataout_h	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 agg23-predecessor	mf_ddio_bidir_12:iscc	dataout_l	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.

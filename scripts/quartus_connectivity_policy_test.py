@@ -70,17 +70,17 @@ class ConnectivityPolicyTest(unittest.TestCase):
         result = self.review()
         self.assertTrue(result["accepted"])
         self.assertEqual(result["status"], "accepted_exact_set")
-        self.assertEqual(result["allowlist"]["rows"], 122)
-        self.assertEqual(result["observed"]["warning_rows"], 122)
-        self.assertEqual(result["observed"]["warning_hierarchies"], 30)
+        self.assertEqual(result["allowlist"]["rows"], 116)
+        self.assertEqual(result["observed"]["warning_rows"], 116)
+        self.assertEqual(result["observed"]["warning_hierarchies"], 27)
         self.assertEqual(
             result["observed"]["summary_message"],
-            "Warning (12241): 30 hierarchies have connectivity warnings - "
+            "Warning (12241): 27 hierarchies have connectivity warnings - "
             "see the Connectivity Checks report folder",
         )
         self.assertEqual(result["differences"]["missing"], [])
         self.assertEqual(result["differences"]["unexpected"], [])
-        self.assertEqual(len(result["source_bindings"]), 23)
+        self.assertEqual(len(result["source_bindings"]), 90)
 
     def _mutated_item(self, field: str, value: str) -> str:
         items = [dict(item) for item in self.items]
@@ -105,19 +105,28 @@ class ConnectivityPolicyTest(unittest.TestCase):
         items[-1]["port"] = "same_count_unreviewed_port"
         result = self.review(fixture_report(items))
         self.assertFalse(result["accepted"])
-        self.assertEqual(result["observed"]["warning_rows"], 122)
+        self.assertEqual(result["observed"]["warning_rows"], 116)
         self.assertEqual(result["differences"]["missing_count"], 1)
         self.assertEqual(result["differences"]["unexpected_count"], 1)
 
-    def test_reviewed_pll_defect_is_explicitly_excluded(self) -> None:
+    def test_removed_pll_defect_cannot_reenter_the_reviewed_set(self) -> None:
         manifest = json.loads(POLICY.read_text(encoding="utf-8"))
-        defect = dict(manifest["reviewed_inventory"]["excluded_defects"][0])
-        defect["provenance"] = "reviewed-defect"
-        defect.pop("resolution")
+        self.assertEqual(manifest["reviewed_inventory"]["excluded_defects"], [])
+        defect = {
+            "hierarchy": "core_top:ic|mf_pllbase:mp1",
+            "port": "rst",
+            "type": "Input",
+            "details": (
+                "Input port expression (32 bits) is wider than the input port "
+                "(1 bits) it drives. The 31 most-significant bit(s) in the "
+                "expression will be dangling if they have no other fanouts."
+            ),
+            "provenance": "removed-pll-defect",
+        }
         result = self.review(fixture_report([*self.items, defect]))
         self.assertFalse(result["accepted"])
-        self.assertEqual(result["observed"]["warning_rows"], 123)
-        self.assertEqual(result["observed"]["warning_hierarchies"], 31)
+        self.assertEqual(result["observed"]["warning_rows"], 117)
+        self.assertEqual(result["observed"]["warning_hierarchies"], 28)
         self.assertEqual(result["differences"]["unexpected_count"], 1)
         self.assertEqual(
             result["differences"]["unexpected"][0]["hierarchy"],
@@ -139,8 +148,8 @@ class ConnectivityPolicyTest(unittest.TestCase):
 
     def test_summary_and_duplicate_invariants_fail_closed(self) -> None:
         broken_summary = self.report.replace(
-            "Warning (12241): 30 hierarchies",
-            "Warning (12241): 31 hierarchies",
+            "Warning (12241): 27 hierarchies",
+            "Warning (12241): 28 hierarchies",
             1,
         )
         with self.assertRaisesRegex(policy.PolicyError, "hierarchy count"):
