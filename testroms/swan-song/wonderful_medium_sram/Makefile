@@ -36,7 +36,8 @@ ifneq ($(CBINDIRS),)
     SOURCES_CBIN	:= $(shell find -L $(CBINDIRS) -name "*.bin")
     INCLUDEDIRS		+= $(addprefix $(BUILDDIR)/,$(CBINDIRS))
 endif
-SOURCES_S	:= $(shell find -L $(SOURCEDIRS) -name "*.s")
+CRT0_LOCAL	:= src/crt0_color.s
+SOURCES_S	:= $(filter-out $(CRT0_LOCAL),$(shell find -L $(SOURCEDIRS) -name "*.s"))
 SOURCES_C	:= $(shell find -L $(SOURCEDIRS) -name "*.c")
 
 WARNFLAGS	:= -Wall -Wextra -Werror
@@ -55,8 +56,9 @@ OBJS_ASSETS	:= $(addsuffix .o,$(addprefix $(BUILDDIR)/,$(SOURCES_CBIN))) \
 		   $(addsuffix .o,$(addprefix $(BUILDDIR)/,$(SOURCES_WFPROCESS)))
 OBJS_SOURCES	:= $(addsuffix .o,$(addprefix $(BUILDDIR)/,$(SOURCES_S))) \
 		   $(addsuffix .o,$(addprefix $(BUILDDIR)/,$(SOURCES_C)))
+CRT0_OBJ	:= $(BUILDDIR)/$(CRT0_LOCAL).o
 OBJS		:= $(OBJS_ASSETS) $(OBJS_SOURCES)
-DEPS		:= $(OBJS:.o=.d)
+DEPS		:= $(OBJS:.o=.d) $(CRT0_OBJ:.o=.d)
 
 .PHONY: all clean
 
@@ -66,9 +68,9 @@ $(ROM) $(ELF): $(ELF_STAGE1)
 	@echo "  ROM     $@"
 	$(_V)$(BUILDROM) -o $(ROM) --output-elf $(ELF) $(BUILDROMFLAGS) $<
 
-$(ELF_STAGE1): $(OBJS)
+$(ELF_STAGE1): $(OBJS) $(CRT0_OBJ)
 	@echo "  LD      $@"
-	$(_V)$(CC) -r -o $(ELF_STAGE1) $(OBJS) $(WF_CRT0) $(LDFLAGS)
+	$(_V)$(CC) -r -o $(ELF_STAGE1) $(CRT0_OBJ) $(OBJS) $(LDFLAGS)
 
 clean:
 	@echo "  CLEAN"

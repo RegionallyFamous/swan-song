@@ -8,6 +8,8 @@ use IEEE.std_logic_1164.all;
 -- Reference contract:
 --   WSdev SoC revision 641 ($A0 and Color-only $60):
 --   https://ws.nesdev.org/w/index.php?title=SoC&oldid=641
+--   WSdev Boot_ROM revision 679 (Color $60 power-on/handoff value 0Ah):
+--   https://ws.nesdev.org/w/index.php?title=Boot_ROM&oldid=679
 --   ares 449b9371 CPU/system I/O and serialization:
 --   https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cpu/io.cpp#L31-L36
 --   https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/system/io.cpp#L1-L46
@@ -20,7 +22,9 @@ use IEEE.std_logic_1164.all;
 -- block follows the documented/functional mask and therefore reads bit 2 as
 -- zero.  On a monochrome model, $60 is deliberately reported as unmapped so
 -- the eventual bus owner can return its chosen open-bus value (Mesen2 uses
--- 90h) without that policy leaking into this register block.
+-- 90h) without that policy leaking into this register block.  Color hardware
+-- resets $60 to 0Ah: the SRAM/I/O wait-state bits start set while Color enable
+-- bit 7 remains clear.  Monochrome keeps the internal byte zero.
 entity soc_control is
    port
    (
@@ -63,6 +67,7 @@ end entity;
 architecture rtl of soc_control is
    constant A0_WRITE_MASK   : std_logic_vector(7 downto 0) := x"0D";
    constant DISP_MODE_MASK  : std_logic_vector(7 downto 0) := x"EB";
+   constant COLOR_RESET_60  : std_logic_vector(7 downto 0) := x"0A";
 
    signal boot_rom_locked_reg : std_logic := '0';
    signal rom_word_reg        : std_logic := '0';
@@ -107,7 +112,11 @@ begin
             boot_rom_locked_reg <= '0';
             rom_word_reg        <= '0';
             rom_slow_reg        <= '0';
-            disp_mode_reg       <= (others => '0');
+            if (is_color_model = '1') then
+               disp_mode_reg <= COLOR_RESET_60;
+            else
+               disp_mode_reg <= (others => '0');
+            end if;
          elsif (state_load = '1') then
             masked_a0 := state_data_in(7 downto 0) and A0_WRITE_MASK;
             boot_rom_locked_reg <= masked_a0(0);

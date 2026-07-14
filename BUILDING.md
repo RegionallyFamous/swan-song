@@ -8,8 +8,8 @@
   224×144 PNG frame hashes in repeated runs.
 - Wonderful's open WSC extended-range fixture renders all three PASS fields and
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
-  above 16 KiB without aliasing; all 16,034 physical display reads match
-  provenance (15,600 exact CPU-written words and 434 power-up reads).
+  above 16 KiB without aliasing; all 16,281 physical display reads match
+  provenance (15,611 exact CPU-written words and 670 power-up reads).
   Its 32 atomic sprite-row events bind four cached descriptors to slots 0-3
   on lines 72-79 and distinguish 32 contributing 2bpp words from the engine's
   32 noncontributing second reads.
@@ -44,7 +44,7 @@
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
-  row, and every final RGB pixel. All 25,363 display reads match the
+  row, and every final RGB pixel. All 25,610 display reads match the
   reset-complete writer scoreboard.
 - Paired build-generated, non-checked-in WSC probes exercise both documented
   Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a
@@ -74,7 +74,7 @@
   unsupported, a restored mid-line-144 raster remains disarmed until next frame.
 - The title-agnostic glyph reporter converts atomic-cell provenance into a
   complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
-  it retains 592 placement/provenance epochs while surfacing seven distinct
+  it retains 591 placement/provenance epochs while surfacing seven distinct
   exact bitmaps; six bind to the expected maps, writers, IRAM ranges, and ROM
   source ranges. It never assigns character identity from tile numbers alone.
 - The structured-trace config parser and CSV/JSONL serializers have a standalone
@@ -84,13 +84,13 @@
   exact CPU memory origins, exact C0-C3 mapper-write instruction origins,
   resolved mapper offsets, completion-aligned display words/collision status,
   and all six screen-map/tile and sprite-table/tile roles.
-  A byte-lane correlator independently reconstructs all 80,202 fetched words
+  A byte-lane correlator independently reconstructs all 80,452 fetched words
   from complete IRAM history. In that bootstrap trace, its conservative CPU
   ROM-to-IRAM classifier requires a trace-observed `F3 A4` origin signature
   plus an immediate exact same-instruction byte transfer. It accepts two
   2,048-byte chains—ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` and ROM
   `0x00a52..0x01251` to IRAM `0x2000..0x27ff`—for 4,096 bytes, two origins,
-  52,512 display words, and 26,222 atomic cells whose contributing tile-row
+  52,516 display words, and 26,224 atomic cells whose contributing tile-row
   bytes are MOVSB-sourced. The extended-range and
   Shift-JIS fixtures report zero in all four categories; `unattributed` alone
   is not treated as proven prefetch. A dedicated verifier binds the open ROM,
@@ -144,10 +144,10 @@
   refresh cannot steal its writer provenance, plus an explicit line-load epoch
   so overlapping DMA and repeated 8-bit line numbers cannot blur slot order. V6 preserves
   the exact v5 prefix and is emitted only when `sprite_row` is requested. The translated
-  ROM regression validates 26,224 bootstrap cells across both layers and 5,176
-  extended-range Color cells. The Shift-JIS workload adds 8,307 Screen 1 cells,
+  ROM regression validates 26,226 bootstrap cells across both layers and 5,177
+  extended-range Color cells. The Shift-JIS workload adds 8,308 Screen 1 cells,
   including 96 manifest-bound Japanese glyph-row promotions. The generated
-  planar and packed workloads add 8,493 Screen 1 4bpp cells apiece, including
+  planar and packed workloads add 8,494 Screen 1 4bpp cells apiece, including
   64 exact diagnostic rows per encoding. All five runs
   account explicitly for superseded and end-of-capture prefetches.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its

@@ -135,7 +135,7 @@ def verify_manifest(trace: Path) -> None:
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64,
         "bios_size": 8192,
-        "bios_fnv1a64": "bde71f09ac34c168",
+        "bios_fnv1a64": "ef7d73ef979bfc94",
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {

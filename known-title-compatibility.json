@@ -791,7 +791,7 @@
           {"kinds": ["log"], "minimum": 1}
         ],
         "fixture_path": "testroms/swan-song/wonderful_medium_sram/medium_sram_probe.wsc",
-        "fixture_sha256": "b7f6a4e1e3a73eb4fa615a73f5e9a4cbb8c46a6b5157ade4e1d814c30da034aa",
+        "fixture_sha256": "ae3ea85cc6b5c3b32e1fac23d37dd4fce8ccb38ec2fcd80d4b80b868e59dc4b7",
         "owner_rom_sha256": null,
         "operator_steps": [],
         "reference": {"source": null, "artifact_ids": [], "notes": null},

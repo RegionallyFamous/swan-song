@@ -14,12 +14,14 @@ FOOTER_SIZE = 16
 ROM_NAME = "sdma_probe.wsc"
 MARKER = bytes((0xA1, 0xB2, 0xC3, 0xD4))
 
-# 80186 machine code entered at F000:0000. It selects physical source F0100,
-# a four-byte one-shot transfer, incrementing toward Channel 2 at 24 kHz, then
-# spins while SDMA performs the reads. This is open test code, not firmware.
+# 80186 machine code entered at F000:0000. It explicitly enables Color mode,
+# selects physical source F0100, configures a four-byte one-shot transfer
+# incrementing toward Channel 2 at 24 kHz, then spins while SDMA performs the
+# reads. This is open test code, not firmware.
 PROGRAM = bytes(
     (
         0xFA,                    # cli
+        0xB0, 0x80, 0xE6, 0x60,  # enable Color mode before Color-only SDMA
         0xB0, 0x00, 0xE6, 0x4A,  # source low
         0xB0, 0x01, 0xE6, 0x4B,  # source middle
         0xB0, 0x0F, 0xE6, 0x4C,  # source high

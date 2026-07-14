@@ -79,7 +79,7 @@ commercial title works.
 | `ws-test-suite` SoC interrupts | [`interrupts.ws`](testroms/ws-test-suite/interrupts/README.md), SHA-256 `d8a4…47da`; thirteen PASS markers | Source-defined interrupt-controller cases only |
 | `ws-test-suite` internal EEPROM | [`internal.ws`](testroms/ws-test-suite/internal_eeprom/README.md), SHA-256 `2e5c…3db`; twenty-three mono-hardware PASS markers | Internal EEPROM protocol, not cartridge EEPROM persistence |
 | Shift-JIS / Misaki glyph fixture | [`sjis_glyph_provenance.wsc`](testroms/swan-song/sjis_glyph_provenance/README.md), SHA-256 `b199…fa`; six documented glyphs | Licensed controlled glyph path, not a commercial text renderer |
-| Wonderful medium-SRAM probe | [`medium_sram_probe.wsc`](testroms/swan-song/wonderful_medium_sram/README.md), SHA-256 `b7f6…34aa`; `MEDIUM-SRAM OK` | Rebuildable 32-KiB SRAM/runtime path, not Star Hearts protection |
+| Wonderful medium-SRAM probe | [`medium_sram_probe.wsc`](testroms/swan-song/wonderful_medium_sram/README.md), SHA-256 `ae3e…dc4b`; `MEDIUM-SRAM OK` | Rebuildable 32-KiB SRAM/runtime path with an audited early-Color CRT, not Star Hearts protection |
 
 The validator recomputes every full fixture SHA-256 from the checked-in file;
 the shortened values above are labels only.

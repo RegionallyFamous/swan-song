@@ -38,14 +38,14 @@ ROM_FNV1A64 = {
     PLANAR: "8d65b6afb84cc752",
     PACKED: "8a9ca6a337b5c38e",
 }
-TRACE_SIZE = {PLANAR: 9600009, PACKED: 9600151}
-TRACE_FNV1A64 = {PLANAR: "beff3a1376017692", PACKED: "7ce75e0f0d83bb9b"}
+TRACE_SIZE = {PLANAR: 9640267, PACKED: 9640409}
+TRACE_FNV1A64 = {PLANAR: "65052fab6727adb3", PACKED: "223f6134abcc189f"}
 FRAME_SHA256 = {
     0: "42cbd40de83feff488f8c63cfbb0bf0a160f7c96416bcb74328b9982e1d04bdb",
     1: "7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d",
 }
 GLYPH_CONTACT_SHA256 = "68c7b6fefb9733ba5619b7c07a18f71fc3288f77b428ce8c5c691cf2428aac7d"
-BIOS_FNV1A64 = "bde71f09ac34c168"
+BIOS_FNV1A64 = "ef7d73ef979bfc94"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -224,7 +224,7 @@ def verify_manifest(trace: Path, rom: bytes, variant: str) -> None:
         "trace_fnv1a64": TRACE_FNV1A64[variant],
         "capture_start": "reset_release",
         "capture_completed": True,
-        "capture_cycles": 930689,
+        "capture_cycles": 933761,
         "completed_frames": 2,
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64[variant],
@@ -555,8 +555,8 @@ def verify_cell_trace_links(cells: list[dict[str, str]], trace: TraceEvidence) -
 
 def verify_provenance(path: Path, cells: list[dict[str, str]]) -> None:
     rows = read_csv(path, PROVENANCE_FIELDS, "4bpp provenance artifact")
-    if len(rows) != 25921:
-        raise ValueError(f"provenance row count mismatch: {len(rows)} != 25921")
+    if len(rows) != 26168:
+        raise ValueError(f"provenance row count mismatch: {len(rows)} != 26168")
     keys = [(row["cycle"], row["role"], row["address"]) for row in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("provenance contains duplicate (cycle, role, address) keys")
@@ -604,7 +604,7 @@ def verify_glyph_rows(
     rows: list[dict[str, str]], variant: str, gdma: dict[int, GdmaWord]
 ) -> None:
     counts = Counter(row["confidence"] for row in rows)
-    if len(rows) != 592 or counts != {"exact": 558, "incomplete": 34}:
+    if len(rows) != 591 or counts != {"exact": 558, "incomplete": 33}:
         raise ValueError(f"{variant} glyph epoch population mismatch: {len(rows)} {dict(counts)}")
     sourced = [row for row in rows if row["row_source_ranges"]]
     if len(sourced) != 4:
@@ -698,7 +698,7 @@ def verify_variant(root: Path, variant: str) -> tuple[bytes, bytes, bytes]:
     verify_manifest(trace_path, rom, variant)
     cells, wanted_lines = selected_cells(cells_path)
     trace = read_trace(trace_path, wanted_lines)
-    if trace.last_cycle >= 930689:
+    if trace.last_cycle >= 933761:
         raise ValueError(f"{variant} trace extends beyond its capture window")
     gdma = verify_gdma(trace.gdma, variant)
     verify_cell_semantics(cells, variant, gdma)
@@ -734,7 +734,7 @@ def main() -> None:
         "PASS 4bpp probe variants=2 per_variant_frames=2 total_frames=4 "
         "per_variant_gdma_words=16 total_gdma_words=32 per_variant_placements=4 "
         "total_placements=8 per_variant_promoted_rows=64 total_promoted_rows=128 "
-        "per_variant_provenance_rows=25921 total_provenance_rows=51842 "
+        "per_variant_provenance_rows=26168 total_provenance_rows=52336 "
         "contacts=2 pixels_and_contacts=cross-format-exact"
     )
 

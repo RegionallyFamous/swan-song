@@ -487,7 +487,7 @@ def verify_glyph_report(
         )
 
     confidence_counts = Counter(row["confidence"] for row in rows)
-    if len(rows) != 592 or confidence_counts != {"exact": 558, "incomplete": 34}:
+    if len(rows) != 591 or confidence_counts != {"exact": 558, "incomplete": 33}:
         raise ValueError(
             "unexpected glyph report population: "
             f"epochs={len(rows)} confidence={dict(confidence_counts)}"

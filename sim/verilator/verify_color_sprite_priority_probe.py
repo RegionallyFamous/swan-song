@@ -33,11 +33,11 @@ STABLE_FRAME_SHA256 = "eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3
 
 # Filled from the first reviewed fixed-RTL capture.  They deliberately live in
 # this independent verifier instead of the generator or the manifest.
-TRACE_SIZE = 9_653_062
-TRACE_FNV1A64 = "864bf2b1d0480355"
-TRACE_SHA256 = "8bf03e5b423020d271a7f10d964a65e70d42ee65c1b115e03b4c9e47b0a0be54"
-CAPTURE_CYCLES = 930689
-BIOS_FNV1A64 = "bde71f09ac34c168"
+TRACE_SIZE = 9_697_018
+TRACE_FNV1A64 = "edd172d8cb8c5c46"
+TRACE_SHA256 = "0bbbca0ce10d33b8da44955a62cfa7e33edd5bc73fab29fbb40ce990aca7115f"
+CAPTURE_CYCLES = 933761
+BIOS_FNV1A64 = "ef7d73ef979bfc94"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -292,6 +292,7 @@ def verify_vram(fetches: list[VramFetch]) -> dict[str, int]:
 
     table = [(item.address, item.value) for item in fetches if item.role == "sprite_table"]
     wanted_table = list(expected_sprite_table())
+    wanted_table += wanted_table[:244]
     if table != wanted_table:
         raise ValueError(f"exact sprite-table fetch sequence mismatch: {table!r}")
 

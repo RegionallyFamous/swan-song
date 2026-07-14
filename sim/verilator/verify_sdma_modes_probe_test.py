@@ -169,6 +169,7 @@ def changed(value: object) -> object:
 def main() -> None:
     built = image()
     compiled = program()
+    assert compiled.data.startswith(bytes((0xFA, 0xB0, 0x80, 0xE6, 0x60)))
     assert len(built) == ROM_SIZE
     assert hashlib.sha256(built).hexdigest() == ROM_SHA256
     assert hashlib.sha256(INPUT_SCRIPT).hexdigest() == SCRIPT_SHA256

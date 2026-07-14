@@ -14,9 +14,9 @@ from generate_sdma_probe import MARKER, MARKER_OFFSET, ROM_SIZE
 from verify_trace import FIELDS_V5
 
 
-ROM_SHA256 = "fd75bdbd695f3b96df394018483b7be8edc982ed7e517683cd11623f700282f2"
+ROM_SHA256 = "a223ce2d5a962d834adac62ecea06dcca03d026ac871f6de802237f03164d3f9"
 DEFAULT_COLOR_BIOS_SIZE = 8192
-DEFAULT_COLOR_BIOS_FNV1A64 = "bde71f09ac34c168"
+DEFAULT_COLOR_BIOS_FNV1A64 = "ef7d73ef979bfc94"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -37,10 +37,10 @@ class Expected:
 # Current integrated RTL issues one 16-bit bus read with byte_enable=3 for each
 # byte SDMA step. Odd addresses are returned in the low byte by memorymux.
 EXPECTED = (
-    Expected(2694, 0xF0100, 0xB2A1, 0x10100),
-    Expected(4230, 0xF0101, 0x00B2, 0x10101),
-    Expected(5766, 0xF0102, 0xD4C3, 0x10102),
-    Expected(7302, 0xF0103, 0x00D4, 0x10103),
+    Expected(2790, 0xF0100, 0xB2A1, 0x10100),
+    Expected(4326, 0xF0101, 0x00B2, 0x10101),
+    Expected(5862, 0xF0102, 0xD4C3, 0x10102),
+    Expected(7398, 0xF0103, 0x00D4, 0x10103),
 )
 
 

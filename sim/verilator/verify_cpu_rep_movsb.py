@@ -16,7 +16,7 @@ from verify_trace import FIELDS_V5
 ROM_SIZE = 64 * 1024
 ROM_SHA256 = "a222ed50ae977bcd1ac9bbf66c35b57e589e49b7594a21d07a5eddf899335173"
 BIOS_SIZE = 4096
-BIOS_FNV1A64 = "2c83c0c1976b8168"
+BIOS_FNV1A64 = "5e1a15a782d2bc94"
 EXPECTED_EVENTS = {
     "cpu": True,
     "bank": False,

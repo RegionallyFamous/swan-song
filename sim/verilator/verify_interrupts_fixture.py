@@ -48,9 +48,9 @@ TERMINAL_IP = 0x0504
 MIN_TERMINAL_TAIL = 128
 # Six default-timing framebuffer publications from reset release. This leaves
 # two complete stable rasters after the fixture reaches its terminal loop.
-CAPTURE_CYCLES = 2_884_481
+CAPTURE_CYCLES = 2_887_553
 CAPTURE_FRAMES = 6
-DEFAULT_MONO_BIOS_FNV1A64 = "2c83c0c1976b8168"
+DEFAULT_MONO_BIOS_FNV1A64 = "5e1a15a782d2bc94"
 EXPECTED_EVENTS = {
     "cpu": True,
     "bank": False,

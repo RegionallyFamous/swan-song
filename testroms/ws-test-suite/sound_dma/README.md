@@ -56,7 +56,7 @@ before claiming physical SRAM coverage.
 `make regression` performs two independent 15-frame captures from reset
 release with the default deterministic Color BIOS, complete CPU/background
 history, and memory filtered only to the Sound-DMA initiator. The manifest is
-bound to 7,280,513 cycles, 15 completed frames, the exact ROM and BIOS
+bound to 7,283,585 cycles, 15 completed frames, the exact ROM and BIOS
 identities, zeroed initial IRAM, and the exact event/filter configuration.
 
 The dedicated verifier requires:
@@ -73,7 +73,7 @@ The dedicated verifier requires:
 
 The two complete CSV traces and final framebuffers must be byte-identical. A
 recorded reference run produced trace SHA-256
-`4488231b2b0d49cdffbe3a0a4ddf8d87c18f9f4ef7fa3d6340874d83f39cf627`.
+`bdf774045502d338b73a06ba6253d55b4816583d52983812df7921380c9a0d05`.
 That trace digest records determinism evidence; acceptance is based on the
 field-by-field contract rather than treating one opaque trace hash as proof.
 
