@@ -109,7 +109,7 @@ package pReg_swan is
    
    constant REG_SER_STATUS          : regmap_type := (16#B3#,   7,      0,        1,        0,   readwrite);
    
-   constant REG_INT_STATUS          : regmap_type := (16#B4#,   7,      0,        1,        0,   readwrite);
+   constant REG_INT_STATUS          : regmap_type := (16#B4#,   7,      0,        1,        0,   readonly );
    
    constant REG_KEYPAD              : regmap_type := (16#B5#,   7,      0,        1,        0,   readwrite);
    
