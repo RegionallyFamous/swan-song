@@ -353,13 +353,24 @@ begin
       RegBus_Dout <= wired_or;
    end process;
    
-   IRQ_VBlankTmr <= '1' when (xCount = 255 and unsigned(LINE_CUR) = 143 and TMR_CTRL(2) = '1' and unsigned(VTMR_CTR) = 1) else '0';
+   -- Timer IRQ generation is intentionally independent of the countdown-enable
+   -- bits.  A reload write immediately loads the counter, and hardware raises
+   -- the IRQ when that counter is 1 at the relevant blank even if countdown is
+   -- disabled.  Enable controls decrement/reload below, not this comparator.
+   --
+   -- WSdev Timers, permanent revision 117:
+   -- https://ws.nesdev.org/w/index.php?title=Timers&oldid=117
+   -- ares 449b9371 timer comparator:
+   -- https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/timer.cpp#L1-L8
+   -- Mesen2 b9fa69dd horizontal/vertical timer ticks:
+   -- https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsTimer.cpp#L11-L35
+   IRQ_VBlankTmr <= '1' when (xCount = 255 and unsigned(LINE_CUR) = 143 and unsigned(VTMR_CTR) = 1) else '0';
    
    IRQ_LineComp  <= '1' when (xCount = 255 and ((unsigned(LINE_CUR) + 1 = unsigned(LINE_CMP)) or (unsigned(LINE_CUR) = 158 and unsigned(LINE_CMP) = 0))) else '0'; 
    
    IRQ_VBlank    <= '1' when (xCount = 255 and unsigned(LINE_CUR) = 143) else '0'; 
    
-   IRQ_HBlankTmr <= '1' when (xCount = 255 and TMR_CTRL(0) = '1' and unsigned(HTMR_CTR) = 1) else '0';
+   IRQ_HBlankTmr <= '1' when (xCount = 255 and unsigned(HTMR_CTR) = 1) else '0';
    
    -- savestates
    iSS_GPU   : entity work.eReg_SS generic map ( REG_SAVESTATE_GPU   ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, ss_wired_or(0), SS_GPU_BACK  , SS_GPU  );
