@@ -8,8 +8,8 @@
   224×144 PNG frame hashes in repeated runs.
 - Wonderful's open WSC extended-range fixture renders all three PASS fields and
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
-  above 16 KiB without aliasing; all 15,794 physical display reads match
-  provenance (15,608 exact CPU-written words and 186 power-up prefetches).
+  above 16 KiB without aliasing; all 16,034 physical display reads match
+  provenance (15,600 exact CPU-written words and 434 power-up reads).
   Its 32 atomic sprite-row events bind four cached descriptors to slots 0-3
   on lines 72-79 and distinguish 32 contributing 2bpp words from the engine's
   32 noncontributing second reads.
@@ -44,7 +44,7 @@
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
-  row, and every final RGB pixel. All 25,111 display reads match the
+  row, and every final RGB pixel. All 25,363 display reads match the
   reset-complete writer scoreboard.
 - Paired build-generated, non-checked-in WSC probes exercise both documented
   Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a
@@ -58,10 +58,20 @@
 - A build-generated Color probe locks four targeted sprite-priority cases with
   8×8 panels: low sprite behind opaque Screen 2, the formerly broken
   earlier-low/later-high fallback, high sprite above Screen 2, and ordinary
-  sprite-list order without Screen 2. Its strict two-frame gate proves 24
-  descriptor words, 96 sprite-tile reads, 48 packed 4bpp row promotions, 64
+  sprite-list order without Screen 2. Its strict two-frame gate proves the
+  complete 256-word line-144 table transfer (including the 12 nonzero
+  descriptor words), 96 sprite-tile reads, 48 packed 4bpp row promotions, 64
   exact GDMA words, 18 final CPU writes, zero display collisions, and a stable `frame-1.rgb` SHA-256 of
   `eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3a4b5ef4`.
+  A focused GHDL bench independently places the line-144 boundary at every one
+  of the eight VRAM-arbiter phases under the four-clock fast-forward cadence,
+  requires exactly one addressed word on cycles 0-255 and none on line 145,
+  checks patterned low/high descriptor assembly across `FIRST=127` wrap, and
+  proves late-line-143 count/base/first capture. The all-three latch follows
+  pinned ares; pinned Mesen supplies the 256-cycle copy/count-latch contract and
+  differs by reading base/first live mid-line. Reset cancels a partial transfer;
+  because its hidden phase/cache is not in the legacy payload and Memories is
+  unsupported, a restored mid-line-144 raster remains disarmed until next frame.
 - The title-agnostic glyph reporter converts atomic-cell provenance into a
   complete deterministic epoch CSV plus a compact labeled PNG. On that fixture
   it retains 592 placement/provenance epochs while surfacing seven distinct
@@ -74,7 +84,7 @@
   exact CPU memory origins, exact C0-C3 mapper-write instruction origins,
   resolved mapper offsets, completion-aligned display words/collision status,
   and all six screen-map/tile and sprite-table/tile roles.
-  A byte-lane correlator independently reconstructs all 78,940 fetched words
+  A byte-lane correlator independently reconstructs all 80,202 fetched words
   from complete IRAM history. In that bootstrap trace, its conservative CPU
   ROM-to-IRAM classifier requires a trace-observed `F3 A4` origin signature
   plus an immediate exact same-instruction byte transfer. It accepts two
@@ -207,17 +217,27 @@
   A focused Tcl/Python contract proves that it preserves the 256×32 MIF shape,
   derives the three established words from a clean source commit and an
   explicit or commit-derived epoch, is timezone-independent, and fails closed
-  on ambiguous source identity. Two identical Quartus RBFs have not yet been
-  produced on a supported host.
+  on ambiguous source identity. Clean Linux/amd64 Quartus builds now produce
+  valid RBFs, but two builds of the final release commit have not yet produced
+  and compared byte-identical RBFs.
 - The reverse-bit and deterministic APF package scripts are host-independent.
   Packaging materializes the core's required 411-byte `chip32.bin` offline,
   verifies both its assembly-source and image identities, and rejects missing,
   changed, or path-escaping core references. The image is the exact official
   assembler output for this fork's extended loader source.
-- Quartus compilation and timing closure have not been run in this fork.
-  Quartus 21.1.1 has no native macOS build; an isolated Linux/amd64 Docker
-  workflow now passes host preflight, but the vendor installer, fit, and
-  TimeQuest remain unproven until the user-supplied archive is present.
+- Quartus compilation, fitting, assembly, and four-corner TimeQuest have run in
+  the pinned Quartus Lite 21.1.1 Linux/amd64 container. A fresh full engineering
+  compile of temporary non-public source commit `1e32ff6a` used the current
+  5.9/2.5 ns SDRAM model, produced a valid RBF, and fit at 11,761/18,480 ALMs
+  and 289/308 RAM blocks. Strict signoff reported positive setup and hold at all
+  four slow/fast, 0/85 C corners, zero unconstrained paths and `check_timing`
+  findings, and exactly 16 positive SDRAM DQ setup plus 16 positive DQ hold
+  paths per corner. The surrounding command returned 1 only because the
+  source-bound connectivity policy still described older source, so this is
+  engineering evidence rather than an accepted candidate or final-release
+  build. A reviewed policy for the frozen public commit, its complete accepted
+  evidence bundle, a second byte-identical build, and physical Pocket/Dock
+  validation remain open.
 - No build has been confirmed on an Analogue Pocket in this fork.
 
 ## Simulation
@@ -615,13 +635,16 @@ It never handles ROM or BIOS data.
 
 The checked-in project records Quartus 18.1.1 as its original version and
 21.1.1 Lite as its last-saved version; `ap_core.qpf` still declares 18.1. The
-build helper expects 21.1.1, but this fork has not compiled the project. It
-targets Cyclone V device `5CEBA4F23C8`; Quartus Lite is supported on Linux and
-Windows, not natively on macOS. On Apple Silicon, the fail-closed Docker
-workflow in [`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md) verifies the
-official archive and runs the Linux/amd64 tool under emulation. Docker documents
-that emulation as best effort, so only a completed fit and reports can establish
-that it works for this project.
+build helper expects 21.1.1 and has completed engineering builds in the pinned
+Linux/amd64 container on the trusted x86_64 lab. Those probes establish that
+the tool/device flow can build this project; they do not establish the final
+commit, repeatable RBF output, or hardware acceptance. The project targets
+Cyclone V device `5CEBA4F23C8`; Quartus Lite is supported on Linux and Windows,
+not natively on macOS. On Apple Silicon, the fail-closed Docker workflow in
+[`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md) verifies the official archive
+and runs the Linux/amd64 tool under emulation. Docker documents that emulation
+as best effort, so an emulated invocation must produce and pass its own complete
+fit/evidence set rather than borrowing the x86_64 lab result.
 
 On a supported host with `quartus_sh` on `PATH`:
 
@@ -667,9 +690,10 @@ python3 src/fpga/apf/build_id_gen_test.py
 ```
 
 This proves deterministic MIF generation and source/epoch validation without
-Quartus. Phase 0 still requires two clean Quartus 21.1.1 builds with identical
-RBF hashes, successful fitter/TimeQuest reports, and the separately authorized
-hardware check.
+Quartus. It is not proof that place-and-route is reproducible. Phase 0 still
+requires two clean Quartus 21.1.1 builds of the exact same final commit and
+epoch with identical RBF hashes, complete accepted fitter/TimeQuest evidence,
+and the separately authorized physical Pocket/Dock check.
 
 ## Reverse and package
 
@@ -784,30 +808,39 @@ flip `distribution_and_licensing_authorized` without the required licensing,
 build, and hardware review; the core metadata, policy, evidence, and archive
 name must agree in one reviewed release change.
 
-The evidence file is strict JSON with one `release_evidence` object. It records
-magic `SWAN_SONG_RELEASE_EVIDENCE_V1`, the full lowercase 40-hex source commit,
-`source_date_epoch`, the exact Quartus Lite version `21.1.1 Build 850`, and raw-RBF
+The evidence file is strict JSON with one `release_evidence` object. Release
+mode requires magic `SWAN_SONG_RELEASE_EVIDENCE_V2`; V1 can be parsed only for
+non-release evidence validation and cannot authorize `--release`. V2 records
+the full lowercase 40-hex source commit, `source_date_epoch`, the exact Quartus
+Lite version `21.1.1 Build 850`, and raw-RBF
 `filename`/`size`/`sha256`. Its `build_id` entry names the sibling generated
 `build_id.mif` with exact size and SHA-256; the packager also decodes its `0E0`,
 `0E1`, and `0E2` words and source comments to prove they match the declared UTC
 epoch and commit prefix. Its `reports` object must contain `flow`, `fit`, and
 `sta` entries, each naming a sibling `.flow.rpt`, `.fit.rpt`, or `.sta.rpt` with
 exact size and lowercase SHA-256; every report must be nonempty and identify
-Quartus 21.1.1. Its `gates` object must explicitly accept all of:
+Quartus 21.1.1. V2 additionally binds `quartus-audit-candidate.json`. The
+packager recomputes that complete `SWAN_SONG_QUARTUS_AUDIT_V1` document from
+its sibling artifacts and requires exact equality, matching source/target/RBF/
+build-ID/report identities, accepted candidate gates, `release_eligible: false`,
+unclaimed compression, and false Pocket/Dock gates. Its separate final
+`gates` object must explicitly accept all of:
 
 - `flow_success`, `fit_success`, `setup_timing`, and `hold_timing`;
 - `recovery_timing`, `removal_timing`, and `no_unconstrained_paths`;
 - `no_critical_warnings`, `compressed_bitstream`, `pocket_hardware`, and
   `dock_hardware`.
 
-The packager verifies the exact RBF/report bytes and refuses any false or
-missing gate. The booleans are a review attestation, not an unreliable attempt
-to scrape every localized Quartus report format: the release reviewer remains
-responsible for TimeQuest, warnings, fit/resource changes, and the recorded
-Pocket/Dock runs. The generated package-provenance sidecar embeds the evidence
-manifest hash, build-ID/report hashes, source identity, tool version, and
-accepted gates, making that reviewed evidence cryptographically bound to the
-distributed ZIP.
+The candidate audit and final release attestation are deliberately different
+layers: a successful fit audit never claims compression or hardware, while the
+V2 release record must bind that audit and separately attest the reviewed
+compression plus physical Pocket/Dock results. The packager verifies the exact
+RBF/report/audit bytes and refuses any false or missing final gate. The final
+hardware booleans remain reviewer attestations backed by the dated QA record;
+they are not inferred from Quartus. The generated package-provenance sidecar
+embeds the evidence manifest hash, build-ID/report/audit hashes, source
+identity, tool version, and accepted gates, making that reviewed evidence
+cryptographically bound to the distributed ZIP.
 
 For an unpacked SD-card tree, unzip the package at the card root. The user must
 separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in

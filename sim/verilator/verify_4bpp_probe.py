@@ -38,8 +38,8 @@ ROM_FNV1A64 = {
     PLANAR: "8d65b6afb84cc752",
     PACKED: "8a9ca6a337b5c38e",
 }
-TRACE_SIZE = {PLANAR: 9584180, PACKED: 9584322}
-TRACE_FNV1A64 = {PLANAR: "b9f7712c5913bb13", PACKED: "fe6d4f555a875cca"}
+TRACE_SIZE = {PLANAR: 9600009, PACKED: 9600151}
+TRACE_FNV1A64 = {PLANAR: "beff3a1376017692", PACKED: "7ce75e0f0d83bb9b"}
 FRAME_SHA256 = {
     0: "42cbd40de83feff488f8c63cfbb0bf0a160f7c96416bcb74328b9982e1d04bdb",
     1: "7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d",
@@ -555,8 +555,8 @@ def verify_cell_trace_links(cells: list[dict[str, str]], trace: TraceEvidence) -
 
 def verify_provenance(path: Path, cells: list[dict[str, str]]) -> None:
     rows = read_csv(path, PROVENANCE_FIELDS, "4bpp provenance artifact")
-    if len(rows) != 25669:
-        raise ValueError(f"provenance row count mismatch: {len(rows)} != 25669")
+    if len(rows) != 25921:
+        raise ValueError(f"provenance row count mismatch: {len(rows)} != 25921")
     keys = [(row["cycle"], row["role"], row["address"]) for row in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("provenance contains duplicate (cycle, role, address) keys")
@@ -734,7 +734,7 @@ def main() -> None:
         "PASS 4bpp probe variants=2 per_variant_frames=2 total_frames=4 "
         "per_variant_gdma_words=16 total_gdma_words=32 per_variant_placements=4 "
         "total_placements=8 per_variant_promoted_rows=64 total_promoted_rows=128 "
-        "per_variant_provenance_rows=25669 total_provenance_rows=51338 "
+        "per_variant_provenance_rows=25921 total_provenance_rows=51842 "
         "contacts=2 pixels_and_contacts=cross-format-exact"
     )
 

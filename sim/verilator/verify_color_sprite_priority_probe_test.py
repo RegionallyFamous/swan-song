@@ -21,6 +21,7 @@ from verify_color_sprite_priority_probe import (
     ROM_NAME,
     TABLE_GROUP,
     VramFetch,
+    expected_sprite_table,
     expected_sprite_tiles,
     expected_stable_frame,
     read_trace,
@@ -52,7 +53,7 @@ def must_fail(function, *args, contains: str | None = None) -> None:
 def synthetic_vram() -> list[VramFetch]:
     result: list[VramFetch] = []
     cycle = 1
-    for address, value in TABLE_GROUP * 2:
+    for address, value in expected_sprite_table():
         result.append(VramFetch(cycle, "sprite_table", address, value, 0))
         cycle += 1
     for address, value in expected_sprite_tiles():
@@ -183,7 +184,7 @@ def unit_mutations() -> None:
 
     vram = synthetic_vram()
     counts = verify_vram(vram)
-    assert counts["sprite_table_words"] == 24
+    assert counts["sprite_table_words"] == 256
     assert counts["sprite_tile_words"] == 96
 
     priority_cleared = deepcopy(vram)
@@ -327,7 +328,7 @@ def main() -> None:
     artifact_mutations(args.root)
     print(
         "PASS Color sprite-priority verifier mutations "
-        "controls=blue,green,green,red table_words=24 tile_words=96 gdma_words=64"
+        "controls=blue,green,green,red table_words=256 tile_words=96 gdma_words=64"
     )
 
 
