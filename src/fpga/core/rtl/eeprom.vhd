@@ -483,7 +483,19 @@ begin
                
                   if (ce = '1' and Cmd_written = '1') then
                      state <= EVALCMD;
-                     if (RegBus_Din = x"10") then
+                     -- The internal controller exposes a useful DONE edge: a
+                     -- valid READ clears it until READONE completes. Bandai
+                     -- 2001 cartridge EEPROM has the documented inverse bug:
+                     -- READ retains DONE, while valid WRITE/WRAL and every
+                     -- SHORT/other command clear it.
+                     if (RegBus_Din = x"10" and isExternal = '0' and
+                         opcode = "10") then
+                        readDone <= '0';
+                     elsif (RegBus_Din = x"20" and isExternal = '1' and
+                            (opcode = "01" or
+                             (opcode = "00" and extCmd = "01"))) then
+                        readDone <= '0';
+                     elsif (RegBus_Din = x"40" and isExternal = '1') then
                         readDone <= '0';
                      end if;
                   end if;
