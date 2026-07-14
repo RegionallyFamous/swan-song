@@ -182,6 +182,19 @@ def recorded_workflow_commit(state: dict[str, Any]) -> str:
     return validate_commit(commit)
 
 
+def recorded_workflow_display_title(state: dict[str, Any]) -> str:
+    """Accept the one recorded pre-raw-nonce run, never an arbitrary title."""
+    nonce = state_lab_nonce(state)
+    modern = f"Quartus fit candidate {nonce}"
+    legacy = state.get("legacy_workflow_display_title")
+    if legacy is None:
+        return modern
+    expected_legacy = f"Quartus fit candidate swan-lab-{nonce}"
+    if legacy != expected_legacy:
+        raise LabError("recorded legacy workflow title does not match the lab nonce")
+    return expected_legacy
+
+
 def branch_api_path(repo: str, branch: str) -> str:
     return f"repos/{repo}/branches/{quote(branch, safe='')}"
 
@@ -772,7 +785,7 @@ def recover_pending(state: dict[str, Any], path: Path) -> None:
             matches = [
                 item for item in runs
                 if isinstance(item, dict)
-                and item.get("display_title") == f"Quartus fit candidate {nonce}"
+                and item.get("display_title") == recorded_workflow_display_title(state)
                 and item.get("head_sha") == recorded_workflow_commit(state)
                 and item.get("head_branch") == recorded_workflow_branch(state)
                 and item.get("event") == "workflow_dispatch"
@@ -1252,13 +1265,14 @@ def rearm(args: argparse.Namespace) -> None:
     workflow = resource_get(["gh", "api", f"repos/{state['repo']}/actions/runs/{run_id}"])
     prior_branch = recorded_workflow_branch(state)
     prior_commit = recorded_workflow_commit(state)
+    prior_title = recorded_workflow_display_title(state)
     if (
         workflow is None
         or workflow.get("status") != "completed"
         or workflow.get("head_sha") != prior_commit
         or workflow.get("head_branch") != prior_branch
         or workflow.get("event") != "workflow_dispatch"
-        or workflow.get("display_title") != f"Quartus fit candidate {old_nonce}"
+        or workflow.get("display_title") != prior_title
     ):
         raise LabError("the prior workflow is not an exact completed run for this lab")
     if resource_get(["gh", "api", f"repos/{state['repo']}/actions/runners/{runner_id}"]) is not None:
@@ -1318,6 +1332,7 @@ trap - EXIT
     state.pop("workflow_branch", None)
     state.pop("workflow_commit", None)
     state.pop("workflow_profile", None)
+    state.pop("legacy_workflow_display_title", None)
     state.pop("failure", None)
     save_state(path, state)
     try:

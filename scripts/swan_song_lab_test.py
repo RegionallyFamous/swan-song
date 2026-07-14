@@ -880,6 +880,21 @@ class SwanSongLabTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(lab.LabError):
                 lab.validate_lab_nonce(value)
 
+    def test_recorded_pre_raw_nonce_title_is_narrowly_migrated(self) -> None:
+        nonce = "a" * 32
+        state = {
+            "lab_nonce": nonce,
+            "resource_names": {"workflow_run": nonce},
+            "legacy_workflow_display_title": f"Quartus fit candidate swan-lab-{nonce}",
+        }
+        self.assertEqual(
+            lab.recorded_workflow_display_title(state),
+            f"Quartus fit candidate swan-lab-{nonce}",
+        )
+        state["legacy_workflow_display_title"] = "Quartus fit candidate arbitrary"
+        with self.assertRaisesRegex(lab.LabError, "does not match"):
+            lab.recorded_workflow_display_title(state)
+
     def test_state_file_is_private_and_rejects_wrong_magic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "state.json"
