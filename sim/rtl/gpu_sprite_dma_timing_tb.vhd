@@ -47,10 +47,38 @@ architecture tb of gpu_sprite_dma_timing_tb is
    signal sprite_row_valid       : std_logic;
    signal sprite_row_table_addr  : std_logic_vector(15 downto 0);
    signal sprite_row_table_value : std_logic_vector(31 downto 0);
+   signal sprite_row_meta        : std_logic_vector(16 downto 0);
+   signal table_variant          : natural range 0 to 3 := 0;
 
-   function table_word(address : std_logic_vector(15 downto 0))
+   function table_word(
+      address : std_logic_vector(15 downto 0);
+      variant : natural
+   )
       return std_logic_vector is
+      variable word_address : natural;
    begin
+      word_address := to_integer(unsigned(address));
+      if variant > 0 and word_address >= 16#0200# and word_address < 16#0400# then
+         if variant = 3 then
+            if (word_address - 16#0200#) mod 4 = 0 then
+               return std_logic_vector(to_unsigned((word_address - 16#0200#) / 4, 16));
+            else
+               return std_logic_vector(to_unsigned(((word_address - 16#0200#) / 4) * 256, 16));
+            end if;
+         end if;
+         if word_address = 16#03FC# then
+            if variant = 1 then return x"0101"; else return x"0202"; end if;
+         elsif word_address = 16#03FE# then
+            if variant = 1 then return x"1000"; else return x"2000"; end if;
+         elsif (word_address - 16#0200#) mod 4 = 2 then
+            -- All non-target descriptors have Y=$F0 and are inactive for
+            -- rows 0/1. Descriptor 127 alone distinguishes old/new tables.
+            return x"00F0";
+         else
+            return x"0000";
+         end if;
+      end if;
+
       -- Two wrapped descriptors have distinct low/high halves and y=0, so
       -- their eventual row admissions prove data assembly as well as address
       -- provenance. Every other word is address-patterned, never anonymous 0.
@@ -71,7 +99,7 @@ begin
    ram_model : process (clk)
    begin
       if rising_edge(clk) then
-         ram_dataread  <= table_word(ram_addr);
+         ram_dataread  <= table_word(ram_addr, table_variant);
          ram_resp_addr <= ram_addr;
       end if;
    end process;
@@ -134,20 +162,27 @@ begin
          debug_sprite_row_line_epoch => open,
          debug_sprite_row_addr => open,
          debug_sprite_row_value => open,
-         debug_sprite_row_meta => open
+         debug_sprite_row_meta => sprite_row_meta
       );
 
    stimulus : process
       variable shadow_line       : natural range 0 to 158 := 0;
       variable shadow_cycle      : natural range 0 to 255 := 0;
+      variable shadow_final      : natural range 0 to 158 := 158;
       variable arbiter_phase     : natural range 0 to 7 := 0;
       variable tracking          : boolean := false;
       variable expect_transfer   : boolean := false;
       variable verify_rows       : boolean := false;
+      variable verify_dma_addresses : boolean := true;
+      variable verify_final144_rows : boolean := false;
+      variable verify_saturated_rows : boolean := false;
       variable requested_phase   : natural range 0 to 7 := 1;
       variable fetch_count       : natural := 0;
       variable case_fetch_count  : natural := 0;
       variable row_count         : natural := 0;
+      variable new_row0_count    : natural := 0;
+      variable new_row1_count    : natural := 0;
+      variable saturated_row_count : natural := 0;
       variable expected_addr     : natural;
 
       procedure observe(edge_phase : natural) is
@@ -155,7 +190,7 @@ begin
          if tracking and reset = '0' and ce = '1' then
             if shadow_cycle = 255 then
                shadow_cycle := 0;
-               if shadow_line = 158 then
+               if shadow_line = shadow_final then
                   shadow_line := 0;
                else
                   shadow_line := shadow_line + 1;
@@ -174,12 +209,16 @@ begin
                report "sprite-table request escaped line 144" severity failure;
             assert case_fetch_count < 256
                report "more than 256 sprite-table requests" severity failure;
-            assert shadow_cycle = case_fetch_count
-               report "sprite-table request is not one word per logical system cycle" severity failure;
+            if verify_dma_addresses then
+               assert shadow_cycle = case_fetch_count
+                  report "sprite-table request is not one word per logical system cycle" severity failure;
+            end if;
 
-            expected_addr := 16#1200# + ((16#1FC# + (case_fetch_count * 2)) mod 512);
-            assert unsigned(ram_addr) = expected_addr
-               report "sprite-table wrapped address mismatch" severity failure;
+            if verify_dma_addresses then
+               expected_addr := 16#1200# + ((16#1FC# + (case_fetch_count * 2)) mod 512);
+               assert unsigned(ram_addr) = expected_addr
+                  report "sprite-table wrapped address mismatch" severity failure;
+            end if;
 
             report "sprite_dma trace boundary_phase=" & integer'image(requested_phase) &
                    " arbiter_phase=" & integer'image(edge_phase) &
@@ -192,7 +231,10 @@ begin
             fetch_count := fetch_count + 1;
          end if;
 
-         if verify_rows and sprite_row_valid = '1' and shadow_line = 0 then
+         if verify_rows and sprite_row_valid = '1' and shadow_line = 158 then
+            assert sprite_row_meta(7 downto 0) = x"00"
+               report "terminal-line sprite prefetch did not target next-frame row0"
+               severity failure;
             if row_count = 0 then
                assert unsigned(sprite_row_table_addr) = 16#13FC#
                   report "first cached descriptor did not use wrapped late-line-143 address" severity failure;
@@ -205,6 +247,41 @@ begin
                   report "second cached descriptor low/high data assembly mismatch" severity failure;
             end if;
             row_count := row_count + 1;
+         end if;
+
+         if verify_final144_rows and sprite_row_valid = '1' then
+            assert unsigned(sprite_row_table_addr) = 16#03FC#
+               report "final144 row prefetch did not reach descriptor127"
+               severity failure;
+            if sprite_row_meta(7 downto 0) = x"00" then
+               assert shadow_line = 0 and sprite_row_table_value = x"20000202"
+                  report "final144 row0 was not streamed from newly copied OAM"
+                  severity failure;
+               new_row0_count := new_row0_count + 1;
+            elsif sprite_row_meta(7 downto 0) = x"01" then
+               assert shadow_line = 0 and sprite_row_table_value = x"20000202"
+                  report "final144 row1 was not prepared from complete-new OAM"
+                  severity failure;
+               new_row1_count := new_row1_count + 1;
+            else
+               assert false
+                  report "final144 OAM handoff admitted an unexpected sprite row"
+                  severity failure;
+            end if;
+         end if;
+
+         if verify_saturated_rows and sprite_row_valid = '1' then
+            assert saturated_row_count < 32
+               report "final144 stream admitted more than 32 sprites" severity failure;
+            assert unsigned(sprite_row_table_addr) =
+                   to_unsigned(16#0200# + saturated_row_count * 4, 16)
+               report "final144 saturated stream did not preserve first-32 OAM order"
+               severity failure;
+            assert sprite_row_meta(7 downto 0) = x"00" and
+                   unsigned(sprite_row_meta(12 downto 8)) = saturated_row_count
+               report "final144 saturated stream row/slot metadata mismatch"
+               severity failure;
+            saturated_row_count := saturated_row_count + 1;
          end if;
       end procedure;
 
@@ -280,6 +357,8 @@ begin
          case_fetch_count := 0;
          row_count := 0;
          verify_rows := check_rows;
+         verify_dma_addresses := true;
+         shadow_final := 158;
          restore_raster(142, 250);
 
          -- Initial values deliberately differ from the late line-143 values.
@@ -339,8 +418,10 @@ begin
             report "sprite-table request leaked into line 145" severity failure;
 
          if check_rows then
-            -- Reach the next line 0. Count=2 and both patterned descriptors
-            -- must be accepted; the post-boundary count=1 must not win.
+            -- Reach the next line 0. The programmed terminal line preloads
+            -- row-0 sprites before line 0 is rendered. Count=2 and both
+            -- patterned descriptors must be accepted; the post-boundary
+            -- count=1 must not win.
             for i in 1 to (14 * 256 + 52) loop
                system_cycle_fast;
             end loop;
@@ -423,7 +504,123 @@ begin
       assert fetch_count = before_cancel
          report "reset/restore resumed an unsaved line-144 transfer remainder" severity failure;
 
-      report "PASS GPU sprite DMA line-144 timing at all eight arbiter phases, wrap data, boundary latch, provenance, and reset cancellation"
+      -- Minimum VBlank-capable total: seed a complete old internal table,
+      -- then refresh all 128 descriptors on terminal line144. Descriptor127
+      -- differs between old/new tables and is active on rows0/1. Row0 must be
+      -- streamed from the just-completed descriptor, never scanned from the
+      -- partial spriteRAM array; row1 then uses the same complete-new table.
+      tracking := false;
+      expect_transfer := false;
+      verify_dma_addresses := false;
+      shadow_final := 144;
+      table_variant <= 1;
+      write_reg(16#16#, 144);
+      write_reg(16#60#, 16#80#);
+      write_reg(16#04#, 1);
+      write_reg(16#05#, 0);
+      write_reg(16#06#, 128);
+      restore_raster(143, 255);
+
+      requested_phase := 0;
+      case_fetch_count := 0;
+      tracking := true;
+      expect_transfer := true;
+      align_phase(0);
+      pulse_system_cycle;
+      for i in 1 to 3 loop
+         tick;
+      end loop;
+      for i in 1 to 255 loop
+         system_cycle_fast;
+      end loop;
+      assert shadow_line = 144 and shadow_cycle = 255 and case_fetch_count = 256
+         report "old-table seed did not copy exactly 256 words" severity failure;
+      system_cycle_fast;
+      expect_transfer := false;
+      assert shadow_line = 0 and shadow_cycle = 0
+         report "final144 old-table seed did not wrap to line0" severity failure;
+      expect_transfer := false;
+      for i in 1 to 8 loop
+         tick;
+      end loop;
+
+      -- Replace the complete old table at every possible boundary arbiter
+      -- phase. Descriptor127 is the only active sprite and arrives last, so it
+      -- exercises the worst-case cross-wrap response, deferred start, and
+      -- complete-new row1 handoff without relying on an early descriptor.
+      for boundary_phase in 0 to 7 loop
+         table_variant <= 2;
+         tick;
+         restore_raster(143, 255);
+         requested_phase := boundary_phase;
+         case_fetch_count := 0;
+         new_row0_count := 0;
+         new_row1_count := 0;
+         verify_final144_rows := true;
+         tracking := true;
+         expect_transfer := true;
+         align_phase(boundary_phase);
+         pulse_system_cycle;
+         for i in 1 to 3 loop
+            tick;
+         end loop;
+         for i in 1 to 255 loop
+            system_cycle_fast;
+         end loop;
+         assert shadow_line = 144 and shadow_cycle = 255 and case_fetch_count = 256
+            report "new-table line144 DMA did not copy exactly 256 words"
+            severity failure;
+         system_cycle_fast;
+         expect_transfer := false;
+         assert shadow_line = 0 and shadow_cycle = 0
+            report "new-table final144 DMA did not wrap to line0" severity failure;
+         for i in 1 to 160 loop
+            system_cycle_fast;
+         end loop;
+         assert new_row0_count = 1 and new_row1_count = 1
+            report "final144 OAM handoff was stale, partial, mixed, or phase-dependent"
+            severity failure;
+         verify_final144_rows := false;
+         tracking := false;
+      end loop;
+
+      -- Saturated traffic makes every descriptor active. The physical RTL,
+      -- not only the independent scheduler model, must sustain the one-current
+      -- plus one-pending cadence and retain exactly the first 32 in OAM order.
+      table_variant <= 3;
+      tick;
+      for boundary_phase in 0 to 7 loop
+         restore_raster(143, 255);
+         requested_phase := boundary_phase;
+         case_fetch_count := 0;
+         saturated_row_count := 0;
+         verify_saturated_rows := true;
+         tracking := true;
+         expect_transfer := true;
+         align_phase(boundary_phase);
+         pulse_system_cycle;
+         for i in 1 to 3 loop
+            tick;
+         end loop;
+         for i in 1 to 255 loop
+            system_cycle_fast;
+         end loop;
+         assert case_fetch_count = 256
+            report "final144 saturated transfer did not copy exactly 256 words"
+            severity failure;
+         system_cycle_fast;
+         expect_transfer := false;
+         for i in 1 to 8 loop
+            system_cycle_fast;
+         end loop;
+         assert saturated_row_count = 32
+            report "final144 saturated stream did not retain exactly the first 32 sprites"
+            severity failure;
+         verify_saturated_rows := false;
+         tracking := false;
+      end loop;
+
+      report "PASS GPU sprite DMA line-144 timing at all eight arbiter phases, wrap data, boundary latch, provenance, reset cancellation, final144 newly copied row0/row1 handoff, and all-phase saturated first-32 retention"
          severity note;
       std.env.stop;
       wait;

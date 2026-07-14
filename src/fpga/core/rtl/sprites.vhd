@@ -9,6 +9,7 @@ entity sprites is
       ce             : in  std_logic;
       
       startLine      : in  std_logic;
+      startX         : in  std_logic_vector(7 downto 0) := (others => '0');
       lineY          : in  std_logic_vector(7 downto 0);
       
       enable         : in  std_logic;
@@ -123,12 +124,16 @@ begin
          
             if (startLine = '1' and enable = '1') then
             
-               pixelCount     <= 0;
+               -- A minimum-length frame can finish the line-144 OAM copy a
+               -- couple of system cycles into row 0. Start from the current
+               -- beam position in that case so the normal 15-pixel preroll
+               -- remains spatially aligned. Ordinary rows pass startX=0.
+               pixelCount     <= to_integer(unsigned(startX));
                spriteSettings <= spriteSettingsNext;
                spritesActive  <= spritesActiveNext;
                
-               posX           <= to_unsigned(0, 8) - 15; -- for prefetching
-               wxCheck        <= to_unsigned(0, 8) - 14; -- for prefetching
+               posX           <= unsigned(startX) - 15; -- for prefetching
+               wxCheck        <= unsigned(startX) - 14; -- for prefetching
                
             elsif (pixelCount < 250) then
                   
@@ -227,7 +232,6 @@ begin
    
   
 end architecture;
-
 
 
 

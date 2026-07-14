@@ -48,9 +48,9 @@ notes that a display shorter than 144 lines never reaches normal VBlank. The
 translated GPU compares live `LCD_VTOTAL` on every line; it does not latch a
 guaranteed frame length at address zero.
 
-A concrete legal-register counterexample is Final Line 142. The candidate sees
-address zero and arms, but the producer wraps after row 142. APF later reads row
-143/address 32,032 from stale bank contents. A write from 158 to 142 after the
+A concrete legal-register counterexample is Final Line 143. LCD delivery is
+one line delayed, so the producer wraps after publishing row 142. APF later
+reads row 143/address 32,032 from stale bank contents. A write from 158 to 143 after the
 output boundary creates the same failure even if the frame began normally.
 Once earlier rows have been displayed, falling back to a complete bank for row
 143 would itself create a cross-generation tear.
