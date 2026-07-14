@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from unittest import mock
 
 import quartus_evidence as evidence
 import quartus_container_provenance as container_provenance
@@ -73,6 +74,155 @@ class QuartusEvidenceTest(unittest.TestCase):
             {Path(relative) for relative in fit_audit.REQUIRED_ARTIFACTS},
             allowlist,
         )
+
+        refresh_allowlist = {
+            item.relative for item in evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES
+        }
+        self.assertLessEqual(
+            sum(
+                item.max_bytes
+                for item in evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES
+            ),
+            evidence.MAX_CONNECTIVITY_REFRESH_BYTES,
+        )
+        self.assertEqual(
+            refresh_allowlist,
+            {
+                Path("build-metadata.txt"),
+                Path("toolchain-version.txt"),
+                Path("container-provenance.json"),
+                Path("container-packages.tsv"),
+                Path("output_files/ap_core.map.rpt"),
+            },
+        )
+
+    def test_connectivity_refresh_copies_only_discovery_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            artifacts, output = self.roots(temporary)
+            self.add_candidate_binding(artifacts)
+
+            collected = evidence.collect_evidence(
+                artifacts,
+                output,
+                profile=evidence.CONNECTIVITY_REFRESH_PROFILE,
+            )
+
+            expected = {
+                item.relative
+                for item in evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES
+            }
+            self.assertEqual(set(collected), expected)
+            self.assertEqual(self.files_under(output), expected)
+            for forbidden in (
+                "quartus-audit-candidate.json",
+                "quartus.log",
+                "ap_core.rbf.sha256",
+                "build_id.mif",
+                "output_files/ap_core.rbf",
+                "output_files/ap_core.fit.rpt",
+                "output_files/ap_core.asm.rpt",
+                "output_files/ap_core.sta.rpt",
+                "output_files/ap_core.flow.rpt",
+            ):
+                self.assertNotIn(Path(forbidden), expected)
+
+    def test_connectivity_refresh_requires_all_discovery_evidence(self) -> None:
+        required = tuple(
+            item.relative for item in evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES
+        )
+        for missing in required:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temporary:
+                artifacts, output = self.roots(temporary)
+                (artifacts / "output_files").mkdir()
+                (artifacts / "build-metadata.txt").write_text("metadata\n")
+                (artifacts / "toolchain-version.txt").write_text("toolchain\n")
+                (artifacts / "output_files/ap_core.map.rpt").write_text("map\n")
+                self.add_container_provenance(artifacts)
+                (artifacts / missing).unlink()
+
+                with self.assertRaisesRegex(
+                    evidence.EvidenceError,
+                    "requires complete discovery evidence",
+                ):
+                    evidence.collect_evidence(
+                        artifacts,
+                        output,
+                        profile=evidence.CONNECTIVITY_REFRESH_PROFILE,
+                    )
+                self.assertEqual(self.files_under(output), set())
+
+    def test_connectivity_refresh_bundle_is_exact_and_total_bounded(self) -> None:
+        def populate(root: Path) -> None:
+            for item in (
+                *evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES,
+                *evidence.CONNECTIVITY_REFRESH_DRAFT_FILES,
+            ):
+                path = root / item.relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"{item.relative}\n")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            populate(root)
+            validated = evidence.validate_connectivity_refresh_bundle(root)
+            self.assertEqual(
+                set(validated),
+                {
+                    item.relative
+                    for item in (
+                        *evidence.CONNECTIVITY_REFRESH_EVIDENCE_FILES,
+                        *evidence.CONNECTIVITY_REFRESH_DRAFT_FILES,
+                    )
+                },
+            )
+
+        mutations = ("missing", "extra", "symlink", "oversized_draft", "total")
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                populate(root)
+                draft = root / "connectivity-warning-12241.draft.json"
+                if mutation == "missing":
+                    draft.unlink()
+                elif mutation == "extra":
+                    (root / "quartus.log").write_text("forbidden\n")
+                elif mutation == "symlink":
+                    draft.unlink()
+                    draft.symlink_to("connectivity-warning-12241.draft.tsv")
+                elif mutation == "oversized_draft":
+                    with draft.open("wb") as output:
+                        output.truncate(
+                            evidence.MAX_CONNECTIVITY_POLICY_DRAFT_BYTES + 1
+                        )
+
+                context = (
+                    mock.patch.object(evidence, "MAX_CONNECTIVITY_REFRESH_BYTES", 6)
+                    if mutation == "total"
+                    else mock.patch.object(
+                        evidence,
+                        "MAX_CONNECTIVITY_REFRESH_BYTES",
+                        evidence.MAX_CONNECTIVITY_REFRESH_BYTES,
+                    )
+                )
+                with context, self.assertRaises(evidence.EvidenceError):
+                    evidence.validate_connectivity_refresh_bundle(root)
+
+    def test_unknown_evidence_profile_fails_before_copying(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            artifacts, output = self.roots(temporary)
+            (artifacts / "output_files").mkdir()
+            (artifacts / "output_files/ap_core.map.rpt").write_text("map")
+
+            with self.assertRaisesRegex(
+                evidence.EvidenceError,
+                "unknown Quartus evidence profile",
+            ):
+                evidence.collect_evidence(
+                    artifacts,
+                    output,
+                    profile="unrestricted",
+                )
+            self.assertEqual(self.files_under(output), set())
 
     def test_partial_failed_fit_collects_only_files_that_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -319,7 +469,14 @@ class QuartusEvidenceTest(unittest.TestCase):
             map_report = artifacts / "output_files/ap_core.map.rpt"
             map_report.write_text(
                 map_report.read_text()
-                + "Warning (12241): hierarchy has connectivity warnings\n"
+                + "Warning (12241): 1 hierarchy have connectivity warnings - "
+                "see the Connectivity Checks report folder\n"
+                + '; Port Connectivity Checks: "fixture:unreviewed" ;\n'
+                + "+ fixture +\n"
+                + "; Port ; Type ; Severity ; Details ;\n"
+                + "+ fixture +\n"
+                + "; data ; Output ; Warning ; Declared but not connected ;\n"
+                + "+ fixture +\n"
             )
             payload = fit_audit.audit(artifacts)
             self.assertFalse(payload["quartus_audit"]["audit_pass"])

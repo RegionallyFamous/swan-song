@@ -51,9 +51,11 @@ and the [fit-evidence audit](https://github.com/RegionallyFamous/swan-song/blob/
 
 An optional, explicitly billable DigitalOcean launcher can create a temporary
 native x86_64 worker. It is dry-run-first, restricts SSH to one `/32`, binds
-the exact default-branch commit, uses a one-job JIT GitHub runner, and destroys
-the recorded cloud resources afterward. It is a Quartus worker, not a ROM
-testing server or remote ChatGPT host. Read [Swan Song
+the exact default-branch commit, and uses a one-job JIT GitHub runner. Each
+runner gets a random per-job label whose raw nonce must exactly match the
+workflow dispatch; rearm rotates it and recovery rejects mismatches. The
+launcher destroys the recorded cloud resources afterward. It is a Quartus
+worker, not a ROM testing server or remote ChatGPT host. Read [Swan Song
 Lab](https://github.com/RegionallyFamous/swan-song/blob/main/SWAN_SONG_LAB.md)
 before creating anything.
 
