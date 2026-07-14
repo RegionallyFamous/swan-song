@@ -1,9 +1,12 @@
 # Safe Mac-side Pocket SD staging
 
-This workflow validates a Swan Song **development** package and builds a local
-Pocket-shaped directory tree without touching a mounted SD card by default. It
-never downloads or bundles a BIOS or game image. Swan Song is maintained by
-Regionally Famous and the package identity is `RegionallyFamous.SwanSong`.
+This workflow validates either a Swan Song **development** package or, with an
+explicit mode, a fully authorized Swan Song **release**. It builds a local
+Pocket-shaped directory tree without touching a mounted SD card by default.
+It never downloads or bundles a BIOS or game image, and it never reads or
+catalogues game ROM contents already on the selected target. Swan Song is
+maintained by Regionally Famous and the package identity is
+`RegionallyFamous.SwanSong`.
 
 Analogue documents a core ZIP as a snapshot of the Pocket SD filesystem that
 is extracted at the SD root. Core definitions belong under
@@ -38,8 +41,8 @@ RBF was already produced—for example by the Apple-Silicon Docker workflow—ru
 ```
 
 The command also creates `build/SwanSong.zip.provenance.json`, which must stay
-beside the ZIP. Release packages are deliberately rejected by this staging
-tool. Apple-Silicon developers need Docker Desktop and the exact Quartus Linux
+beside the ZIP. Development staging remains bound to the exact current checkout.
+Apple-Silicon developers need Docker Desktop and the exact Quartus Linux
 download documented in [`QUARTUS_MAC_DOCKER.md`](QUARTUS_MAC_DOCKER.md); normal
 Pocket users installing a verified release need neither Quartus nor Docker.
 
@@ -53,13 +56,67 @@ by the checked-in APF data slots. The script verifies their sizes and reports
 SHA-256 hashes for the operator's log. It does not search for, download,
 extract, or identify BIOS content on the user's behalf.
 
-Create an ordinary local directory outside `/Volumes`:
+## Verified release mode
+
+There is no authorized Swan Song release yet. The checked-in
+`release-policy.json` deliberately has
+`distribution_and_licensing_authorized: false`, so release verification stops
+before any write—even when `--apply` is present. Do not change that value merely
+to make installation proceed. It is a reviewed release gate, not a user option.
+
+Once an official release exists, its release notes must publish the ZIP's
+lowercase SHA-256, the adjacent provenance sidecar's lowercase SHA-256, exact
+version, and full 40-character lowercase source commit.
+Download the ZIP and its adjacent `.provenance.json` sidecar from the official
+release, then run a read-only verification first:
+
+```sh
+python3 scripts/stage_pocket_sd.py \
+  --staging-dir "$HOME/Desktop/Swan-Song-Pocket-stage" \
+  --package "/path/to/RegionallyFamous.SwanSong_VERSION_DATE.zip" \
+  --verify-release \
+  --expected-package-sha256 "SHA256_FROM_OFFICIAL_RELEASE_NOTES" \
+  --expected-provenance-sha256 "PROVENANCE_SHA256_FROM_OFFICIAL_RELEASE_NOTES" \
+  --expected-version "VERSION_FROM_OFFICIAL_RELEASE_NOTES" \
+  --expected-source-commit "FULL_COMMIT_FROM_OFFICIAL_RELEASE_NOTES"
+```
+
+Release mode accepts only the exact release-provenance schema. It binds the
+operator's expected ZIP and provenance checksums, version, and source commit to
+the ZIP, exact core ID, archive filename, complete member inventory, reversible
+raw/packaged bitstream identity, Chip32 image, V2 build evidence, accepted final
+gates, and the exact checked-in release policy. Release creation also requires
+a clean checkout whose HEAD is the evidence commit, compares every tracked
+`dist/` and Chip32 input with its Git blob, rejects untracked empty package
+directories, records that complete source-input manifest beside the RBF
+identity, and rechecks the copied package snapshot before ZIP creation. The
+policy must authorize
+identity plus distribution and licensing, and the policy record embedded in
+provenance must exactly match the freshly validated policy summary, including
+its manifest size and SHA-256. Unknown provenance fields, an unpinned or
+development sidecar, or any mismatch fails closed.
+
+BIOS selection is optional in release mode. Add either or both arguments only
+when you want the tool to stage those exact user-selected files:
+
+```sh
+  --bw-bios "/path/to/your/bw.rom" \
+  --color-bios "/path/to/your/color.rom"
+```
+
+Selected files must still be exactly 4,096 and 8,192 bytes. Omitted BIOS paths,
+existing BIOS files, and all `.ws`/`.wsc` files are outside the managed merge
+and are not read or changed. After the dry-run summary is correct and release
+authorization is genuinely present, repeat with `--apply`.
+
+For release or development staging, create an ordinary local directory outside
+`/Volumes`:
 
 ```sh
 mkdir -p "$HOME/Desktop/Swan-Song-Pocket-stage"
 ```
 
-## Read-only validation first
+## Development-package validation
 
 ```sh
 python3 scripts/stage_pocket_sd.py \
@@ -72,9 +129,10 @@ python3 scripts/stage_pocket_sd.py \
 Without `--apply`, the command performs no writes. It validates:
 
 - the ZIP and adjacent package provenance SHA-256/file inventory;
-- development—not release—provenance;
+- development—not release—provenance unless `--verify-release` is explicitly
+  selected;
 - safe relative ZIP paths, permitted top-level directories, entry count and
-  expanded-size limits, and the absence of encrypted entries, symlinks,
+  archive/expanded-size limits, and the absence of encrypted entries, symlinks,
   special files, traversal, duplicates, and case collisions;
 - the full APF source definition using the repository's existing strict
   package validator;
@@ -103,8 +161,15 @@ python3 scripts/stage_pocket_sd.py \
 ```
 
 Writes use same-directory temporary files followed by atomic replacement. The
-entire destination plan is checked before the first write and each managed
-path is checked again immediately before use. Existing identical files are
+entire destination plan is checked before the first write. Planning opens the
+selected root without following a symlink and records its filesystem identity;
+apply must reopen that same directory. Apply then holds no-follow descriptors
+from that root through every destination parent, snapshots every managed file,
+and keeps the descriptors open for the transaction. If any replacement fails,
+all completed replacements are restored and newly created managed files and
+empty directories are removed. Rollback never overwrites a concurrently
+changed file. Folder creation is component-by-component and rejects symlinks,
+non-directories, traversal, and case collisions. Existing identical files are
 left alone. Existing managed files are replaced; unrelated content is
 preserved. Nothing is pruned.
 
@@ -113,9 +178,13 @@ preserved. Nothing is pruned.
 Staging `Cores/RegionallyFamous.SwanSong` does not replace or delete
 `Cores/agg23.WonderSwan`; the two APF identities can be installed side by side.
 The script intentionally performs no user-data migration. Platform-common ROMs
-and BIOS files stay shared in `Assets/wonderswan/common`. Slot-11 cartridge
-saves also stay shared in the mirrored `Saves/wonderswan/common/...` path, so
-make a backup before using the same cartridge save with both cores.
+and BIOS files stay shared in `Assets/wonderswan/common`. Slot 11 is
+core-specific (`0x86`), so Swan Song saves mirror the selected game below
+`Saves/wonderswan/RegionallyFamous.SwanSong/...`. Older
+`Saves/wonderswan/common/...` saves are not visible automatically and must not
+be copied blindly because inherited layouts can differ. Make a backup, run
+Swan Song Doctor, and use the read-only-first
+[ROM-aware cartridge-save helper](CARTRIDGE_SAVE_MIGRATION.md).
 
 Fixed console EEPROM, settings, presets, and Memories are core-ID scoped. If a
 prior development installation stored data under `agg23.WonderSwan`, make a

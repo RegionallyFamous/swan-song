@@ -28,26 +28,36 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def chip32_image(assembly: pathlib.Path, encoded_image: pathlib.Path) -> bytes:
-    try:
-        assembly_bytes = assembly.read_bytes()
-    except OSError as error:
-        raise ValueError(f"cannot read Chip32 assembly {assembly}: {error}") from error
+def chip32_image_bytes(
+    assembly_bytes: bytes,
+    encoded_image_bytes: bytes,
+    *,
+    assembly_description: str = "captured Chip32 assembly",
+    encoded_image_description: str = "captured Chip32 image",
+) -> bytes:
+    """Validate and decode one immutable pair of Chip32 input snapshots."""
+
     assembly_digest = sha256(assembly_bytes)
     if assembly_digest != EXPECTED_ASM_SHA256:
         raise ValueError(
-            "Chip32 assembly does not match the image source: "
+            "Chip32 assembly does not match the image source "
+            f"({assembly_description}): "
             f"expected sha256={EXPECTED_ASM_SHA256}, got {assembly_digest}"
         )
 
     try:
-        encoded = encoded_image.read_text(encoding="ascii")
-    except (OSError, UnicodeError) as error:
-        raise ValueError(f"cannot read encoded Chip32 image {encoded_image}: {error}") from error
+        encoded = encoded_image_bytes.decode("ascii")
+    except UnicodeError as error:
+        raise ValueError(
+            f"cannot read encoded Chip32 image {encoded_image_description} "
+            f"as ASCII: {error}"
+        ) from error
     try:
         image = bytes.fromhex(encoded)
     except ValueError as error:
-        raise ValueError(f"invalid hexadecimal Chip32 image {encoded_image}: {error}") from error
+        raise ValueError(
+            f"invalid hexadecimal Chip32 image {encoded_image_description}: {error}"
+        ) from error
 
     digest = sha256(image)
     if len(image) != EXPECTED_IMAGE_SIZE or digest != EXPECTED_IMAGE_SHA256:
@@ -57,6 +67,23 @@ def chip32_image(assembly: pathlib.Path, encoded_image: pathlib.Path) -> bytes:
             f"got size={len(image)} sha256={digest}"
         )
     return image
+
+
+def chip32_image(assembly: pathlib.Path, encoded_image: pathlib.Path) -> bytes:
+    try:
+        assembly_bytes = assembly.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read Chip32 assembly {assembly}: {error}") from error
+    try:
+        encoded_bytes = encoded_image.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read encoded Chip32 image {encoded_image}: {error}") from error
+    return chip32_image_bytes(
+        assembly_bytes,
+        encoded_bytes,
+        assembly_description=str(assembly),
+        encoded_image_description=str(encoded_image),
+    )
 
 
 def main() -> None:

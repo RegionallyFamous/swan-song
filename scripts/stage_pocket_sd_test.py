@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -11,8 +12,17 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
-from package_core import create_package
+import stage_pocket_sd as staging
+from package_core import (
+    AUDIT_REQUIRED_TRUE_GATES,
+    RELEASE_EVIDENCE_V2,
+    RELEASE_QUARTUS_VERSION,
+    create_package,
+    validate_release_policy,
+)
+from package_validator import validate_distribution
 from stage_pocket_sd import (
     ASSET_DIRECTORY,
     CORE_DIRECTORY,
@@ -85,6 +95,142 @@ class StagePocketSDTest(unittest.TestCase):
             info.external_attr = mode << 16
             destination.writestr(info, payload)
 
+    @staticmethod
+    def tree_snapshot(root: pathlib.Path) -> tuple[set[str], dict[str, bytes]]:
+        directories = {
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_dir() and not path.is_symlink()
+        }
+        files = {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        return directories, files
+
+    def release_fixture(
+        self,
+    ) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, str, str, str, str]:
+        definition = validate_distribution(ROOT / "dist")
+        package = self.root / definition.recommended_archive_name
+        create_package(
+            dist=ROOT / "dist",
+            rbf=self.rbf,
+            output=package,
+            chip32_assembly=ASSEMBLY,
+            chip32_encoded_image=ENCODED_IMAGE,
+            release_policy=ROOT / "release-policy.json",
+        )
+        provenance = package.with_name(package.name + ".provenance.json")
+        policy_document = json.loads((ROOT / "release-policy.json").read_text(encoding="utf-8"))
+        policy_document["release_policy"]["authorization"][
+            "distribution_and_licensing_authorized"
+        ] = True
+        authorized_policy = self.root / "authorized-release-policy.json"
+        authorized_policy.write_text(
+            json.dumps(policy_document, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        verified_policy = validate_release_policy(authorized_policy, definition)
+        commit = "a" * 40
+        digest = "b" * 64
+        document = json.loads(provenance.read_text(encoding="utf-8"))
+        body = document["package_provenance"]
+        body["release"] = True
+        body["build_evidence"] = {
+            "magic": RELEASE_EVIDENCE_V2,
+            "manifest_filename": "release-evidence.json",
+            "manifest_size": 1,
+            "manifest_sha256": digest,
+            "source_commit": commit,
+            "source_date_epoch": 1,
+            "quartus_version": RELEASE_QUARTUS_VERSION,
+            "build_id": {
+                "filename": "build_id.mif",
+                "size": 1,
+                "sha256": digest,
+            },
+            "reports": {
+                kind: {
+                    "filename": f"output_files/ap_core.{kind}.rpt",
+                    "size": 1,
+                    "sha256": digest,
+                }
+                for kind in ("flow", "fit", "sta")
+            },
+            "quartus_audit": {
+                "filename": "quartus-audit-candidate.json",
+                "size": 1,
+                "sha256": digest,
+                "magic": "SWAN_SONG_QUARTUS_AUDIT_V1",
+                "audit_pass": True,
+                "source_commit": commit,
+                "source_date_epoch": 1,
+                "artifact_count": 1,
+                "required_candidate_gates": {
+                    gate: True for gate in sorted(AUDIT_REQUIRED_TRUE_GATES)
+                },
+            },
+            "gates": {gate: True for gate in sorted(staging.RELEASE_GATE_NAMES)},
+        }
+        tracked: dict[str, dict[str, object]] = {}
+        directories: list[str] = []
+        for path in sorted((ROOT / "dist").rglob("*")):
+            relative = "dist/" + path.relative_to(ROOT / "dist").as_posix()
+            if path.is_dir():
+                directories.append(relative)
+                continue
+            payload = path.read_bytes()
+            tracked[relative] = {
+                "git_blob": hashlib.sha1(
+                    b"blob " + str(len(payload)).encode() + b"\0" + payload
+                ).hexdigest(),
+                "mode": "100644",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        for relative, path in (
+            ("src/support/chip32.asm", ASSEMBLY),
+            ("src/support/chip32.bin.hex", ENCODED_IMAGE),
+        ):
+            payload = path.read_bytes()
+            tracked[relative] = {
+                "git_blob": hashlib.sha1(
+                    b"blob " + str(len(payload)).encode() + b"\0" + payload
+                ).hexdigest(),
+                "mode": "100644",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        body["source_inputs"] = {
+            "magic": staging.RELEASE_SOURCE_INPUTS_V1,
+            "repository": staging.EXPECTED_REPOSITORY,
+            "source_commit": commit,
+            "source_tree": "c" * 40,
+            "dist_directory": "dist",
+            "dist_directories": directories,
+            "chip32_assembly": "src/support/chip32.asm",
+            "chip32_encoded_image": "src/support/chip32.bin.hex",
+            "tracked_files": tracked,
+            "raw_rbf": body["raw_rbf"],
+        }
+        body["release_policy"] = verified_policy
+        provenance.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        package_digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        provenance_digest = hashlib.sha256(provenance.read_bytes()).hexdigest()
+        return (
+            package,
+            provenance,
+            authorized_policy,
+            definition.version,
+            commit,
+            package_digest,
+            provenance_digest,
+        )
+
     def test_dry_run_then_apply_preserves_unrelated_files(self) -> None:
         unrelated = self.stage / "keep-me.txt"
         unrelated.write_text("unrelated\n", encoding="utf-8")
@@ -136,6 +282,142 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertEqual(unrelated.read_bytes(), b"keep")
         self.assertEqual(list(self.stage.rglob("*.tmp")), [])
 
+    def test_apply_rolls_back_after_every_atomic_write_boundary(self) -> None:
+        original_atomic_write = staging._atomic_write_at
+        for fail_at in range(1, 16):
+            with self.subTest(fail_at=fail_at):
+                stage = self.root / f"transaction-{fail_at}"
+                managed_parent = stage / "Cores/RegionallyFamous.SwanSong"
+                managed_parent.mkdir(parents=True)
+                (managed_parent / "audio.json").write_bytes(b"older managed audio")
+                unrelated = stage / "Cores/Another.Core/keep.bin"
+                unrelated.parent.mkdir(parents=True)
+                unrelated.write_bytes(b"unrelated")
+                before = self.tree_snapshot(stage)
+                plan = self.plan(staging_dir=stage)
+                self.assertEqual(len(plan.files), 15)
+                calls = 0
+
+                def fail_after_replace(
+                    directory: int, name: str, payload: bytes, *, on_replace=None
+                ) -> tuple[int, int]:
+                    nonlocal calls
+                    identity = original_atomic_write(
+                        directory, name, payload, on_replace=on_replace
+                    )
+                    calls += 1
+                    if calls == fail_at:
+                        raise OSError(f"injected failure after write {fail_at}")
+                    return identity
+
+                with mock.patch.object(
+                    staging, "_atomic_write_at", fail_after_replace
+                ):
+                    with self.assertRaisesRegex(OSError, "injected failure"):
+                        apply_staging(plan)
+                self.assertEqual(self.tree_snapshot(stage), before)
+                self.assertEqual(list(stage.rglob("*.tmp")), [])
+
+    def test_late_parent_swap_fails_and_rolls_back_detached_tree(self) -> None:
+        plan = self.plan()
+        detached = self.root / "late-detached-cores"
+        replacement = self.stage / "Cores"
+        original_atomic_write = staging._atomic_write_at
+        swapped = False
+
+        def swap_after_snapshot(
+            directory: int, name: str, payload: bytes, *, on_replace=None
+        ) -> tuple[int, int]:
+            nonlocal swapped
+            if not swapped:
+                replacement.rename(detached)
+                replacement.mkdir()
+                swapped = True
+            return original_atomic_write(
+                directory, name, payload, on_replace=on_replace
+            )
+
+        with mock.patch.object(
+            staging, "_atomic_write_at", swap_after_snapshot
+        ):
+            with self.assertRaisesRegex(StagingError, "detached|identity changed"):
+                apply_staging(plan)
+        self.assertTrue(swapped)
+        self.assertTrue(replacement.is_dir())
+        self.assertEqual(list(replacement.iterdir()), [])
+        self.assertTrue(detached.is_dir())
+        self.assertEqual(list(detached.rglob("*")), [])
+
+    def test_rollback_never_removes_identical_concurrent_replacement_inode(self) -> None:
+        managed_parent = self.stage / "Cores/RegionallyFamous.SwanSong"
+        managed_parent.mkdir(parents=True)
+        managed = managed_parent / "audio.json"
+        managed.write_bytes(b"older managed audio")
+        plan = self.plan()
+        target_payload = next(
+            item.payload
+            for item in plan.files
+            if item.relative.as_posix()
+            == "Cores/RegionallyFamous.SwanSong/audio.json"
+        )
+        original_atomic_write = staging._atomic_write_at
+        replacement_identity: tuple[int, int] | None = None
+        replaced = False
+
+        def replace_with_identical_inode(
+            directory: int, name: str, payload: bytes, *, on_replace=None
+        ) -> tuple[int, int]:
+            nonlocal replacement_identity, replaced
+            identity = original_atomic_write(
+                directory, name, payload, on_replace=on_replace
+            )
+            if not replaced:
+                replacement_identity = original_atomic_write(
+                    directory, name, payload
+                )
+                replaced = True
+                raise OSError("concurrent identical replacement")
+            return identity
+
+        with mock.patch.object(
+            staging, "_atomic_write_at", replace_with_identical_inode
+        ):
+            with self.assertRaisesRegex(StagingError, "rollback was incomplete"):
+                apply_staging(plan)
+        self.assertTrue(replaced)
+        self.assertEqual(managed.read_bytes(), target_payload)
+        metadata = managed.stat()
+        self.assertEqual(
+            (metadata.st_dev, metadata.st_ino), replacement_identity
+        )
+
+    def test_root_swap_during_plan_is_rejected_by_opened_identity(self) -> None:
+        outside = self.root / "plan-swap-outside"
+        outside.mkdir()
+        detached = self.root / "plan-swap-original"
+        original_resolve = pathlib.Path.resolve
+        swapped = False
+
+        def swap_before_resolve(path: pathlib.Path, *args, **kwargs):
+            nonlocal swapped
+            if path == self.stage and not swapped:
+                self.stage.rename(detached)
+                self.stage.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            return original_resolve(path, *args, **kwargs)
+
+        try:
+            with mock.patch.object(pathlib.Path, "resolve", swap_before_resolve):
+                with self.assertRaisesRegex(StagingError, "identity changed"):
+                    self.plan()
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.iterdir()), [])
+        finally:
+            if self.stage.is_symlink():
+                self.stage.unlink()
+            if detached.exists():
+                detached.rename(self.stage)
+
     def test_bios_sizes_are_exact_and_input_symlinks_are_rejected(self) -> None:
         short = self.root / "short.bin"
         short.write_bytes(b"x" * 4095)
@@ -160,6 +442,22 @@ class StagePocketSDTest(unittest.TestCase):
         with self.assertRaisesRegex(StagingError, "must not be a symlink"):
             self.plan(provenance=linked_provenance)
 
+    def test_inputs_are_read_from_single_no_follow_snapshots(self) -> None:
+        protected = {self.package, self.provenance, self.bw, self.color}
+        original_read_bytes = pathlib.Path.read_bytes
+
+        def reject_path_reopen(path: pathlib.Path) -> bytes:
+            if path in protected:
+                raise AssertionError(f"input path was reopened after validation: {path}")
+            return original_read_bytes(path)
+
+        with mock.patch.object(pathlib.Path, "read_bytes", reject_path_reopen):
+            plan = self.plan()
+        self.assertEqual(
+            plan.package_sha256,
+            hashlib.sha256(self.package.read_bytes()).hexdigest(),
+        )
+
     def test_archive_traversal_symlinks_and_case_collisions_are_rejected(self) -> None:
         traversal = self.root / "traversal.zip"
         self.copy_archive_with_entry(traversal, "../escape", b"bad")
@@ -182,6 +480,17 @@ class StagePocketSDTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(StagingError, "case-colliding"):
             self.plan(package=collision)
+
+        hierarchy = self.root / "hierarchy-collision.zip"
+        self.copy_archive_with_entry(
+            hierarchy, "Assets/wonderswan/common/not-a-folder", b"file"
+        )
+        with zipfile.ZipFile(hierarchy, "a", zipfile.ZIP_STORED) as archive:
+            archive.writestr(
+                "Assets/wonderswan/common/not-a-folder/child.bin", b"child"
+            )
+        with self.assertRaisesRegex(StagingError, "file/directory path collision"):
+            self.plan(package=hierarchy)
 
     def test_provenance_hash_inventory_and_development_status_are_required(self) -> None:
         document = json.loads(self.provenance.read_text(encoding="utf-8"))
@@ -274,6 +583,30 @@ class StagePocketSDTest(unittest.TestCase):
         with self.assertRaisesRegex(StagingError, "case-colliding"):
             self.plan()
 
+    def test_apply_directory_descriptors_do_not_follow_a_parent_swap(self) -> None:
+        plan = self.plan()
+        outside = self.root / "outside-swap-target"
+        outside.mkdir()
+        detached = self.root / "detached-cores"
+        original_read_regular_at = staging._read_regular_at
+        swapped = False
+
+        def swap_parent_after_open(directory: int, name: str) -> bytes | None:
+            nonlocal swapped
+            if not swapped:
+                (self.stage / "Cores").rename(detached)
+                (self.stage / "Cores").symlink_to(outside, target_is_directory=True)
+                swapped = True
+            return original_read_regular_at(directory, name)
+
+        with mock.patch.object(
+            staging, "_read_regular_at", swap_parent_after_open
+        ):
+            with self.assertRaisesRegex(StagingError, "unsafe|symlink"):
+                apply_staging(plan)
+        self.assertTrue(swapped)
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_fake_macos_volume_requires_separate_write_acknowledgement(self) -> None:
         volumes = self.root / "Volumes"
         volume_stage = volumes / "POCKET"
@@ -287,6 +620,246 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertTrue(
             (volume_stage / "Cores/RegionallyFamous.SwanSong/core.json").is_file()
         )
+
+    def test_authorized_release_verifies_exact_identity_and_optionally_stages_bios(self) -> None:
+        (
+            package,
+            provenance,
+            policy,
+            version,
+            commit,
+            digest,
+            provenance_digest,
+        ) = self.release_fixture()
+        game = self.stage / "Assets/wonderswan/common/owned-game.wsc"
+        game.parent.mkdir(parents=True)
+        game_payload = b"private game bytes that the staging tool must not read"
+        game.write_bytes(game_payload)
+
+        original_read_bytes = pathlib.Path.read_bytes
+
+        def reject_game_read(path: pathlib.Path) -> bytes:
+            if path == game:
+                raise AssertionError("staging read a game ROM")
+            return original_read_bytes(path)
+
+        with mock.patch.object(staging, "RELEASE_POLICY", policy):
+            with mock.patch.object(pathlib.Path, "read_bytes", reject_game_read):
+                plan = plan_staging(
+                    staging_dir=self.stage,
+                    package=package,
+                    provenance=provenance,
+                    bw_bios=self.bw,
+                    color_bios=None,
+                    verify_release=True,
+                    expected_package_sha256=digest,
+                    expected_provenance_sha256=provenance_digest,
+                    expected_version=version,
+                    expected_source_commit=commit,
+                )
+                self.assertTrue(plan.release)
+                self.assertEqual(plan.source_commit, commit)
+                self.assertFalse(
+                    (self.stage / "Cores/RegionallyFamous.SwanSong/core.json").exists()
+                )
+                apply_staging(plan)
+
+        self.assertEqual(game.read_bytes(), game_payload)
+        self.assertEqual(
+            (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "bw.rom").read_bytes(),
+            self.bw.read_bytes(),
+        )
+        self.assertFalse(
+            (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "color.rom").exists()
+        )
+
+    def test_release_verification_rejects_checksum_commit_and_schema_drift(self) -> None:
+        (
+            package,
+            provenance,
+            policy,
+            version,
+            commit,
+            digest,
+            provenance_digest,
+        ) = self.release_fixture()
+        arguments = {
+            "staging_dir": self.stage,
+            "package": package,
+            "provenance": provenance,
+            "bw_bios": None,
+            "color_bios": None,
+            "verify_release": True,
+            "expected_package_sha256": digest,
+            "expected_provenance_sha256": provenance_digest,
+            "expected_version": version,
+            "expected_source_commit": commit,
+        }
+        with mock.patch.object(staging, "RELEASE_POLICY", policy):
+            with self.assertRaisesRegex(StagingError, "expected-provenance-sha256"):
+                plan_staging(
+                    **{**arguments, "expected_provenance_sha256": None}
+                )
+            with self.assertRaisesRegex(StagingError, "expected checksum"):
+                plan_staging(**{**arguments, "expected_package_sha256": "0" * 64})
+            with self.assertRaisesRegex(StagingError, "provenance SHA-256"):
+                plan_staging(
+                    **{**arguments, "expected_provenance_sha256": "0" * 64}
+                )
+            with self.assertRaisesRegex(StagingError, "expected commit"):
+                plan_staging(**{**arguments, "expected_source_commit": "c" * 40})
+            with self.assertRaisesRegex(StagingError, "expected version"):
+                plan_staging(**{**arguments, "expected_version": version + ".wrong"})
+
+            policy_document = json.loads(provenance.read_text(encoding="utf-8"))
+            policy_document["package_provenance"]["release_policy"][
+                "manifest_sha256"
+            ] = "0" * 64
+            policy_mismatch = self.root / "policy-mismatch.provenance.json"
+            policy_mismatch.write_text(json.dumps(policy_document), encoding="utf-8")
+            with self.assertRaisesRegex(StagingError, "authorized release policy"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": policy_mismatch,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            policy_mismatch.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+            document = json.loads(provenance.read_text(encoding="utf-8"))
+            document["package_provenance"]["unexpected"] = True
+            malformed = self.root / "extra-field.provenance.json"
+            malformed.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(StagingError, "wrong schema"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": malformed,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            malformed.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+            duplicate = self.root / "duplicate-field.provenance.json"
+            duplicate.write_text(
+                provenance.read_text(encoding="utf-8").replace(
+                    '"release": true,', '"release": true, "release": true,', 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(StagingError, "duplicate object member"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": duplicate,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            duplicate.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+            raw_identity = json.loads(provenance.read_text(encoding="utf-8"))
+            raw_identity["package_provenance"]["raw_rbf"]["sha256"] = "0" * 64
+            raw_mismatch = self.root / "raw-rbf-mismatch.provenance.json"
+            raw_mismatch.write_text(json.dumps(raw_identity), encoding="utf-8")
+            with self.assertRaisesRegex(StagingError, "reversible packaged bitstream"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": raw_mismatch,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            raw_mismatch.read_bytes()
+                        ).hexdigest(),
+                        }
+                    )
+
+            source_commit = json.loads(provenance.read_text(encoding="utf-8"))
+            source_commit["package_provenance"]["source_inputs"][
+                "source_commit"
+            ] = "c" * 40
+            source_commit_mismatch = self.root / "source-commit-mismatch.json"
+            source_commit_mismatch.write_text(
+                json.dumps(source_commit), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(StagingError, "source inputs.*expected commit"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": source_commit_mismatch,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            source_commit_mismatch.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+            source_static = json.loads(provenance.read_text(encoding="utf-8"))
+            source_static["package_provenance"]["source_inputs"]["tracked_files"][
+                "dist/Platforms/wonderswan.json"
+            ]["sha256"] = "0" * 64
+            source_static_mismatch = self.root / "source-static-mismatch.json"
+            source_static_mismatch.write_text(
+                json.dumps(source_static), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(StagingError, "commit-derived source"):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": source_static_mismatch,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            source_static_mismatch.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+        self.assertEqual(list(self.stage.iterdir()), [])
+
+    def test_checked_in_policy_blocks_unauthorized_release_even_with_apply(self) -> None:
+        (
+            package,
+            provenance,
+            _policy,
+            version,
+            commit,
+            digest,
+            provenance_digest,
+        ) = self.release_fixture()
+        checked_in_policy = json.loads(
+            (ROOT / "release-policy.json").read_text(encoding="utf-8")
+        )
+        self.assertIs(
+            checked_in_policy["release_policy"]["authorization"][
+                "distribution_and_licensing_authorized"
+            ],
+            False,
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main(
+                [
+                    "--staging-dir",
+                    str(self.stage),
+                    "--package",
+                    str(package),
+                    "--provenance",
+                    str(provenance),
+                    "--verify-release",
+                    "--expected-package-sha256",
+                    digest,
+                    "--expected-provenance-sha256",
+                    provenance_digest,
+                    "--expected-version",
+                    version,
+                    "--expected-source-commit",
+                    commit,
+                    "--apply",
+                ]
+            )
+        self.assertEqual(result, 2)
+        self.assertIn("distribution and licensing are not authorized", stderr.getvalue())
+        self.assertEqual(list(self.stage.iterdir()), [])
 
     def test_cli_defaults_to_read_only_and_prints_next_steps(self) -> None:
         stdout = io.StringIO()
@@ -308,6 +881,8 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertIn("VALIDATED ONLY", stdout.getvalue())
         self.assertIn("no files written", stdout.getvalue())
         self.assertIn("rerun with --apply", stdout.getvalue())
+        self.assertIn("core-specific namespace", stdout.getvalue())
+        self.assertIn("ROM-aware migration helper", stdout.getvalue())
         self.assertEqual(list(self.stage.iterdir()), [])
 
 

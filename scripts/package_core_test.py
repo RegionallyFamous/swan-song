@@ -6,16 +6,28 @@ import json
 import os
 import pathlib
 import shutil
+import stat
+import subprocess
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 from build_chip32 import (
     EXPECTED_IMAGE_SHA256,
     EXPECTED_IMAGE_SIZE,
     chip32_image,
 )
-from package_core import create_package
+import package_core
+from package_core import (
+    RELEASE_SOURCE_INPUTS_V1,
+    create_package,
+    quartus_report_version,
+    validate_release_source_checkout,
+)
+from package_validator import PLATFORM_ART_SHA256
+import quartus_fit_audit as fit_audit
+import quartus_fit_audit_test as fit_audit_test
 from reverse_rbf import REVERSE
 
 
@@ -40,6 +52,23 @@ class PackageCoreTest(unittest.TestCase):
         self.release_policy = self.root / "release-policy.json"
         shutil.copy2(RELEASE_POLICY, self.release_policy)
 
+    def test_release_report_version_accepts_only_quartus_legacy_degree_byte(
+        self,
+    ) -> None:
+        version_line = (
+            b"Quartus Prime Version 21.1.1 Build 850 "
+            b"06/23/2022 SJ Lite Edition\n"
+        )
+        self.assertEqual(
+            quartus_report_version(
+                version_line + b"Low Junction Temperature ; 0 \xb0C\n",
+                "fit report",
+            ),
+            "21.1.1 Build 850 06/23/2022 SJ Lite Edition",
+        )
+        with self.assertRaisesRegex(ValueError, "bytes other than UTF-8"):
+            quartus_report_version(version_line + b"\xff\n", "fit report")
+
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
@@ -53,7 +82,69 @@ class PackageCoreTest(unittest.TestCase):
             "release_policy": self.release_policy,
         }
         arguments.update(overrides)
-        create_package(**arguments)
+        if arguments.get("release"):
+            with mock.patch.object(
+                package_core,
+                "validate_release_source_checkout",
+                side_effect=self.release_source_inputs,
+            ), mock.patch.object(
+                package_core,
+                "release_chip32_image",
+                return_value=chip32_image(ASSEMBLY, ENCODED_IMAGE),
+            ):
+                create_package(**arguments)
+        else:
+            create_package(**arguments)
+
+    def release_source_inputs(self, **arguments: object) -> dict[str, object]:
+        dist = pathlib.Path(arguments["dist"])
+        source_commit = str(arguments["source_commit"])
+        tracked: dict[str, dict[str, object]] = {}
+        directories: list[str] = []
+        for path in sorted(dist.rglob("*")):
+            relative = "dist/" + path.relative_to(dist).as_posix()
+            if path.is_dir():
+                directories.append(relative)
+                continue
+            payload = path.read_bytes()
+            tracked[relative] = {
+                "git_blob": hashlib.sha1(
+                    b"blob " + str(len(payload)).encode() + b"\0" + payload
+                ).hexdigest(),
+                "mode": "100755" if path.stat().st_mode & stat.S_IXUSR else "100644",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        for relative, path in (
+            ("src/support/chip32.asm", ASSEMBLY),
+            ("src/support/chip32.bin.hex", ENCODED_IMAGE),
+        ):
+            payload = path.read_bytes()
+            tracked[relative] = {
+                "git_blob": hashlib.sha1(
+                    b"blob " + str(len(payload)).encode() + b"\0" + payload
+                ).hexdigest(),
+                "mode": "100644",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        rbf_bytes = bytes(arguments["rbf_bytes"])
+        return {
+            "magic": RELEASE_SOURCE_INPUTS_V1,
+            "repository": CORE_REPOSITORY,
+            "source_commit": source_commit,
+            "source_tree": "c" * 40,
+            "dist_directory": "dist",
+            "dist_directories": directories,
+            "chip32_assembly": "src/support/chip32.asm",
+            "chip32_encoded_image": "src/support/chip32.bin.hex",
+            "tracked_files": tracked,
+            "raw_rbf": {
+                "filename": str(arguments["rbf_filename"]),
+                "size": len(rbf_bytes),
+                "sha256": hashlib.sha256(rbf_bytes).hexdigest(),
+            },
+        }
 
     def core_json_path(self) -> pathlib.Path:
         return self.dist / CORE_DIRECTORY / "core.json"
@@ -105,26 +196,37 @@ class PackageCoreTest(unittest.TestCase):
     def provenance_path(output: pathlib.Path) -> pathlib.Path:
         return output.with_name(output.name + ".provenance.json")
 
-    def build_evidence(self, **gate_overrides: bool) -> pathlib.Path:
+    def build_evidence(
+        self, *, legacy_v1: bool = False, **gate_overrides: bool
+    ) -> pathlib.Path:
         evidence_directory = self.root / "evidence"
-        evidence_directory.mkdir(exist_ok=True)
+        if evidence_directory.exists():
+            shutil.rmtree(evidence_directory)
+        evidence_directory.mkdir()
+        fit_audit_test.Fixture(evidence_directory)
+        source_commit = "a" * 40
         build_id_contents = (
-            "-- Reproducible source commit: " + "1" * 40 + "\n"
+            "-- Reproducible source commit: " + source_commit + "\n"
             "-- SOURCE_DATE_EPOCH: 1700000000\n"
             "0E0 : 20231114;\n"
             "0E1 : 00221320;\n"
-            "0E2 : 11111111;\n"
+            "0E2 : aaaaaaaa;\n"
         ).encode()
         (evidence_directory / "build_id.mif").write_bytes(build_id_contents)
+        candidate_rbf = evidence_directory / "output_files/ap_core.rbf"
+        candidate_rbf.write_bytes(self.rbf_bytes)
+        rbf_digest = hashlib.sha256(self.rbf_bytes).hexdigest()
+        (evidence_directory / "ap_core.rbf.sha256").write_text(
+            f"{rbf_digest}  /artifacts/output_files/ap_core.rbf\n",
+            encoding="utf-8",
+        )
         reports = {}
         for kind in ("flow", "fit", "sta"):
-            filename = f"ap_core.{kind}.rpt"
-            contents = (
-                "; Quartus Prime Version ; "
-                "Version 21.1.1 Build 850 06/23/2021 SJ Lite Edition ;\n"
-                f"synthetic {kind} report\n"
-            ).encode()
-            (evidence_directory / filename).write_bytes(contents)
+            basename = f"ap_core.{kind}.rpt"
+            filename = basename if legacy_v1 else f"output_files/{basename}"
+            contents = (evidence_directory / "output_files" / basename).read_bytes()
+            if legacy_v1:
+                (evidence_directory / filename).write_bytes(contents)
             reports[kind] = {
                 "filename": filename,
                 "size": len(contents),
@@ -144,10 +246,19 @@ class PackageCoreTest(unittest.TestCase):
             "dock_hardware": True,
         }
         gates.update(gate_overrides)
+        audit_path = evidence_directory / "quartus-audit-candidate.json"
+        audit_document = fit_audit.audit(evidence_directory)
+        audit_path.write_text(
+            json.dumps(audit_document, sort_keys=True), encoding="utf-8"
+        )
         document = {
             "release_evidence": {
-                "magic": "SWAN_SONG_RELEASE_EVIDENCE_V1",
-                "source_commit": "1" * 40,
+                "magic": (
+                    "SWAN_SONG_RELEASE_EVIDENCE_V1"
+                    if legacy_v1
+                    else "SWAN_SONG_RELEASE_EVIDENCE_V2"
+                ),
+                "source_commit": source_commit,
                 "source_date_epoch": 1_700_000_000,
                 "quartus_version": "21.1.1 Build 850",
                 "rbf": {
@@ -164,6 +275,13 @@ class PackageCoreTest(unittest.TestCase):
                 "gates": gates,
             }
         }
+        if not legacy_v1:
+            audit_bytes = audit_path.read_bytes()
+            document["release_evidence"]["quartus_audit"] = {
+                "filename": audit_path.name,
+                "size": len(audit_bytes),
+                "sha256": hashlib.sha256(audit_bytes).hexdigest(),
+            }
         path = evidence_directory / "release-evidence.json"
         path.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
         return path
@@ -308,6 +426,12 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(
                 [(item["value"], item["name"]) for item in variables_by_id[45]["options"]],
                 [(0, "Raw RGB444"), (1, "Color LCD (ares)")],
+            )
+            self.assertEqual(variables_by_id[46]["name"], "Control Layout")
+            self.assertEqual(variables_by_id[46]["address"], "0x214")
+            self.assertEqual(
+                [(item["value"], item["name"]) for item in variables_by_id[46]["options"]],
+                [(0, "Auto"), (1, "Horizontal"), (2, "Vertical")],
             )
             self.assertEqual(variables_by_id[81]["name"], "Audio in Fast Forward")
             self.assertEqual(variables_by_id[81]["address"], "0x300")
@@ -551,6 +675,24 @@ class PackageCoreTest(unittest.TestCase):
                 "undocumented APF_VER_1 bits",
             ),
             (
+                CORE_DIRECTORY / "data.json",
+                lambda value: next(
+                    slot
+                    for slot in value["data"]["data_slots"]
+                    if int(slot["id"]) == 11
+                ).__setitem__("deferload", True),
+                "automatic primary loading",
+            ),
+            (
+                CORE_DIRECTORY / "data.json",
+                lambda value: next(
+                    slot
+                    for slot in value["data"]["data_slots"]
+                    if int(slot["id"]) == 11
+                ).__setitem__("secondary", True),
+                "automatic primary loading",
+            ),
+            (
                 CORE_DIRECTORY / "input.json",
                 lambda value: value["input"]["controllers"][0]["mappings"][0].__setitem__(
                     "key", "pad_btn_home"
@@ -565,6 +707,24 @@ class PackageCoreTest(unittest.TestCase):
                     if int(item["id"]) == 10
                 )["options"].append({"value": 0, "name": "Duplicate"}),
                 "options values must be unique",
+            ),
+            (
+                CORE_DIRECTORY / "interact.json",
+                lambda value: next(
+                    item
+                    for item in value["interact"]["variables"]
+                    if int(item["id"]) == 40
+                ).pop("address"),
+                "action is missing address",
+            ),
+            (
+                CORE_DIRECTORY / "interact.json",
+                lambda value: next(
+                    item
+                    for item in value["interact"]["variables"]
+                    if int(item["id"]) == 80
+                ).pop("value"),
+                "action is missing value",
             ),
             (
                 CORE_DIRECTORY / "variants.json",
@@ -592,6 +752,19 @@ class PackageCoreTest(unittest.TestCase):
                     self.package(output)
                 self.assertFalse(output.exists())
                 self.assertFalse(self.provenance_path(output).exists())
+
+        self.reset_dist()
+        self.mutate_json(
+            CORE_DIRECTORY / "data.json",
+            lambda value: next(
+                slot
+                for slot in value["data"]["data_slots"]
+                if int(slot["id"]) == 11
+            ).update({"deferload": False, "secondary": False}),
+        )
+        explicit_false = self.root / "explicit-false-save-flags.zip"
+        self.package(explicit_false)
+        self.assertTrue(explicit_false.exists())
 
         self.reset_dist()
         info = self.dist / CORE_DIRECTORY / "info.txt"
@@ -654,14 +827,22 @@ class PackageCoreTest(unittest.TestCase):
         output = self.root / "assets.zip"
         checked_icon = self.dist / CORE_DIRECTORY / "icon.bin"
         expected_icon = checked_icon.read_bytes()
+        platform = self.dist / "Platforms/_images/wonderswan.bin"
+        expected_platform = platform.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(expected_platform).hexdigest(), PLATFORM_ART_SHA256
+        )
         self.package(output)
         with zipfile.ZipFile(output) as archive:
             self.assertEqual(
                 archive.read((CORE_DIRECTORY / "icon.bin").as_posix()),
                 expected_icon,
             )
+            self.assertEqual(
+                archive.read("Platforms/_images/wonderswan.bin"),
+                expected_platform,
+            )
 
-        platform = self.dist / "Platforms/_images/wonderswan.bin"
         platform.write_bytes(platform.read_bytes()[:-2])
         with self.assertRaisesRegex(ValueError, "must be 521x165x16-bit"):
             self.package(output)
@@ -672,6 +853,14 @@ class PackageCoreTest(unittest.TestCase):
         changed[1] = 1
         platform.write_bytes(changed)
         with self.assertRaisesRegex(ValueError, "nonzero low brightness bytes"):
+            self.package(output)
+
+        self.reset_dist()
+        platform = self.dist / "Platforms/_images/wonderswan.bin"
+        changed = bytearray(platform.read_bytes())
+        changed[0] ^= 0x01
+        platform.write_bytes(changed)
+        with self.assertRaisesRegex(ValueError, "reviewed Swan Wake artwork"):
             self.package(output)
 
         self.reset_dist()
@@ -1110,11 +1299,22 @@ class PackageCoreTest(unittest.TestCase):
             "package_provenance"
         ]
         verified = provenance["build_evidence"]
-        self.assertEqual(verified["source_commit"], "1" * 40)
+        self.assertEqual(verified["source_commit"], "a" * 40)
+        self.assertEqual(verified["magic"], "SWAN_SONG_RELEASE_EVIDENCE_V2")
+        self.assertTrue(verified["quartus_audit"]["audit_pass"])
+        self.assertEqual(verified["quartus_audit"]["artifact_count"], 13)
         self.assertEqual(
             verified["manifest_sha256"], hashlib.sha256(evidence.read_bytes()).hexdigest()
         )
         self.assertEqual(set(verified["reports"]), {"flow", "fit", "sta"})
+        self.assertEqual(
+            {kind: report["filename"] for kind, report in verified["reports"].items()},
+            {
+                "flow": "output_files/ap_core.flow.rpt",
+                "fit": "output_files/ap_core.fit.rpt",
+                "sta": "output_files/ap_core.sta.rpt",
+            },
+        )
 
         self.authorize_release_policy()
         self.set_release_metadata("2.0.0", "2026-07-13")
@@ -1155,6 +1355,15 @@ class PackageCoreTest(unittest.TestCase):
                 "latest_published_date": "2023-05-06",
             },
         )
+        source_inputs = release_provenance["source_inputs"]
+        self.assertEqual(source_inputs["magic"], RELEASE_SOURCE_INPUTS_V1)
+        self.assertEqual(source_inputs["source_commit"], "a" * 40)
+        self.assertEqual(
+            source_inputs["raw_rbf"]["sha256"],
+            hashlib.sha256(self.rbf_bytes).hexdigest(),
+        )
+        self.assertIn("dist/Cores/RegionallyFamous.SwanSong/core.json", source_inputs["tracked_files"])
+        self.assertIn("src/support/chip32.asm", source_inputs["tracked_files"])
 
         with self.assertRaisesRegex(ValueError, "requires --build-evidence"):
             self.package(release_output, release=True)
@@ -1163,6 +1372,83 @@ class PackageCoreTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "release package filename must be"):
             self.package(output, build_evidence=evidence, release=True)
+
+    def test_release_source_binding_rejects_valid_but_dirty_dist(self) -> None:
+        checkout = self.root / "source-checkout"
+        (checkout / "dist/Cores/Test.Core").mkdir(parents=True)
+        (checkout / "src/support").mkdir(parents=True)
+        info = checkout / "dist/Cores/Test.Core/info.txt"
+        info.write_text("valid release text\n", encoding="ascii")
+        assembly = checkout / "src/support/chip32.asm"
+        encoded = checkout / "src/support/chip32.bin.hex"
+        assembly.write_bytes(ASSEMBLY.read_bytes())
+        encoded.write_bytes(ENCODED_IMAGE.read_bytes())
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+        subprocess.run(
+            ["git", "-C", str(checkout), "config", "user.email", "test@example.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(checkout), "config", "user.name", "Swan Song Test"],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(checkout), "commit", "-qm", "fixture"], check=True
+        )
+        commit = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        clean = validate_release_source_checkout(
+            source_root=checkout,
+            dist=checkout / "dist",
+            chip32_assembly=assembly,
+            chip32_encoded_image=encoded,
+            rbf_filename="ap_core.rbf",
+            rbf_bytes=self.rbf_bytes,
+            source_commit=commit,
+        )
+        self.assertEqual(clean["source_commit"], commit)
+        self.assertEqual(
+            clean["tracked_files"]["dist/Cores/Test.Core/info.txt"]["sha256"],
+            hashlib.sha256(info.read_bytes()).hexdigest(),
+        )
+
+        assembly.write_text("raced assembly\n", encoding="ascii")
+        encoded.write_text("ff\n", encoding="ascii")
+        self.assertEqual(
+            package_core.release_chip32_image(checkout, commit),
+            chip32_image(ASSEMBLY, ENCODED_IMAGE),
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(checkout),
+                "checkout",
+                "--",
+                "src/support/chip32.asm",
+                "src/support/chip32.bin.hex",
+            ],
+            check=True,
+        )
+
+        # This remains valid printable package content; only its divergence
+        # from the claimed source commit makes it unacceptable.
+        info.write_text("different but still valid release text\n", encoding="ascii")
+        with self.assertRaisesRegex(ValueError, "clean exact source checkout"):
+            validate_release_source_checkout(
+                source_root=checkout,
+                dist=checkout / "dist",
+                chip32_assembly=assembly,
+                chip32_encoded_image=encoded,
+                rbf_filename="ap_core.rbf",
+                rbf_bytes=self.rbf_bytes,
+                source_commit=commit,
+            )
 
     def test_release_evidence_rejects_unbound_or_unaccepted_inputs(self) -> None:
         output = self.root / "bad-evidence.zip"
@@ -1181,7 +1467,7 @@ class PackageCoreTest(unittest.TestCase):
 
         evidence = self.build_evidence()
         build_id_path = evidence.parent / "build_id.mif"
-        changed_build_id = build_id_path.read_bytes().replace(b"11111111", b"22222222")
+        changed_build_id = build_id_path.read_bytes().replace(b"aaaaaaaa", b"bbbbbbbb")
         build_id_path.write_bytes(changed_build_id)
         definition = json.loads(evidence.read_text(encoding="utf-8"))
         definition["release_evidence"]["build_id"]["size"] = len(changed_build_id)
@@ -1193,7 +1479,7 @@ class PackageCoreTest(unittest.TestCase):
             self.package(output, build_evidence=evidence)
 
         evidence = self.build_evidence()
-        (evidence.parent / "ap_core.fit.rpt").write_bytes(b"changed")
+        (evidence.parent / "output_files/ap_core.fit.rpt").write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "fit report (size|SHA-256) mismatch"):
             self.package(output, build_evidence=evidence)
 
@@ -1230,8 +1516,8 @@ class PackageCoreTest(unittest.TestCase):
                     self.package(output, build_evidence=evidence)
 
         evidence = self.build_evidence()
-        fit_report = (evidence.parent / "ap_core.fit.rpt").read_bytes().replace(
-            b"06/23/2021", b"06/24/2021"
+        fit_report = (evidence.parent / "output_files/ap_core.fit.rpt").read_bytes().replace(
+            b"06/23/2022", b"06/24/2022"
         )
         self.rewrite_evidence_artifact(
             evidence, "reports", fit_report, report_kind="fit"
@@ -1240,7 +1526,7 @@ class PackageCoreTest(unittest.TestCase):
             self.package(output, build_evidence=evidence)
 
         evidence = self.build_evidence()
-        fit_report = (evidence.parent / "ap_core.fit.rpt").read_bytes().replace(
+        fit_report = (evidence.parent / "output_files/ap_core.fit.rpt").read_bytes().replace(
             b"Build 850", b"Build 8500"
         )
         self.rewrite_evidence_artifact(
@@ -1308,6 +1594,137 @@ class PackageCoreTest(unittest.TestCase):
                     self.package(output, build_evidence=evidence)
                 self.assertFalse(output.exists())
                 self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_requires_v2_but_nonrelease_preserves_v1_compatibility(self) -> None:
+        evidence = self.build_evidence(legacy_v1=True)
+        nonrelease = self.root / "legacy-evidence.zip"
+        self.package(nonrelease, build_evidence=evidence)
+        provenance = json.loads(
+            self.provenance_path(nonrelease).read_text(encoding="utf-8")
+        )["package_provenance"]
+        self.assertEqual(
+            provenance["build_evidence"]["magic"],
+            "SWAN_SONG_RELEASE_EVIDENCE_V1",
+        )
+        self.assertIsNone(provenance["build_evidence"]["quartus_audit"])
+
+        self.authorize_release_policy()
+        self.set_release_metadata("2.0.0", "2026-07-13")
+        release = self.root / "RegionallyFamous.SwanSong_2.0.0_2026-07-13.zip"
+        with self.assertRaisesRegex(
+            ValueError, "requires SWAN_SONG_RELEASE_EVIDENCE_V2"
+        ):
+            self.package(release, build_evidence=evidence, release=True)
+        self.assertFalse(release.exists())
+        self.assertFalse(self.provenance_path(release).exists())
+
+    def test_v2_recomputes_candidate_instead_of_trusting_rehashed_claims(self) -> None:
+        evidence = self.build_evidence()
+        candidate = evidence.parent / "quartus-audit-candidate.json"
+        candidate_document = json.loads(candidate.read_text(encoding="utf-8"))
+        candidate_document["quartus_audit"]["audit_pass"] = False
+        candidate.write_text(
+            json.dumps(candidate_document, sort_keys=True), encoding="utf-8"
+        )
+        evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+        audit_entry = evidence_document["release_evidence"]["quartus_audit"]
+        audit_bytes = candidate.read_bytes()
+        audit_entry["size"] = len(audit_bytes)
+        audit_entry["sha256"] = hashlib.sha256(audit_bytes).hexdigest()
+        evidence.write_text(
+            json.dumps(evidence_document, sort_keys=True), encoding="utf-8"
+        )
+
+        output = self.root / "rehashed-forged-audit.zip"
+        with self.assertRaisesRegex(ValueError, "does not match a fresh audit"):
+            self.package(output, build_evidence=evidence)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_v2_rejects_cross_build_source_and_report_mixes(self) -> None:
+        output = self.root / "cross-build.zip"
+
+        evidence = self.build_evidence()
+        evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+        evidence_document["release_evidence"]["source_commit"] = "b" * 40
+        build_id = (evidence.parent / "build_id.mif").read_bytes()
+        build_id = build_id.replace(b"a" * 40, b"b" * 40).replace(
+            b"aaaaaaaa", b"bbbbbbbb"
+        )
+        (evidence.parent / "build_id.mif").write_bytes(build_id)
+        build_entry = evidence_document["release_evidence"]["build_id"]
+        build_entry["size"] = len(build_id)
+        build_entry["sha256"] = hashlib.sha256(build_id).hexdigest()
+        candidate = evidence.parent / "quartus-audit-candidate.json"
+        candidate_document = json.loads(candidate.read_text(encoding="utf-8"))
+        candidate_document["quartus_audit"]["artifacts"]["build_id.mif"] = {
+            "size": len(build_id),
+            "sha256": hashlib.sha256(build_id).hexdigest(),
+        }
+        candidate.write_text(
+            json.dumps(candidate_document, sort_keys=True), encoding="utf-8"
+        )
+        audit_bytes = candidate.read_bytes()
+        audit_entry = evidence_document["release_evidence"]["quartus_audit"]
+        audit_entry["size"] = len(audit_bytes)
+        audit_entry["sha256"] = hashlib.sha256(audit_bytes).hexdigest()
+        evidence.write_text(
+            json.dumps(evidence_document, sort_keys=True), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(ValueError, "source identity does not match"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        sta_path = evidence.parent / "output_files/ap_core.sta.rpt"
+        sta_bytes = sta_path.read_bytes() + b"post-audit report mix\n"
+        self.rewrite_evidence_artifact(
+            evidence, "reports", sta_bytes, report_kind="sta"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "does not match a fresh audit"
+        ):
+            self.package(output, build_evidence=evidence)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_v2_rejects_rehashed_negative_timing_candidate(self) -> None:
+        evidence = self.build_evidence()
+        candidate = evidence.parent / "quartus-audit-candidate.json"
+        candidate_document = json.loads(candidate.read_text(encoding="utf-8"))
+        sta_relative = "output_files/ap_core.sta.rpt"
+        sta_path = evidence.parent / sta_relative
+        sta_bytes = sta_path.read_bytes().replace(
+            b"SWAN_SONG_TIMING_GATE_V1 corners 4 analyses 4 negative_paths 0",
+            b"SWAN_SONG_TIMING_GATE_V1 corners 4 analyses 4 negative_paths 1",
+            1,
+        )
+        self.assertIn(b"negative_paths 1", sta_bytes)
+        sta_path.write_bytes(sta_bytes)
+        candidate_document["quartus_audit"]["artifacts"][sta_relative] = {
+            "size": len(sta_bytes),
+            "sha256": hashlib.sha256(sta_bytes).hexdigest(),
+        }
+        candidate.write_text(
+            json.dumps(candidate_document, sort_keys=True), encoding="utf-8"
+        )
+
+        evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+        audit_bytes = candidate.read_bytes()
+        audit_entry = evidence_document["release_evidence"]["quartus_audit"]
+        audit_entry["size"] = len(audit_bytes)
+        audit_entry["sha256"] = hashlib.sha256(audit_bytes).hexdigest()
+        sta_entry = evidence_document["release_evidence"]["reports"]["sta"]
+        sta_entry["size"] = len(sta_bytes)
+        sta_entry["sha256"] = hashlib.sha256(sta_bytes).hexdigest()
+        evidence.write_text(
+            json.dumps(evidence_document, sort_keys=True), encoding="utf-8"
+        )
+
+        output = self.root / "negative-timing.zip"
+        with self.assertRaisesRegex(ValueError, "could not recompute Quartus audit"):
+            self.package(output, build_evidence=evidence)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
 
 
 if __name__ == "__main__":

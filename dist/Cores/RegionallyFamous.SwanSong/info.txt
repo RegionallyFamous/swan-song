@@ -1,7 +1,6 @@
 Swan Song by Regionally Famous
 System core by Robert Peip
 Pocket port by agg23
-
 Supported launch path:
 * SD-card games through openFPGA
 * WonderSwan .ws and WonderSwan Color .wsc
@@ -11,7 +10,8 @@ Supported launch path:
 
 PocketChallenge v2 and .pc2 assets are not supported.
 The physical cartridge and link ports are not used.
-
+Cartridge saves use Swan Song's own core-specific namespace.
+Back up first; legacy common saves need the ROM-aware migration helper.
 Features:
 * Fast Forward and CPU Turbo
 * Console Setup invokes the original BIOS setup gesture
@@ -20,7 +20,7 @@ Features:
 * Triple-buffered video and optional LCD response effects
 * Raw RGB444 and optional Color LCD (ares) profile
 
-The game's native orientation still controls its button matrix.
+Control Layout: Auto follows the game; overrides change buttons only.
 Display Orientation and Landscape 180 degrees affect presentation only.
 
 Memories and Sleep + Wake remain disabled pending end-to-end Pocket validation.
