@@ -171,7 +171,7 @@ proc get_registers {{args}} {{
   }} elseif {{[string first "input_state_system_cdc|payload_hold_source" $filter] >= 0}} {{
     set count 17; set stem input_state_source
   }} elseif {{[string first "input_state_system_cdc|payload_destination" $filter] >= 0}} {{
-    set count 17; set stem input_state_destination
+    set count 13; set stem input_state_destination
   }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
     set count 21; set stem metadata_source
   }} elseif {{[string first "save_size_bytes_74a" $filter] >= 0}} {{

@@ -246,11 +246,14 @@ set_max_skew \
   -to $save_metadata_destination_registers_expanded
 
 # Physical input is a 17-bit acknowledged bundled-data CDC: ownership and all
-# sixteen buttons are captured together. payload_hold_source remains frozen
-# from before request_toggle_source enters its two-flop synchronizer until the
-# destination capture has returned its acknowledgement. Bound delay and skew
-# across the complete bundle so a legal multi-button transition cannot tear and
-# neutral+unblocked can never arrive in different destination cycles.
+# sixteen APF buttons are held together at the source. WonderSwan consumes
+# ownership plus twelve buttons, so Quartus intentionally removes destination
+# bits 10 through 13. payload_hold_source remains frozen from before
+# request_toggle_source enters its two-flop synchronizer until the thirteen-bit
+# user-visible destination capture has returned its acknowledgement. Bound
+# delay and skew across every surviving payload path so a legal multi-button
+# transition cannot tear and neutral+unblocked cannot arrive in different
+# destination cycles.
 set input_state_source_registers [get_registers -nowarn -no_duplicates \
   {ic|input_state_system_cdc|payload_hold_source[*]}]
 set input_state_destination_registers [get_registers -nowarn -no_duplicates \
@@ -268,8 +271,8 @@ set input_state_destination_count \
 if {$input_state_source_count != 17} {
   error "input state CDC constraint expected 17 payload_hold_source registers; found $input_state_source_count register(s): [swan_song_register_names $input_state_source_registers]"
 }
-if {$input_state_destination_count != 17} {
-  error "input state CDC constraint expected 17 destination registers; found $input_state_destination_count register(s): [swan_song_register_names $input_state_destination_registers]"
+if {$input_state_destination_count != 13} {
+  error "input state CDC constraint expected 13 user-visible destination registers; found $input_state_destination_count register(s): [swan_song_register_names $input_state_destination_registers]"
 }
 
 set_net_delay -max \

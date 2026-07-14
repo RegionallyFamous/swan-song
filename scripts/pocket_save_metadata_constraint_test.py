@@ -155,7 +155,7 @@ proc get_registers {{args}} {{
   }} elseif {{[string first "input_state_system_cdc|payload_hold_source" $filter] >= 0}} {{
     for {{set i 0}} {{$i < 17}} {{incr i}} {{ lappend result "input_state_source_$i" }}
   }} elseif {{[string first "input_state_system_cdc|payload_destination" $filter] >= 0}} {{
-    for {{set i 0}} {{$i < 17}} {{incr i}} {{ lappend result "input_state_destination_$i" }}
+    for {{set i 0}} {{$i < 13}} {{incr i}} {{ lappend result "input_state_destination_$i" }}
   }} elseif {{[string first "metadata_hold" $filter] >= 0}} {{
     for {{set i 0}} {{$i < {metadata_source_count}}} {{incr i}} {{ lappend result "source_$i" }}
     if {{!$no_duplicates}} {{ lappend result "source_fitter_duplicate" }}
