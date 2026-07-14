@@ -31,7 +31,7 @@ EXPECTED_PAYLOAD_BYTES = {
     0x50: 1_024,
 }
 MAXIMUM_FILE_BYTES = 524_288 + 12
-SAVE_PARAMETERS = 0x84
+SAVE_PARAMETERS = 0x86
 
 SV_LITERAL = (
     r"(?:(?:[0-9][0-9_]*)?'[sS]?[bBoOdDhH][0-9a-fA-F_]+|[0-9][0-9_]*)"
@@ -348,8 +348,9 @@ def check_data_json(definition: object) -> list[str]:
         parameters = None
     if parameters != SAVE_PARAMETERS:
         errors.append(
-            "data.json Save parameters must be 0x84 "
-            "(cloned filename, writable, dynamic initialization, Chip32 restart)"
+            "data.json Save parameters must be 0x86 "
+            "(core-specific, cloned filename, writable, dynamic initialization, "
+            "Chip32 restart)"
         )
 
     if "size_exact" in save:
@@ -635,7 +636,7 @@ def run_mutations() -> int:
             (
                 "non-cloned-save-name",
                 json_mutation(lambda save: save.__setitem__("parameters", "0x80")),
-                "Save parameters must be 0x84",
+                "Save parameters must be 0x86",
             ),
             (
                 "required-save",

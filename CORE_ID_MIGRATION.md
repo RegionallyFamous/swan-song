@@ -18,9 +18,11 @@ copies only the small, understood subset that is safe to migrate:
   `/Presets/RegionallyFamous.SwanSong`.
 
 The helper does **not** copy or inspect Memories, ROMs, BIOS files, common
-cartridge saves, or any other application directory. In particular,
-`/Saves/wonderswan/common` remains shared in place and must not be duplicated.
-The helper downloads nothing.
+cartridge saves, or any other application directory. Swan Song's cartridge
+slot is now core-specific, so legacy `/Saves/wonderswan/common` files require
+the separate ROM-aware [cartridge-save migration helper](CARTRIDGE_SAVE_MIGRATION.md).
+Do not duplicate those saves by hand: inherited and canonical layouts can
+differ. Both helpers download nothing.
 
 ## Run a read-only plan first
 

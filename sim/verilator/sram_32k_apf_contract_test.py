@@ -93,7 +93,7 @@ def verify_contract(
         "name": "Save",
         "id": 11,
         "required": False,
-        "parameters": "0x84",
+        "parameters": "0x86",
         "nonvolatile": True,
         "extensions": ["sav"],
         "size_maximum": 524300,

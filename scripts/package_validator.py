@@ -444,6 +444,36 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
 
     slots_by_id = {_integer(slot["id"], f"{relative}.data.data_slots id"): slot
                    for slot in slots}
+    save = slots_by_id[11]
+    save_where = f"{relative}.data.data_slots ID 11"
+    save_actual = (
+        save.get("name"),
+        save.get("required"),
+        save.get("filename"),
+        _integer(save.get("parameters"), f"{save_where}.parameters"),
+        save.get("nonvolatile"),
+        save.get("extensions"),
+        save.get("size_exact"),
+        _integer(save.get("size_maximum"), f"{save_where}.size_maximum"),
+        _integer(save.get("address"), f"{save_where}.address"),
+    )
+    save_expected = (
+        "Save",
+        False,
+        None,
+        0x86,
+        True,
+        ["sav"],
+        None,
+        524300,
+        0x20000000,
+    )
+    if save_actual != save_expected:
+        raise ValueError(
+            f"{save_where} must be core-specific filename-cloned nonvolatile "
+            f"storage: expected {save_expected!r}, got {save_actual!r}"
+        )
+
     expected_console_slots = {
         12: ("Mono EEPROM", "mono.eeprom", 128, 0x50000000),
         13: ("Color EEPROM", "color.eeprom", 2048, 0x60000000),
