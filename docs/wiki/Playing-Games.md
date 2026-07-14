@@ -41,9 +41,14 @@ power-cycle behavior remains part of hardware acceptance.
 ## Horizontal and vertical games
 
 WonderSwan software can change its native orientation. Swan Song uses that
-native signal for the game-visible button matrix. The **Display Orientation**
-setting controls only how Pocket presents the completed picture; forcing a
-display rotation does not secretly change what the game reads.
+native signal for the game-visible button matrix when **Control Layout** is set
+to **Auto**. Choose **Horizontal** or **Vertical** to keep that face- and
+shoulder-button arrangement when a game changes orientation. The D-pad still
+follows the game's native directional matrix.
+
+**Display Orientation** controls only how Pocket presents the completed
+picture. It does not change **Control Layout**, the D-pad matrix, or what the
+game reads.
 
 See [Controls and
 Settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
@@ -60,10 +65,11 @@ Fast Forward is active.
 
 ## Per-game presets
 
-Advanced users can create local per-game defaults for orientation, color,
-buffering, LCD response, CPU Turbo, Fast Forward audio, and descriptive
-controls. Presets stay on your own SD card and do not inspect or catalogue ROM
-contents. PocketOS behavior around editable controls is still being verified.
+Advanced users can create local per-game defaults for display orientation,
+Control Layout, color, buffering, LCD response, CPU Turbo, Fast Forward audio,
+and descriptive controls. Presets stay on your own SD card and do not inspect
+or catalogue ROM contents. PocketOS behavior around editable controls is still
+being verified.
 See the [per-game preset
 guide](https://github.com/RegionallyFamous/swan-song/blob/main/PER_GAME_PRESETS.md).
 

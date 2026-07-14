@@ -56,5 +56,6 @@ own legally obtained game and BIOS images. Never upload those files to an
 issue, this repository, a test server, or a public cloud service.
 
 The independent Pocket core identity is `RegionallyFamous.SwanSong`. The
-project preserves its complete [upstream provenance and
-credits](https://github.com/RegionallyFamous/swan-song/blob/main/UPSTREAMS.md).
+project preserves [documented provenance and known
+credits](https://github.com/RegionallyFamous/swan-song/blob/main/UPSTREAMS.md);
+final distribution clearance remains pending.

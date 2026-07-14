@@ -61,8 +61,8 @@ by the protected `0x01080000..0x010fffff` guard gap.
 | `0x1c` | 4 | zero |
 | `0x20` | 4 | original ROM-file bytes |
 | `0x24` | 4 | bytes `{model, mapper, ramtype, active_bios}` |
-| `0x28` | 4 | hard settings-match mask, initially `0x100` |
-| `0x2c` | 4 | 11-bit settings snapshot; upper 21 bits zero |
+| `0x28` | 4 | hard settings-match mask, initially `0x400` |
+| `0x2c` | 4 | 13-bit settings snapshot; upper 19 bits zero |
 | `0x30` | 8 | ROM CRC64 over original source-file bytes |
 | `0x38` | 8 | active BIOS CRC64 |
 | `0x40` | 8 | mono BIOS CRC64 |
@@ -97,10 +97,11 @@ not trust arbitrary shorter lengths.
 ROM identity is CRC64 plus exact original file length and all 16 footer bytes,
 before compact-ROM right alignment or `0xff` fill. Effective model, mapper, RAM
 type, active BIOS CRC, and CPU-turbo setting are hard matches. The inactive BIOS
-CRC is diagnostic. Presentation settings use the current Pocket value after
-restore. The 11-bit settings snapshot is `{system[1:0], cpu_turbo,
-triple_buffer, flicker[1:0], orientation[1:0], horizontal_flip, color_profile,
-fast_forward_audio}`; its initial hard-match mask is only CPU turbo (`0x100`).
+CRC is diagnostic. Presentation and input-layout settings use the current
+Pocket value after restore. The 13-bit settings snapshot is `{system[1:0],
+cpu_turbo, triple_buffer, flicker[1:0], orientation[1:0],
+control_layout[1:0], horizontal_flip, color_profile, fast_forward_audio}`; its
+initial hard-match mask is only CPU turbo (`0x400`).
 
 ## Fixed payload map
 

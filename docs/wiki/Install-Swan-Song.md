@@ -35,8 +35,12 @@ page](https://www.analogue.co/support/pocket), not from a core ZIP or a mirror.
 
 On macOS, do not let Finder replace an existing top-level folder with the
 folder from the ZIP. A replacement can remove unrelated cores or personal
-files. Merge the contents carefully, or use an SD-card update tool after that
-tool explicitly lists Swan Song as a supported release.
+files. Once a release is authorized, the official source commit includes a
+read-only-first staging command that verifies the published ZIP SHA-256,
+published provenance SHA-256, version, source commit, exact release provenance,
+and release-policy authorization before offering an explicit merge. The command
+currently refuses installation because no release is authorized. See the [Pocket SD staging
+guide](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_SD_STAGING.md).
 
 ## Add the required BIOS files
 
@@ -69,15 +73,17 @@ to `/Cores/agg23.WonderSwan`. Do not rename one core folder into the other.
 Pocket derives settings and console-data paths from the core identity.
 
 Games and BIOS files remain in the shared `wonderswan/common` asset folder.
-Cartridge saves are also shared through the platform-common save path, so back
-them up before alternating between cores. See [Saves and
+Cartridge saves use Swan Song's core-specific namespace. Older shared saves do
+not appear automatically; back up the card and use the ROM-aware migration
+helper rather than copying them by hand. See [Saves and
 Migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration).
 
-## Development packages
+## Mac staging and development packages
 
-The repository includes a read-only-first Mac staging workflow for developers,
-but it deliberately rejects release claims and does not make an unverified
-build safe for ordinary use. See the [Pocket SD staging
+The repository includes a read-only-first Mac staging workflow. Its development
+mode remains tied to the exact checkout and cannot make an unverified build
+safe for ordinary use. Its separate release mode requires trusted published
+identity and refuses the current unauthorized policy. See the [Pocket SD staging
 guide](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_SD_STAGING.md)
 and [Build and
 Test](https://github.com/RegionallyFamous/swan-song/wiki/Build-and-Test) only if

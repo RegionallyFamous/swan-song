@@ -10,9 +10,10 @@ the truth. Physical acceptance remains a human review decision.
 
 Swan Song is maintained by Regionally Famous and the inventory must identify
 the installed core as `RegionallyFamous.SwanSong`. Robert Peip's WonderSwan
-system core, Adam Gastineau's Pocket port, and spiritualized1997's platform art
-remain credited in `README.md`; the independent APF ID is not a claim to their
-work.
+system core and Adam Gastineau's Pocket port remain credited in `README.md`;
+historical platform-art provenance remains in `UPSTREAMS.md`. Regionally
+Famous authored the current Swan Song core icon and **Swan Wake** platform art.
+The independent APF ID and new artwork are not claims to inherited core work.
 
 The protocol was researched on 2026-07-13 against Pocket firmware 2.6.0. The
 official release publishes version, date, and MD5 and adds openFPGA Recent:
@@ -170,7 +171,7 @@ The fixed catalogue covers:
 
 | Area | Required cases |
 |---|---|
-| Startup and launcher | Fresh SD, platform art/About, core icon legibility and centering in positive/negative Core List and Core Boot Screen contexts, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
+| Startup and launcher | Fresh SD, Swan Wake platform art/About legibility, centering, contrast, and clipping, core icon legibility and centering in positive/negative Core List and Core Boot Screen contexts, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
 | Compact ROM | Generated 896 KiB probe, `0xff` lower-prefix behavior, right-aligned reset vector/footer, 1 MiB aperture and `0x0fffff` mask, power-of-two regression |
 | Negative boot | Missing mono/color BIOS, too-small/misaligned/oversized ROM, invalid compact footer/checksum with visible **ROM footer/checksum rejected** error, reviewed validation instruction guard, recovery with a corrected valid input; separate target-firmware stuck-pending fault injection remains required for wall-clock/cycle-limit calibration |
 | Disabled features | Memories rejection/unavailability, Sleep not advertised, quick-load non-mutation |
@@ -271,8 +272,10 @@ This protocol deliberately does not modify that package code, set either gate,
 authorize the publisher, alter release metadata, or create an archive.
 
 The separate `RegionallyFamous.SwanSong` namespace may coexist with
-`agg23.WonderSwan`. Common cartridge saves remain in the platform-mirrored
-`/Saves/wonderswan/common/...` tree and therefore require a backup, not a
+`agg23.WonderSwan`. Swan Song cartridge saves are core-specific below
+`/Saves/wonderswan/RegionallyFamous.SwanSong/...`. If testing migrated a legacy
+shared save, preserve the source, record the ROM-aware conversion plan and
+before/after hashes, and test quit/relaunch; never perform an unvalidated manual
 namespace copy. If testing copied fixed EEPROM/settings/presets, preserve the
 historical source tree and record the copy plus before/after hashes in the QA
 log. Never transplant `/Memories/Beta/agg23.WonderSwan`; Memories are disabled

@@ -42,6 +42,7 @@ porting](https://github.com/RegionallyFamous/swan-song/blob/main/PORTING.md).
 | Module, clock, memory, and video map | [ARCHITECTURE.md](https://github.com/RegionallyFamous/swan-song/blob/main/ARCHITECTURE.md) |
 | APF lifecycle and data slots | [BUILDING.md](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md) |
 | Launcher, Recent, and Library boundary | [POCKET_LAUNCHER_LIBRARY.md](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_LAUNCHER_LIBRARY.md) |
+| Core icon and Swan Wake platform art | [CORE_ICON.md](https://github.com/RegionallyFamous/swan-song/blob/main/CORE_ICON.md), [PLATFORM_ART.md](https://github.com/RegionallyFamous/swan-song/blob/main/PLATFORM_ART.md) |
 | Controls and Dock | [FIRST_CLASS_INPUT_DOCK.md](https://github.com/RegionallyFamous/swan-song/blob/main/FIRST_CLASS_INPUT_DOCK.md) |
 | Frame delivery and orientation | [FRAME_DELIVERY.md](https://github.com/RegionallyFamous/swan-song/blob/main/FRAME_DELIVERY.md), [VERTICAL_PLAY.md](https://github.com/RegionallyFamous/swan-song/blob/main/VERTICAL_PLAY.md), [ORIENTATION_TRANSITION.md](https://github.com/RegionallyFamous/swan-song/blob/main/ORIENTATION_TRANSITION.md) |
 | Color and temporal response | [SCREEN_AUTHENTICITY.md](https://github.com/RegionallyFamous/swan-song/blob/main/SCREEN_AUTHENTICITY.md) |
@@ -59,5 +60,9 @@ porting](https://github.com/RegionallyFamous/swan-song/blob/main/PORTING.md).
 - Keep deterministic build inputs separate from host clocks and randomness.
 - Upstream shared console fixes after the evidence is strong enough to review.
 
-The source tree is licensed under GPL-2.0. Third-party fixtures and tools retain
-their own documented licenses; check provenance before redistributing anything.
+The inherited tree contains a standalone GPL v2 license text, a GPL
+v2-or-later program notice, GPL v3-or-later and MIT file notices, and
+vendor-specific notices. The standalone GPL v2 text does not by itself license
+unheaded files. Release licensing is still under review; consult
+[`UPSTREAMS.md`](https://github.com/RegionallyFamous/swan-song/blob/main/UPSTREAMS.md)
+and preserve every file-level notice before redistributing anything.
