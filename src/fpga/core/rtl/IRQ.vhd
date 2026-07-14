@@ -24,6 +24,8 @@ entity IRQ is
       IRQ_HBlankTmr        : in  std_logic;
       IRQ_SerialTX         : in  std_logic;
       IRQ_Key              : in  std_logic;
+      IRQ_Cartridge        : in  std_logic;
+      IRQ_SerialRX         : in  std_logic;
       
       RegBus_Din           : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr           : in  std_logic_vector(BUS_busadr-1 downto 0);
@@ -97,7 +99,15 @@ begin
    
    iSS_IRQ : entity work.eReg_SS generic map ( REG_SAVESTATE_IRQ ) port map (clk, SSBUS_Din, SSBUS_Adr, SSBUS_wren, SSBUS_rst, SSBUS_Dout, SS_IRQ_BACK, SS_IRQ); 
           
-   irqrequest <= '1' when (INT_STATUS and INT_ENABLE) /= x"00" else '0';
+   -- INT_ENABLE gates a source when its condition occurs; it does not mask an
+   -- already-pending request.  Once latched, status alone continues to request
+   -- the CPU until software acknowledges it through B6.
+   irqrequest <= '1' when INT_STATUS /= x"00" else '0';
+
+   -- Keep the CPU's vector address on the same combinational priority result
+   -- returned by B0.  This avoids a stale one-CE registered vector when a new
+   -- source becomes pending or the highest source is acknowledged.
+   irqvector <= shift_left(resize(unsigned(INT_BASE_read), irqvector'length), 2);
           
    export_irq <= INT_STATUS;
    
@@ -114,6 +124,8 @@ begin
             -- set
             if (IRQ_SerialTX = '1' and INT_ENABLE(0) = '1') then INT_STATUS(0) <= '1'; end if;
             if (IRQ_Key      = '1' and INT_ENABLE(1) = '1') then INT_STATUS(1) <= '1'; end if;
+            if (IRQ_Cartridge = '1' and INT_ENABLE(2) = '1') then INT_STATUS(2) <= '1'; end if;
+            if (IRQ_SerialRX  = '1' and INT_ENABLE(3) = '1') then INT_STATUS(3) <= '1'; end if;
             if (IRQ_LineComp  = '1' and INT_ENABLE(4) = '1') then INT_STATUS(4) <= '1'; end if;
             if (IRQ_VBlankTmr = '1' and INT_ENABLE(5) = '1') then INT_STATUS(5) <= '1'; end if;
             if (IRQ_VBlank    = '1' and INT_ENABLE(6) = '1') then INT_STATUS(6) <= '1'; end if;
@@ -126,13 +138,6 @@ begin
                end loop;
             end if;
             
-            -- pick highest priority
-            for i in 0 to 7 loop
-               if (INT_STATUS(i) = '1' and INT_ENABLE(i) = '1') then
-                  irqvector <= to_unsigned(((to_integer(unsigned(INT_BASE_masked)) + i) * 4), 10);
-               end if;
-            end loop;
-            
          end if;
       end if;
    end process;
@@ -140,6 +145,4 @@ begin
    
 
 end architecture;
-
-
 

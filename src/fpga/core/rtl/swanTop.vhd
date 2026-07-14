@@ -295,6 +295,8 @@ architecture arch of SwanTop is
    signal IRQ_HBlankTmr          : std_logic;
    signal IRQ_SerialTX           : std_logic;
    signal IRQ_Key                : std_logic;
+   signal IRQ_Cartridge          : std_logic;
+   signal IRQ_SerialRX           : std_logic;
    
    -- GPU
    signal GPU_addr               : std_logic_vector(15 downto 0);
@@ -565,6 +567,13 @@ begin
       RegBus_rst   => RegBus_rst,
       RegBus_Dout  => reg_wired_or(0)
    );
+
+   -- The controller exposes every hardware source now.  These two level
+   -- producers remain inactive until the cartridge mapper and receive side of
+   -- the UART are implemented; keeping explicit signals makes those future
+   -- connections local and prevents synthetic pending interrupts meanwhile.
+   IRQ_Cartridge <= '0';
+   IRQ_SerialRX  <= '0';
    
    -- Memory Mux
    bus_read      <= dma_bus_read      when (dma_active = '1' or sdma_active = '1') else cpu_bus_read;    
@@ -906,6 +915,8 @@ begin
       IRQ_HBlankTmr        => IRQ_HBlankTmr,
       IRQ_SerialTX         => IRQ_SerialTX ,
       IRQ_Key              => IRQ_Key      ,
+      IRQ_Cartridge        => IRQ_Cartridge,
+      IRQ_SerialRX         => IRQ_SerialRX ,
       
 -- synthesis translate_off
       export_irq           => export_irq,         
