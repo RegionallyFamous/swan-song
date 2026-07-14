@@ -113,12 +113,19 @@ def verify_contract(sources: dict[str, str]) -> None:
 
     for fragment in (
         "ic|input_state_system_cdc|payload_hold_source[*]",
-        "ic|input_state_system_cdc|payload_destination[*]",
         "if{$input_state_source_count!=17}",
         "if{$input_state_destination_count!=13}",
     ):
         if fragment not in constraints:
             raise ValueError(f"atomic input-state SDC is missing {fragment}")
+    for index in (*range(10), 14, 15, 16):
+        fragment = f"ic|input_state_system_cdc|payload_destination[{index}]"
+        if constraints.count(fragment) != 2:
+            raise ValueError(f"atomic input-state SDC is missing exact destination {index}")
+    for index in range(10, 14):
+        fragment = f"ic|input_state_system_cdc|payload_destination[{index}]"
+        if fragment in constraints:
+            raise ValueError(f"input-state SDC includes unused destination {index}")
     cdc_from_to = (
         "-from$input_state_source_registers_expanded"
         "-to$input_state_destination_registers_expanded"
