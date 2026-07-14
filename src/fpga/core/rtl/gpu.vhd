@@ -117,7 +117,7 @@ architecture arch of gpu is
    signal SCR2_Y      : std_logic_vector(REG_SCR2_Y     .upper downto REG_SCR2_Y     .lower);
    signal LCD_CTRL    : std_logic_vector(REG_LCD_CTRL   .upper downto REG_LCD_CTRL   .lower);
    signal LCD_ICON    : std_logic_vector(REG_LCD_ICON   .upper downto REG_LCD_ICON   .lower);
-   signal LCD_VTOTAL  : std_logic_vector(REG_LCD_VTOTAL .upper downto REG_LCD_VTOTAL .lower);
+   signal LCD_VTOTAL  : std_logic_vector(REG_LCD_VTOTAL .upper downto REG_LCD_VTOTAL .lower) := x"9E";
    signal LCD_VSYNC   : std_logic_vector(REG_LCD_VSYNC  .upper downto REG_LCD_VSYNC  .lower);
    
    signal LCD_ICON_written : std_logic;
@@ -150,8 +150,21 @@ architecture arch of gpu is
    signal xCount              : unsigned(7 downto 0) := (others => '0');
    signal startLine           : std_logic;
    signal newLine             : std_logic;
-   signal lineY               : std_logic_vector(7 downto 0) := (others => '0');
-   signal lineYNext           : std_logic_vector(7 downto 0) := (others => '0');
+   signal lineY               : std_logic_vector(7 downto 0);
+   signal lineNext            : std_logic_vector(7 downto 0);
+   signal lineEntering144     : std_logic;
+   signal renderLineActive    : std_logic;
+   signal outputLineActive    : std_logic;
+   signal outputLineY         : std_logic_vector(7 downto 0);
+
+   -- The LCD publishes scanline N one line after the PPU computes it. A
+   -- single read-before-write row is sufficient because publication and the
+   -- next render advance at the same pixel cadence.
+   type tRenderLineBuffer is array(0 to 223) of std_logic_vector(11 downto 0);
+   signal renderLineBuffer : tRenderLineBuffer := (others => (others => '0'));
+   signal renderBufferValid : std_logic := '0';
+   signal renderBufferRow   : std_logic_vector(7 downto 0) := (others => '0');
+   signal renderLineStarted : std_logic := '0';
          
    -- latched regs      
    signal displayControl      : std_logic_vector(7 downto 0) := (others => '0');
@@ -211,6 +224,41 @@ architecture arch of gpu is
       FETCHCOLOR1
    );
    signal spriteLineState     : tSpriteLineState := IDLE;
+   signal spritePrefetchActive : std_logic := '0';
+   signal spritePrefetchLine   : std_logic_vector(7 downto 0) := (others => '0');
+
+   -- At the minimum VBlank-capable total, line 144 is both the complete OAM
+   -- refresh and the line immediately before next-frame row 0. Decode active
+   -- row-0 descriptors directly from completed DMA responses and use the
+   -- otherwise independent sprite-tile slots. One current and one pending job
+   -- cover the only possible overlap between consecutive active descriptors.
+   signal spriteRow0StreamActive      : std_logic := '0';
+   signal spriteRow0DMAComplete       : std_logic := '0';
+   signal spriteRow0Ready             : std_logic := '0';
+   signal spriteRow0CurrentValid      : std_logic := '0';
+   signal spriteRow0PendingValid      : std_logic := '0';
+   signal spriteRow0TileOutstanding   : std_logic := '0';
+   signal spriteRow0TileWord          : std_logic := '0';
+   signal spriteRow0Accepted          : integer range 0 to 32 := 0;
+   signal spriteRow0CurrentIndex      : integer range 0 to 31 := 0;
+   signal spriteRow0PendingIndex      : integer range 0 to 31 := 0;
+   signal spriteRow0CurrentData       : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRow0PendingData       : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRow0CurrentTableAddr  : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteRow0PendingTableAddr  : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteRow0PendingTileAddr   : std_logic_vector(15 downto 0) := (others => '0');
+   signal spriteRow0CurrentCollision  : std_logic := '0';
+   signal spriteRow0PendingCollision  : std_logic := '0';
+   signal spriteRow0CurrentDebugValid : std_logic := '0';
+   signal spriteRow0PendingDebugValid : std_logic := '0';
+   signal spriteRow0CurrentGeneration : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRow0PendingGeneration : std_logic_vector(31 downto 0) := (others => '0');
+   signal spriteRow0CurrentDepth2     : std_logic := '1';
+   signal spriteRow0PendingDepth2     : std_logic := '1';
+   signal spriteRow0CurrentPacked     : std_logic := '0';
+   signal spriteRow0PendingPacked     : std_logic := '0';
+   signal spriteStartLine             : std_logic := '0';
+   signal spriteStartX                : std_logic_vector(7 downto 0) := (others => '0');
    
    signal spriteLineCounter   : integer range 0 to 127;
    signal spritesOnLine       : integer range 0 to 31;
@@ -303,6 +351,73 @@ begin
 
    export_vtime <= LINE_CUR;
 
+   -- LCD_VTOTAL is the inclusive final line. Keep one live transition for
+   -- every raster consumer so $02, line compare, VBlank/timer, line-144 OAM
+   -- sync, rendering, and save-state restore cannot disagree. A live write
+   -- below the current line takes effect at the next line boundary, matching
+   -- pinned Mesen2 and ares; the explicit >= comparison also makes final $FF
+   -- wrap cleanly instead of relying on 8-bit arithmetic overflow.
+   --
+   -- WSdev Display/IO Ports, permanent revision 582:
+   -- https://ws.nesdev.org/w/index.php?title=Display/IO_Ports&oldid=582
+   -- WSdev Timing, permanent revision 645:
+   -- https://ws.nesdev.org/w/index.php?title=Timing&oldid=645
+   -- Mesen2 b9fa69dd ProcessEndOfScanline:
+   -- https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsPpu.cpp#L72-L105
+   -- ares 449b9371 PPU::main:
+   -- https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/ppu.cpp#L188-L220
+   process (all)
+   begin
+      -- eReg outputs settle during the first simulation delta. Avoid turning
+      -- that harmless initialization interval into numeric_std metavalue
+      -- warnings while keeping synthesis behavior fully combinational.
+      lineNext     <= (others => '0');
+      if not is_x(LINE_CUR) and not is_x(LCD_VTOTAL) then
+         if unsigned(LINE_CUR) >= unsigned(LCD_VTOTAL) then
+            lineNext <= (others => '0');
+         else
+            lineNext <= std_logic_vector(unsigned(LINE_CUR) + 1);
+         end if;
+      end if;
+   end process;
+   lineEntering144 <= '1' when lineNext = x"90" else '0';
+
+   -- Draw scanline N while $02 reports N, then publish the cached row during
+   -- N+1. This preserves register/fetch timing and keeps line 144 available
+   -- for OAM sync while it sends row 143 to the framebuffer.
+   renderLineActive <= '1' when unsigned(LINE_CUR) < 144 else '0';
+   outputLineActive <= '1' when unsigned(LINE_CUR) > 0 and unsigned(LINE_CUR) <= 144 else '0';
+   lineY <= LINE_CUR;
+   outputLineY <= std_logic_vector(unsigned(LINE_CUR) - 1) when unsigned(LINE_CUR) > 0 else
+                  (others => '0');
+
+   -- Sprite rows are normally prepared one raster line ahead. Line 144 is
+   -- excluded from this scanner because its spriteRAM entries are being
+   -- replaced. A separate response-stream below prepares row 0 from the newly
+   -- copied table, matching WSdev's "used ... on the next frame" contract and
+   -- the pinned Mesen2/ares double-buffer behavior.
+   process (all)
+   begin
+      spritePrefetchActive <= '0';
+      spritePrefetchLine   <= (others => '0');
+      if not is_x(LINE_CUR) and not is_x(LCD_VTOTAL) then
+         if unsigned(LINE_CUR) /= 144 and unsigned(lineNext) < 144 then
+            spritePrefetchActive <= '1';
+            spritePrefetchLine   <= lineNext;
+         end if;
+      end if;
+   end process;
+
+   -- Ordinarily sprites snapshot their prepared Next array at x=0. If the
+   -- line-144 response stream is still draining, hold that snapshot until the
+   -- first CE after the final registered load has actually reached Next.
+   spriteStartLine <= spriteRow0Ready when
+                         spriteRow0StreamActive = '1' and LINE_CUR = x"00" else
+                      startLine when spriteRow0StreamActive = '0' else
+                      '0';
+   spriteStartX <= std_logic_vector(xCount) when spriteRow0StreamActive = '1' else
+                   (others => '0');
+
    -- Produce the logical line-144 word request directly from the raster edge.
    -- A request is either consumed in a sprite-table arbiter slot on that same
    -- edge or held in spriteDMARequest until the next such slot. This direct
@@ -319,7 +434,7 @@ begin
       spriteDMALogicalAddr    <= (others => '0');
 
       if (reset = '0' and ce = '1' and
-          unsigned(LINE_CUR) = 143 and xCount = 255) then
+          lineEntering144 = '1' and xCount = 255) then
          -- The old raster value names the edge entering line 144 cycle 0.
          -- Base and first are still live here because their latched copies are
          -- written on this same edge.
@@ -408,11 +523,11 @@ begin
    -- https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/ppu/timer.cpp#L1-L8
    -- Mesen2 b9fa69dd horizontal/vertical timer ticks:
    -- https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsTimer.cpp#L11-L35
-   IRQ_VBlankTmr <= '1' when (xCount = 255 and unsigned(LINE_CUR) = 143 and unsigned(VTMR_CTR) = 1) else '0';
+   IRQ_VBlankTmr <= '1' when (xCount = 255 and lineEntering144 = '1' and unsigned(VTMR_CTR) = 1) else '0';
    
-   IRQ_LineComp  <= '1' when (xCount = 255 and ((unsigned(LINE_CUR) + 1 = unsigned(LINE_CMP)) or (unsigned(LINE_CUR) = 158 and unsigned(LINE_CMP) = 0))) else '0'; 
+   IRQ_LineComp  <= '1' when (xCount = 255 and lineNext = LINE_CMP) else '0';
    
-   IRQ_VBlank    <= '1' when (xCount = 255 and unsigned(LINE_CUR) = 143) else '0'; 
+   IRQ_VBlank    <= '1' when (xCount = 255 and lineEntering144 = '1') else '0';
    
    IRQ_HBlankTmr <= '1' when (xCount = 255 and unsigned(HTMR_CTR) = 1) else '0';
    
@@ -495,23 +610,10 @@ begin
                spr2WinX1      <= SPR_WIN_X1;
                spr2WinY1      <= SPR_WIN_Y1;
             
-               if (unsigned(LINE_CUR) = 157) then
-                  lineYNext <= (others => '0');
-               elsif (lineYNext = LCD_VTOTAL) then
-                  lineYNext <= (others => '0');
-               else
-                  lineYNext <= std_logic_vector(unsigned(lineYNext) + 1);
-               end if;
-               lineY <= lineYNext;
-            
-               if (unsigned(LINE_CUR) < 158) then
-                  LINE_CUR <= std_logic_vector(unsigned(LINE_CUR) + 1);
-               else 
-                  LINE_CUR <= (others => '0');
-               end if;
+               LINE_CUR <= lineNext;
 
                -- vblank timer
-               if (unsigned(LINE_CUR) = 143) then
+               if (lineEntering144 = '1') then
                
                   if (TMR_CTRL(2) = '1' and unsigned(VTMR_CTR) > 0) then
                   
@@ -555,7 +657,7 @@ begin
       end if;
    end process;
    
-   startLine   <= '1' when (xCount = 0 and unsigned(LINE_CUR) < 144) else '0';
+   startLine   <= '1' when (xCount = 0 and renderLineActive = '1') else '0';
    newLine     <= '1' when (xCount = 0) else '0';
    
    depth2      <= '1' when DISP_MODE(7 downto 6) /= "11" else '0';
@@ -613,7 +715,8 @@ begin
             when 2 =>
                RAM_addr <= RAM_Address_SPR;
                debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TILE;
-               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 then
+               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 or
+                  spriteRow0CurrentValid = '1' then
                   debug_vram_fetch_valid <= is_simu;
                end if;
             when 3 => RAM_addr <= SOUND_addr;
@@ -639,7 +742,8 @@ begin
             when 6 =>
                RAM_addr <= RAM_Address_SPR;
                debug_vram_fetch_role <= DEBUG_VRAM_SPRITE_TILE;
-               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 then
+               if spriteLineState = FETCHCOLOR0 or spriteLineState = FETCHCOLOR1 or
+                  spriteRow0CurrentValid = '1' then
                   debug_vram_fetch_valid <= is_simu;
                end if;
             when 7 => RAM_addr <= SOUND_addr;
@@ -682,6 +786,7 @@ begin
       variable dmaBase : unsigned(15 downto 0);
       variable dmaOffset : unsigned(8 downto 0);
       variable dmaDescriptorIndex : integer range 0 to 127;
+      variable dmaDescriptor : std_logic_vector(31 downto 0);
    begin
       if rising_edge(clk) then
          spritesClearNext       <= '0';
@@ -714,6 +819,31 @@ begin
             RAM_Address_SPR   <= (others => '0');
             spritesLoadIndex  <= 0;
             spritesLoadData   <= (others => '0');
+            spriteRow0StreamActive      <= '0';
+            spriteRow0DMAComplete       <= '0';
+            spriteRow0Ready             <= '0';
+            spriteRow0CurrentValid      <= '0';
+            spriteRow0PendingValid      <= '0';
+            spriteRow0TileOutstanding   <= '0';
+            spriteRow0TileWord          <= '0';
+            spriteRow0Accepted          <= 0;
+            spriteRow0CurrentIndex      <= 0;
+            spriteRow0PendingIndex      <= 0;
+            spriteRow0CurrentData       <= (others => '0');
+            spriteRow0PendingData       <= (others => '0');
+            spriteRow0CurrentTableAddr  <= (others => '0');
+            spriteRow0PendingTableAddr  <= (others => '0');
+            spriteRow0PendingTileAddr   <= (others => '0');
+            spriteRow0CurrentCollision  <= '0';
+            spriteRow0PendingCollision  <= '0';
+            spriteRow0CurrentDebugValid <= '0';
+            spriteRow0PendingDebugValid <= '0';
+            spriteRow0CurrentGeneration <= (others => '0');
+            spriteRow0PendingGeneration <= (others => '0');
+            spriteRow0CurrentDepth2     <= '1';
+            spriteRow0PendingDepth2     <= '1';
+            spriteRow0CurrentPacked     <= '0';
+            spriteRow0PendingPacked     <= '0';
 
             if (is_simu = '1') then
                -- Provenance before reset cannot be paired with post-reset raw
@@ -759,6 +889,15 @@ begin
             spriteLineLoadEpochSeen <= '0';
          end if;
 
+         -- Once the deferred row-0 snapshot has been consumed on a CE edge,
+         -- normal x=0 starts resume. sprites.vhd sees the old Ready value on
+         -- this same edge, so clearing it here cannot suppress the snapshot.
+         if (ce = '1' and spriteRow0StreamActive = '1' and
+             spriteRow0Ready = '1' and LINE_CUR = x"00") then
+            spriteRow0StreamActive <= '0';
+            spriteRow0Ready        <= '0';
+         end if;
+
          -- Sprite table copy. WonderSwan performs one 16-bit transfer on
          -- every one of line 144's 256 system cycles, with the byte offset
          -- wrapping inside the 512-byte table. Pinned Mesen2 b9fa69dd
@@ -775,10 +914,30 @@ begin
          -- dedicated VRAM arbiter slot or from the one-entry queue at the next
          -- slot. The response is captured two clk edges after physical issue,
          -- matching the synchronous dpram latency used by other GPU clients.
-         if (ce = '1' and unsigned(LINE_CUR) = 143 and xCount = 255) then
+         if (ce = '1' and lineEntering144 = '1' and xCount = 255) then
             -- The old raster values are still visible on this edge: this is
             -- the exact transition into line 144 cycle 0.
             spriteDMATransferArmed <= '1';
+
+            -- Stream-decode the newly copied table for next-frame row 0. This
+            -- begins on every real line-144 entry, not only when 144 is already
+            -- terminal; a live lower of $16 during VBlank remains coherent.
+            spritesClearNext            <= '1';
+            spriteLineState             <= IDLE;
+            spriteRow0StreamActive      <= '1';
+            spriteRow0DMAComplete       <= '0';
+            spriteRow0Ready             <= '0';
+            spriteRow0CurrentValid      <= '0';
+            spriteRow0PendingValid      <= '0';
+            spriteRow0TileOutstanding   <= '0';
+            spriteRow0TileWord          <= '0';
+            spriteRow0Accepted          <= 0;
+
+            if (is_simu = '1') then
+               spriteLineEpoch         <= std_logic_vector(spriteLineLoadEpoch);
+               spriteLineLoadEpoch     <= spriteLineLoadEpoch + 1;
+               spriteLineLoadEpochSeen <= '1';
+            end if;
 
             if (unsigned(SPR_COUNT) > 128) then
                spriteCount <= 128;
@@ -830,12 +989,23 @@ begin
             end if;
          end if;
 
+         -- A row-0 tile word is issued in the same dedicated sprite slot used
+         -- by the ordinary line loader. Table DMA uses slots 1/5; tile reads
+         -- use 2/6, so the two streams do not steal bandwidth from each other.
+         if (spriteRow0CurrentValid = '1' and
+             spriteRow0TileOutstanding = '0' and
+             (to_integer(memoryArbiter) = 2 or
+              to_integer(memoryArbiter) = 6)) then
+            spriteRow0TileOutstanding <= '1';
+         end if;
+
          if (spriteDMAResponsePending = '1' and
              (to_integer(memoryArbiter) = 3 or to_integer(memoryArbiter) = 7)) then
             spriteDMAResponsePending <= '0';
             if (spriteDMAResponseIndex(0) = '1') then
                dmaDescriptorIndex := to_integer(spriteDMAResponseIndex(7 downto 1));
-               spriteRAM(dmaDescriptorIndex) <= RAM_dataread & spriteDMAData;
+               dmaDescriptor := RAM_dataread & spriteDMAData;
+               spriteRAM(dmaDescriptorIndex) <= dmaDescriptor;
                if (is_simu = '1') then
                   spriteRAMAddr(dmaDescriptorIndex)       <= spriteDMADataAddr;
                   spriteRAMCollision(dmaDescriptorIndex)  <= spriteDMADataCollision or RAM_response_collision;
@@ -843,6 +1013,75 @@ begin
                   spriteRAMGeneration(dmaDescriptorIndex) <= std_logic_vector(spriteDMADebugGeneration);
                   spriteDMADebugGeneration                <= spriteDMADebugGeneration + 1;
                   spriteDMADataDebugValid                 <= '0';
+               end if;
+
+               -- The just-completed descriptor is authoritative here. Never
+               -- reread spriteRAM while the rest of the table is only partly
+               -- refreshed. Select at most the first 32 active sprites in OAM
+               -- order, exactly like the ordinary scanner.
+               if (spriteRow0StreamActive = '1' and
+                   dmaDescriptorIndex < spriteCount and
+                   (to_unsigned(0, 8) - unsigned(dmaDescriptor(23 downto 16))) < 8 and
+                   spriteRow0Accepted < 32) then
+                  tileY8 := to_unsigned(0, 8) - unsigned(dmaDescriptor(23 downto 16));
+                  if (dmaDescriptor(15) = '1') then
+                     tileY3 := to_unsigned(7, 3) - unsigned(tileY8(2 downto 0));
+                  else
+                     tileY3 := tileY8(2 downto 0);
+                  end if;
+
+                  if (spriteRow0CurrentValid = '0') then
+                     spriteRow0CurrentValid      <= '1';
+                     spriteRow0CurrentIndex      <= spriteRow0Accepted;
+                     spriteRow0CurrentData       <= dmaDescriptor;
+                     spriteRow0CurrentTableAddr  <= spriteDMADataAddr;
+                     spriteRow0CurrentCollision  <= spriteDMADataCollision or RAM_response_collision;
+                     spriteRow0CurrentDebugValid <= spriteDMADataDebugValid;
+                     spriteRow0CurrentGeneration <= std_logic_vector(spriteDMADebugGeneration);
+                     spriteRow0CurrentDepth2     <= depth2;
+                     spriteRow0CurrentPacked     <= DISP_MODE(5);
+                     spriteRow0TileWord          <= '0';
+                     if (depth2 = '1') then
+                        RAM_Address_SPR <= std_logic_vector(
+                           to_unsigned(16#2000#, 16) +
+                           unsigned(dmaDescriptor(8 downto 0) & std_logic_vector(tileY3) & '0'));
+                     else
+                        RAM_Address_SPR <= std_logic_vector(
+                           to_unsigned(16#4000#, 16) +
+                           unsigned(dmaDescriptor(8 downto 0) & std_logic_vector(tileY3) & '0' & '0'));
+                     end if;
+                  elsif (spriteRow0PendingValid = '0') then
+                     spriteRow0PendingValid      <= '1';
+                     spriteRow0PendingIndex      <= spriteRow0Accepted;
+                     spriteRow0PendingData       <= dmaDescriptor;
+                     spriteRow0PendingTableAddr  <= spriteDMADataAddr;
+                     spriteRow0PendingCollision  <= spriteDMADataCollision or RAM_response_collision;
+                     spriteRow0PendingDebugValid <= spriteDMADataDebugValid;
+                     spriteRow0PendingGeneration <= std_logic_vector(spriteDMADebugGeneration);
+                     spriteRow0PendingDepth2     <= depth2;
+                     spriteRow0PendingPacked     <= DISP_MODE(5);
+                     if (depth2 = '1') then
+                        spriteRow0PendingTileAddr <= std_logic_vector(
+                           to_unsigned(16#2000#, 16) +
+                           unsigned(dmaDescriptor(8 downto 0) & std_logic_vector(tileY3) & '0'));
+                     else
+                        spriteRow0PendingTileAddr <= std_logic_vector(
+                           to_unsigned(16#4000#, 16) +
+                           unsigned(dmaDescriptor(8 downto 0) & std_logic_vector(tileY3) & '0' & '0'));
+                     end if;
+                  else
+                     -- synthesis translate_off
+                     assert false
+                        report "row0 sprite stream exceeded one-current/one-pending capacity"
+                        severity failure;
+                     -- synthesis translate_on
+                  end if;
+                  spriteRow0Accepted <= spriteRow0Accepted + 1;
+               end if;
+
+               if (spriteRow0StreamActive = '1' and
+                   spriteDMAResponseIndex = x"FF") then
+                  spriteRow0DMAComplete <= '1';
                end if;
             else
                spriteDMAData <= RAM_dataread;
@@ -853,6 +1092,89 @@ begin
                end if;
             end if;
          end if;
+
+         -- Consume streamed tile responses only after a physical tile request
+         -- has been issued. Without Outstanding, the arbiter response slot
+         -- immediately following descriptor admission would be mistaken for
+         -- this job's first word.
+         if (spriteRow0TileOutstanding = '1' and RAM_valid_SPR = '1') then
+            spriteRow0TileOutstanding <= '0';
+            if (spriteRow0TileWord = '0') then
+               spriteColorData(15 downto 0) <= RAM_dataread;
+               RAM_Address_SPR(1)            <= '1';
+               spriteRow0TileWord            <= '1';
+               if (is_simu = '1') then
+                  spriteFetch0Addr      <= RAM_response_addr;
+                  spriteFetch0Value     <= RAM_dataread;
+                  spriteFetch0Collision <= RAM_response_collision;
+               end if;
+            else
+               spriteColorData(31 downto 16) <= RAM_dataread;
+               spritesLoadNext               <= '1';
+               spritesLoadIndex              <= spriteRow0CurrentIndex;
+               spritesLoadData               <= spriteRow0CurrentData;
+               spriteRow0TileWord            <= '0';
+
+               if (is_simu = '1') then
+                  spriteRowPendingTableAddr       <= spriteRow0CurrentTableAddr;
+                  spriteRowPendingTableValue      <= spriteRow0CurrentData;
+                  spriteRowPendingTableGeneration <= spriteRow0CurrentGeneration;
+                  spriteRowPendingLineEpoch       <= spriteLineEpoch;
+                  spriteRowPendingAddr            <= spriteFetch0Addr;
+                  if (spriteRow0CurrentDepth2 = '1') then
+                     spriteRowPendingValue <= x"0000" & spriteFetch0Value;
+                  else
+                     spriteRowPendingValue <= RAM_dataread & spriteFetch0Value;
+                  end if;
+                  spriteRowPendingMeta <=
+                     (spriteFetch0Collision or
+                        (RAM_response_collision and (not spriteRow0CurrentDepth2))) &
+                     spriteRow0CurrentCollision & spriteRow0CurrentPacked &
+                     (not spriteRow0CurrentDepth2) &
+                     std_logic_vector(to_unsigned(spriteRow0CurrentIndex, 5)) &
+                     x"00";
+                  spriteRowPendingValid <= spriteRow0CurrentDebugValid;
+               end if;
+
+               if (spriteRow0PendingValid = '1') then
+                  spriteRow0CurrentValid      <= '1';
+                  spriteRow0PendingValid      <= '0';
+                  spriteRow0CurrentIndex      <= spriteRow0PendingIndex;
+                  spriteRow0CurrentData       <= spriteRow0PendingData;
+                  spriteRow0CurrentTableAddr  <= spriteRow0PendingTableAddr;
+                  spriteRow0CurrentCollision  <= spriteRow0PendingCollision;
+                  spriteRow0CurrentDebugValid <= spriteRow0PendingDebugValid;
+                  spriteRow0CurrentGeneration <= spriteRow0PendingGeneration;
+                  spriteRow0CurrentDepth2     <= spriteRow0PendingDepth2;
+                  spriteRow0CurrentPacked     <= spriteRow0PendingPacked;
+
+                  RAM_Address_SPR <= spriteRow0PendingTileAddr;
+               else
+                  spriteRow0CurrentValid <= '0';
+               end if;
+            end if;
+         end if;
+
+         -- spritesLoadNext is registered; sprites.vhd accepts it one clock
+         -- later. Wait through that acceptance edge before allowing the whole
+         -- Next array to be snapshotted for row 0.
+         if (spriteRow0StreamActive = '1' and
+             spriteRow0DMAComplete = '1' and
+             spriteRow0CurrentValid = '0' and
+             spriteRow0PendingValid = '0' and
+             spriteRow0TileOutstanding = '0' and
+             spritesLoadNext = '0') then
+            spriteRow0Ready <= '1';
+         end if;
+
+         -- synthesis translate_off
+         if (is_simu = '1' and spriteRow0Ready = '1' and
+             spriteRow0StreamActive = '1' and LINE_CUR = x"00") then
+            assert xCount < 15
+               report "deferred row0 sprite start exhausted the 15-pixel preroll"
+               severity failure;
+         end if;
+         -- synthesis translate_on
          
          -- line loading
          if (is_simu = '1') then
@@ -875,7 +1197,7 @@ begin
          case (spriteLineState) is
          
             when IDLE =>
-               if (xCount = 32 and (unsigned(LINE_CUR) < 143 or unsigned(LINE_CUR) = 158)) then
+               if (xCount = 32 and spritePrefetchActive = '1') then
                   spriteLineCounter <= 0;
                   spritesOnLine     <= 0;
                   spritesClearNext  <= '1';
@@ -907,10 +1229,10 @@ begin
                end if;
                
             when CHECKACTIVE =>
-               if ((unsigned(lineYNext) - unsigned(spriteLineData(23 downto 16))) < 8) then
+               if ((unsigned(spritePrefetchLine) - unsigned(spriteLineData(23 downto 16))) < 8) then
                   if (RAM_valid_SPR = '1') then -- syncing
                   
-                     tileY8 := unsigned(lineYNext) - unsigned(spriteLineData(23 downto 16));
+                     tileY8 := unsigned(spritePrefetchLine) - unsigned(spriteLineData(23 downto 16));
                      if (spriteLineData(15) = '1') then
                         tileY3  := to_unsigned(7, 3) - unsigned(tileY8(2 downto 0));
                      else
@@ -924,7 +1246,7 @@ begin
                         -- These values define the row address above. Keep that
                         -- fetch-time contract even if the scanline or display
                         -- mode changes before the two reads finish.
-                        spriteFetchLineY  <= lineYNext;
+                        spriteFetchLineY  <= spritePrefetchLine;
                         spriteFetchDepth2 <= depth2;
                         spriteFetchPacked <= DISP_MODE(5);
                      end if;
@@ -1099,7 +1421,8 @@ begin
       clk            => clk,      
       ce             => ce,       
                         
-      startLine      => startLine,
+      startLine      => spriteStartLine,
+      startX         => spriteStartX,
       lineY          => lineY,
                 
       enable         => displayControl(2),
@@ -1137,23 +1460,48 @@ begin
       variable output_bg1  : std_logic;
       variable output_spr  : std_logic;
       variable output_spr2 : std_logic;
+      variable renderedPixel : std_logic_vector(11 downto 0);
+      variable bufferIndex    : integer range 0 to 223;
    begin
       if rising_edge(clk) then
-      
-         pixel_out_we <= '0';
-         if (pixel_out_we = '1' and pixel_out_addr < 32255) then
-            pixel_out_addr <= pixel_out_addr + 1;
-         end if;
-      
+         if (reset = '1') then
+            -- The row cache is not part of the architectural save state.
+            -- Restoring mid-frame therefore fails closed until a complete
+            -- new row has been rendered instead of publishing stale pixels.
+            pixel_out_we     <= '0';
+            pixel_out_addr   <= 0;
+            pixel_out_data   <= (others => '0');
+            renderBufferValid <= '0';
+            renderBufferRow   <= (others => '0');
+            renderLineStarted <= '0';
+         else
+            pixel_out_we <= '0';
+            if (pixel_out_we = '1' and pixel_out_addr < 32255) then
+               pixel_out_addr <= pixel_out_addr + 1;
+            end if;
+
          if (ce = '1') then
-            
-            if (startLine = '1' and unsigned(lineY) < 144) then
-               pixel_out_addr <= to_integer(unsigned(lineY)) * 224;
+
+            if (xCount = 0) then
+               renderLineStarted <= renderLineActive;
             end if;
             
-            if (unsigned(xCount) >= 20 and unsigned(xCount) < 244 and unsigned(lineY) < 144) then
+            if (xCount = 0 and outputLineActive = '1') then
+               pixel_out_addr <= to_integer(unsigned(outputLineY)) * 224;
+            end if;
+            
+            if (unsigned(xCount) >= 20 and unsigned(xCount) < 244 and
+                outputLineActive = '1' and renderBufferValid = '1' and
+                renderBufferRow = outputLineY) then
+               bufferIndex   := to_integer(unsigned(xCount)) - 20;
+               -- This same-edge read and the render write below deliberately
+               -- require OLD_DATA/read-before-write behavior: publish cached
+               -- row N while replacing the slot with row N+1.
+               pixel_out_data <= renderLineBuffer(bufferIndex);
                pixel_out_we   <= '1';
             end if;
+
+            renderedPixel := (others => '0');
             
             output_bg0  := '0';           
             output_bg1  := '0';
@@ -1209,7 +1557,7 @@ begin
                   poolColor <= std_logic_vector(x"F" - unsigned(PalettePool(to_integer(unsigned(paletteColor(2 downto 1))))(3 downto 0)));
                end if;
                
-               pixel_out_data <= poolColor & poolColor & poolColor;
+               renderedPixel := poolColor & poolColor & poolColor;
                   
             else
             
@@ -1231,13 +1579,27 @@ begin
                
                colorall <= Color_dataread(11 downto 0);
                
-               pixel_out_data <= colorall;
+               renderedPixel := colorall;
             
+            end if;
+
+            if (unsigned(xCount) >= 20 and unsigned(xCount) < 244 and
+                renderLineActive = '1') then
+               bufferIndex := to_integer(unsigned(xCount)) - 20;
+               renderLineBuffer(bufferIndex) <= renderedPixel;
+            end if;
+
+            if (xCount = 243 and renderLineActive = '1' and
+                renderLineStarted = '1') then
+               renderBufferValid <= '1';
+               renderBufferRow   <= lineY;
+               renderLineStarted <= '0';
             end if;
 
             
               
             
+         end if;
          end if;
       
       end if;

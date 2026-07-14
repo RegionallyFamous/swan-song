@@ -29,12 +29,12 @@ class BeamRaceSafetyTest(unittest.TestCase):
         self.assertEqual((proof.minimum_row, proof.minimum_column), (143, 223))
 
     def test_live_final_line_can_abort_an_armed_candidate(self) -> None:
-        counterexample = programmable_final_line_counterexample(142)
+        counterexample = programmable_final_line_counterexample(143)
         self.assertEqual(counterexample.first_stale_row, 143)
         self.assertEqual(counterexample.first_stale_address, 32_032)
         self.assertGreater(counterexample.read_deadline_cycles, 0)
         with self.assertRaisesRegex(ValueError, "shorter"):
-            programmable_final_line_counterexample(143)
+            programmable_final_line_counterexample(144)
 
     def test_default_opportunity_is_phase_independent_and_one_generation_newer(self) -> None:
         opportunity = quantify_opportunity(158)
@@ -50,7 +50,8 @@ class BeamRaceSafetyTest(unittest.TestCase):
             11.9892578125,
         )
         with self.assertRaisesRegex(ValueError, "at least 144"):
-            quantify_opportunity(142)
+            quantify_opportunity(143)
+        self.assertEqual(quantify_opportunity(144).final_line, 144)
 
     def test_current_arbiter_recycles_selected_writer_before_next_boundary(self) -> None:
         counterexample = current_arbiter_reuse_counterexample()

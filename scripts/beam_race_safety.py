@@ -92,10 +92,13 @@ class ProgrammableCounterexample:
     read_deadline_cycles: int
 
 
-def programmable_final_line_counterexample(final_line: int = 142) -> ProgrammableCounterexample:
-    if final_line >= HEIGHT - 1:
+def programmable_final_line_counterexample(final_line: int = 143) -> ProgrammableCounterexample:
+    # LCD output is delayed by one display line: line 1 publishes row 0 and
+    # line 144 publishes row 143. A final line of 143 therefore computes but
+    # never publishes the last visible row.
+    if final_line >= HEIGHT:
         raise ValueError("counterexample requires a frame shorter than 144 lines")
-    first_stale_row = final_line + 1
+    first_stale_row = final_line
     return ProgrammableCounterexample(
         final_line=final_line,
         first_stale_row=first_stale_row,
@@ -115,7 +118,7 @@ class Opportunity:
 
 
 def quantify_opportunity(final_line: int = 158) -> Opportunity:
-    if final_line < HEIGHT - 1:
+    if final_line < HEIGHT:
         raise ValueError("beam candidate requires at least 144 producer lines")
     producer_period = (final_line + 1) * PRODUCER_LINE_DOTS * PRODUCER_CYCLES_PER_DOT
     phase_quantum = gcd(producer_period, OUTPUT_FRAME_SYSTEM_CYCLES)
