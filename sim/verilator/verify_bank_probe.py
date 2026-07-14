@@ -12,7 +12,8 @@ from verify_trace import FIELDS_V5
 
 # These are full reset-to-probe instruction-chain identities, not instruction
 # indices within PROGRAM. The origin PCs identify the common C0-C3 writes and
-# Bandai 2003's accepted CF/D0/D2/D4 aliases. Raw port identity is preserved.
+# Bandai 2003's accepted CE/CF/D0-D5 controls. Raw port identity is preserved,
+# including the nonzero high bytes emitted by each 16-bit OUT.
 EXPECTED = (
     (0xC0, 0x10, 7, 0xF0003),
     (0xC1, 0x21, 9, 0xF0007),
@@ -22,8 +23,12 @@ EXPECTED = (
     (0xC1, 0x66, 15, 0xF0014),
     (0xCF, 0x54, 17, 0xF0018),
     (0xD0, 0x03, 19, 0xF001D),
+    (0xD1, 0x01, 19, 0xF001D),
     (0xD2, 0x04, 21, 0xF0022),
+    (0xD3, 0x02, 21, 0xF0022),
     (0xD4, 0x05, 23, 0xF0027),
+    (0xD5, 0x03, 23, 0xF0027),
+    (0xCE, 0x01, 25, 0xF002B),
 )
 
 POPULATED_FIELDS = {

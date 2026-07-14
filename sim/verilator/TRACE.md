@@ -290,18 +290,18 @@ internal RAM rather than a physically separate VRAM; these events are aligned
 `cpu` is sampled on the instruction-complete pulse. `bank` reports one event
 for each accepted CPU commit to common cartridge bank registers C0-C3. When
 the canonical footer RTC/2003 selector byte is `01`, it also reports Bandai
-2003 self-flash control CE and aliases CF/D0/D2/D4 while preserving the raw
+2003 self-flash control CE and extended ports CF/D0-D5 while preserving the raw
 port identity. Each v5 bank event
 carries the exact owning instruction ID and first-byte physical PC; the
 harness does not infer ownership. A held, identical
 address/data/instruction tuple collapses to one transaction. A changed byte
 tuple is committed even without an intervening low level, so a word `OUT`
 produces ordered byte writes with one shared instruction origin; only its
-accepted bank byte is classified as a `bank` event. Distinct identical commits
+accepted bank bytes are classified as `bank` events. Distinct identical commits
 separated by a deassertion also remain visible. This byte-granular contract
 follows the documented [C0-C3 mapper ports](https://ws.nesdev.org/wiki/Mapper),
 [Bandai 2003 aliases](https://ws.nesdev.org/wiki/Bandai_2003), pinned Mesen's
-[per-port 16-bit split](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L1536-L1575),
+[per-port 16-bit split](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/WS/WsMemoryManager.cpp#L132-L190),
 and pinned ares'
 [extended I/O decode](https://github.com/ares-emulator/ares/blob/449b93716fb162632de2fd43bf2eba2064fa43f2/ares/ws/cartridge/io.cpp#L1-L141).
 `vram` reports completed active graphics IRAM reads. Address/role
@@ -689,9 +689,12 @@ save-state, Pocket block-count, and dynamic APF Save-slot authorities.
 A separate black-box VHDL mapper test selects canonical footer RTC/2003 value `0x01` and
 proves Bandai 2003's low-byte aliases `CF`, `D0`, `D2`, and `D4` share exact
 readback state with `C0`-`C3` and produce the expected linear-ROM, SRAM, ROM0,
-and ROM1 resolved offsets. Mapper `0x00` and an unknown `0x03` cannot use those
-aliases. The test deliberately establishes no authority for the unimplemented
-high bytes, ROM above 16 MiB, GPO, self-flash, or KARNAK peripherals.
+and ROM1 resolved offsets. It exhaustively writes all byte values to high-bank
+ports `D1`, `D3`, and `D5`, requires the documented `000000bb` readback, checks
+mapper gating/reset, and replays those bytes through the unchanged 256-port
+save-state image. Mapper `0x00` and an unknown `0x03` cannot use the extended
+ports. The test deliberately establishes no authority for ROM above 16 MiB,
+GPO, complete self-flash command behavior, or KARNAK peripherals.
 
 Those probes lock the translated RTL resolver and observer, not physical
 hardware behavior. Current RTL returns zero for absent SRAM and `0x9090` for

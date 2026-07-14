@@ -78,7 +78,20 @@ MEM_SPACES = {
     "cart_flash",
 }
 ORIGIN_STATUSES = {"exact", "unattributed", "not_applicable"}
-BANK_ADDRESSES = {0xC0, 0xC1, 0xC2, 0xC3, 0xCE, 0xCF, 0xD0, 0xD2, 0xD4}
+BANK_ADDRESSES = {
+    0xC0,
+    0xC1,
+    0xC2,
+    0xC3,
+    0xCE,
+    0xCF,
+    0xD0,
+    0xD1,
+    0xD2,
+    0xD3,
+    0xD4,
+    0xD5,
+}
 
 
 def number(value: str, field: str, line: int, maximum: int) -> int:

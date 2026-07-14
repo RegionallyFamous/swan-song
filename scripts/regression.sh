@@ -449,7 +449,7 @@ python3 "$ROOT/sim/verilator/generate_bank_probe.py" \
 python3 "$ROOT/sim/verilator/verify_trace.py" \
   "$BUILD/bank-probe/events.csv" \
   --allowed bank --require bank \
-  --require-bank-addresses 0xc0,0xc1,0xc2,0xc3,0xcf,0xd0,0xd2,0xd4
+  --require-bank-addresses 0xc0,0xc1,0xc2,0xc3,0xce,0xcf,0xd0,0xd1,0xd2,0xd3,0xd4,0xd5
 python3 "$ROOT/sim/verilator/verify_bank_probe.py" \
   "$BUILD/bank-probe/events.csv"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a deterministic WonderSwan ROM that writes cartridge bank ports.
+"""Generate a deterministic WonderSwan ROM that writes cartridge mapper ports.
 
 The generated ROM is a build artifact, not a checked-in binary. Its final
 16-byte reset vector/header starts from a caller-supplied open test ROM; the
@@ -28,9 +28,10 @@ FOOTER_SIZE = 16
 #   mov ax, 0x6655
 #   out 0xc0, ax                 # instruction 15, PC 0xf0014; C0 then C1
 #   mov al, 0x54; out 0xcf, al   # instruction 17, PC 0xf0018
-#   mov ax, 0x0003; out 0xd0, ax # instruction 19, PC 0xf001d; D0, D1 ignored
-#   mov ax, 0x0004; out 0xd2, ax # instruction 21, PC 0xf0022; D2, D3 ignored
-#   mov ax, 0x0005; out 0xd4, ax # instruction 23, PC 0xf0027; D4, D5 ignored
+#   mov ax, 0x0103; out 0xd0, ax # instruction 19, PC 0xf001d; D0 low, D1 high
+#   mov ax, 0x0204; out 0xd2, ax # instruction 21, PC 0xf0022; D2 low, D3 high
+#   mov ax, 0x0305; out 0xd4, ax # instruction 23, PC 0xf0027; D4 low, D5 high
+#   mov al, 0x01; out 0xce, al   # instruction 25, PC 0xf002b; self-flash control
 # hang: jmp hang
 PROGRAM = bytes(
     (
@@ -62,19 +63,23 @@ PROGRAM = bytes(
         0xCF,
         0xB8,
         0x03,
-        0x00,
+        0x01,
         0xE7,
         0xD0,
         0xB8,
         0x04,
-        0x00,
+        0x02,
         0xE7,
         0xD2,
         0xB8,
         0x05,
-        0x00,
+        0x03,
         0xE7,
         0xD4,
+        0xB0,
+        0x01,
+        0xE6,
+        0xCE,
         0xEB,
         0xFE,
     )

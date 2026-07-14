@@ -161,10 +161,12 @@ def main() -> None:
         }
         alias_bank = dict(bank)
         alias_bank.update({"cycle": 7, "address": 0xD0, "value": 0x03})
+        high_bank = dict(bank)
+        high_bank.update({"cycle": 8, "address": 0xD5, "value": 0x02})
         flash_bank = dict(bank)
-        flash_bank.update({"cycle": 8, "address": 0xCE, "value": 0x01})
+        flash_bank.update({"cycle": 9, "address": 0xCE, "value": 0x01})
         v5_bank = root / "v5-bank.csv"
-        write_v5(v5_bank, [bank, alias_bank, flash_bank])
+        write_v5(v5_bank, [bank, alias_bank, high_bank, flash_bank])
         run(
             v5_bank,
             "--allowed",
@@ -172,7 +174,7 @@ def main() -> None:
             "--require",
             "bank",
             "--require-bank-addresses",
-            "0xc0,0xce,0xd0",
+            "0xc0,0xce,0xd0,0xd5",
         )
         invalid_bank_port = root / "v5-invalid-bank-port.csv"
         invalid_port_row = dict(bank)

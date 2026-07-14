@@ -182,7 +182,7 @@ bank in volatile SDRAM; black-box VHDL covers reset, readback, masks, even/odd
 lanes, SRAM fallback, and ordinary ROM write protection. The new `cart_flash`
 trace label keeps those events distinct from cartridge SRAM. MBM29DL400TC
 unlock/program/erase semantics and APF persistence are still absent, so direct
-APF `.fx` selection, a writable Freya/Athena filesystem, high mapper bytes
+APF `.fx` selection, a writable Freya/Athena filesystem, high-bank addressing
 beyond the current 16 MiB APF path, serial/XMODEM, Quartus fit, and Pocket/Dock
 execution remain open. The ordinary regression mutation-binds the source; the
 external Wonderful/Athena dependency is exercised by
