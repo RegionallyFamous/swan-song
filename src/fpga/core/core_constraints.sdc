@@ -257,11 +257,35 @@ set_max_skew \
 set input_state_source_registers [get_registers -nowarn -no_duplicates \
   {ic|input_state_system_cdc|payload_hold_source[*]}]
 set input_state_destination_registers [get_registers -nowarn -no_duplicates \
-  {ic|input_state_system_cdc|payload_destination[*]}]
+  {ic|input_state_system_cdc|payload_destination[0] \
+   ic|input_state_system_cdc|payload_destination[1] \
+   ic|input_state_system_cdc|payload_destination[2] \
+   ic|input_state_system_cdc|payload_destination[3] \
+   ic|input_state_system_cdc|payload_destination[4] \
+   ic|input_state_system_cdc|payload_destination[5] \
+   ic|input_state_system_cdc|payload_destination[6] \
+   ic|input_state_system_cdc|payload_destination[7] \
+   ic|input_state_system_cdc|payload_destination[8] \
+   ic|input_state_system_cdc|payload_destination[9] \
+   ic|input_state_system_cdc|payload_destination[14] \
+   ic|input_state_system_cdc|payload_destination[15] \
+   ic|input_state_system_cdc|payload_destination[16]}]
 set input_state_source_registers_expanded [get_registers -nowarn \
   {ic|input_state_system_cdc|payload_hold_source[*]}]
 set input_state_destination_registers_expanded [get_registers -nowarn \
-  {ic|input_state_system_cdc|payload_destination[*]}]
+  {ic|input_state_system_cdc|payload_destination[0] \
+   ic|input_state_system_cdc|payload_destination[1] \
+   ic|input_state_system_cdc|payload_destination[2] \
+   ic|input_state_system_cdc|payload_destination[3] \
+   ic|input_state_system_cdc|payload_destination[4] \
+   ic|input_state_system_cdc|payload_destination[5] \
+   ic|input_state_system_cdc|payload_destination[6] \
+   ic|input_state_system_cdc|payload_destination[7] \
+   ic|input_state_system_cdc|payload_destination[8] \
+   ic|input_state_system_cdc|payload_destination[9] \
+   ic|input_state_system_cdc|payload_destination[14] \
+   ic|input_state_system_cdc|payload_destination[15] \
+   ic|input_state_system_cdc|payload_destination[16]}]
 
 set input_state_source_count \
   [get_collection_size $input_state_source_registers]
