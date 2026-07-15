@@ -39,8 +39,8 @@ elif [[ "$build_class" != candidate ]]; then
   exit 76
 fi
 if [[ "$build_class" == candidate ]]; then
-[[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] || {
-  echo "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swan-song" >&2
+[[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swansong-core ]] || {
+  echo "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swansong-core" >&2
   exit 76
 }
 [[ "${SWANSONG_WORKFLOW_PATH:-}" == .github/workflows/quartus-fit.yml ]] || {

@@ -29,7 +29,7 @@
       },
       {
         "filename": "THIRD-PARTY-NOTICES.txt",
-        "sha256": "38993dc10e8e6ebef7d962457c051c69c6100b8542769ce19725ab5f6ff70dc6"
+        "sha256": "2a824469d12bf80494fea46aeb933f15558f0bdafb3a9d289c2f546c2d4e61e1"
       }
     ],
     "components": [
@@ -272,7 +272,7 @@
           "Swan Song additions and modifications not covered by a retained third-party notice"
         ],
         "origin": {
-          "repository": "https://github.com/RegionallyFamous/swan-song",
+          "repository": "https://github.com/RegionallyFamous/swansong-core",
           "commit": null,
           "paths": [
             "**"
@@ -310,7 +310,7 @@
           "sim/verilator/trace_logger_test.cpp"
         ],
         "origin": {
-          "repository": "https://github.com/RegionallyFamous/swan-song",
+          "repository": "https://github.com/RegionallyFamous/swansong-core",
           "commit": null,
           "paths": [
             "sim/**"

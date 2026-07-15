@@ -30,7 +30,7 @@ class WikiPublicationCheckTest(unittest.TestCase):
             "# Home\n\n"
             "## Same heading\n\n"
             "## Same heading\n\n"
-            "[Controls](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings#controls)\n",
+            "[Controls](https://github.com/RegionallyFamous/swansong-core/wiki/Controls-and-Settings#controls)\n",
             encoding="utf-8",
         )
         (self.wiki / "Controls-and-Settings.md").write_text(
@@ -44,7 +44,7 @@ class WikiPublicationCheckTest(unittest.TestCase):
         )
         (self.wiki / "Developer-Hub.md").write_text(
             "# Developer Hub\n\n"
-            "[Repository guide](https://github.com/RegionallyFamous/swan-song/blob/main/GUIDE.md#target-section)\n",
+            "[Repository guide](https://github.com/RegionallyFamous/swansong-core/blob/main/GUIDE.md#target-section)\n",
             encoding="utf-8",
         )
         (self.source / "GUIDE.md").write_text(
@@ -55,11 +55,11 @@ class WikiPublicationCheckTest(unittest.TestCase):
         for page in required:
             if page == "Developer-Hub":
                 readme_links.append(
-                    "[Developer\nHub](https://github.com/RegionallyFamous/swan-song/wiki/Developer-Hub)"
+                    "[Developer\nHub](https://github.com/RegionallyFamous/swansong-core/wiki/Developer-Hub)"
                 )
             else:
                 readme_links.append(
-                    f"[{page}](https://github.com/RegionallyFamous/swan-song/wiki/{page})"
+                    f"[{page}](https://github.com/RegionallyFamous/swansong-core/wiki/{page})"
                 )
         (self.source / "README.md").write_text(
             "# Swan Song\n\n"
@@ -149,7 +149,7 @@ class WikiPublicationCheckTest(unittest.TestCase):
     def test_blob_main_target_must_exist_in_supplied_source_tree(self) -> None:
         (self.wiki / "Developer-Hub.md").write_text(
             "# Developer Hub\n\n"
-            "[Missing](https://github.com/RegionallyFamous/swan-song/blob/main/MISSING.md)\n",
+            "[Missing](https://github.com/RegionallyFamous/swansong-core/blob/main/MISSING.md)\n",
             encoding="utf-8",
         )
         report = checker.check_publication(self.source)
@@ -163,8 +163,8 @@ class WikiPublicationCheckTest(unittest.TestCase):
     def test_readme_required_and_unknown_wiki_targets_are_reported(self) -> None:
         readme = (self.source / "README.md").read_text(encoding="utf-8")
         readme = readme.replace(
-            "https://github.com/RegionallyFamous/swan-song/wiki/Playing-Games",
-            "https://github.com/RegionallyFamous/swan-song/wiki/Unknown-Page",
+            "https://github.com/RegionallyFamous/swansong-core/wiki/Playing-Games",
+            "https://github.com/RegionallyFamous/swansong-core/wiki/Unknown-Page",
         )
         (self.source / "README.md").write_text(readme, encoding="utf-8")
         report = checker.check_publication(self.source)

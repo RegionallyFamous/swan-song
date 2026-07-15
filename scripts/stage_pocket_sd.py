@@ -64,7 +64,7 @@ RELEASE_POLICY = ROOT / "release-policy.json"
 DEFAULT_VOLUMES_ROOT = pathlib.Path("/Volumes")
 EXPECTED_CORE_ID = "RegionallyFamous.SwanSong"
 EXPECTED_PLATFORM_ID = "wonderswan"
-EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swansong-core"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / EXPECTED_CORE_ID
 CORE_JSON = CORE_DIRECTORY / "core.json"
 INTERACT_JSON = CORE_DIRECTORY / "interact.json"
@@ -582,7 +582,7 @@ def _verified_signed_build_origins(
         )
         expected_static = {
             "label": label,
-            "repository": "RegionallyFamous/swan-song",
+            "repository": "RegionallyFamous/swansong-core",
             "workflow_path": ".github/workflows/quartus-fit.yml",
             "source_ref": "refs/heads/main",
             "source_commit": source_commit,

@@ -45,7 +45,7 @@ from pocket_per_game_preset import (
 CORE_ID = "RegionallyFamous.SwanSong"
 LEGACY_CORE_ID = "agg23.WonderSwan"
 PLATFORM_ID = "wonderswan"
-REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+REPOSITORY = "https://github.com/RegionallyFamous/swansong-core"
 CORE_RELATIVE = PurePosixPath("Cores") / CORE_ID
 ASSET_RELATIVE = PurePosixPath("Assets/wonderswan/common")
 DEFINITION_ENVELOPES = {

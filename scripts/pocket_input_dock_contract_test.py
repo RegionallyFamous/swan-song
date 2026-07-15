@@ -143,7 +143,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
     ):
         if statement not in controls_and_settings:
             raise ValueError(f"wiki Controls and Settings omits input/Dock contract: {statement}")
-    if "https://github.com/RegionallyFamous/swan-song/wiki" not in readme:
+    if "https://github.com/RegionallyFamous/swansong-core/wiki" not in readme:
         raise ValueError("README does not direct players to the Swan Song wiki")
     if "Pocket owns the actual saved control remaps" in readme:
         raise ValueError("README makes an unsupported saved-remap claim")

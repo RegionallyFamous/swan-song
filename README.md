@@ -72,7 +72,7 @@ The current development work is focused on:
 **Control Layout** can follow each game's horizontal or vertical orientation
 automatically, or stay in the layout you choose. It changes the buttons, not
 the picture; **Display Orientation** controls the screen presentation. The
-[Controls and Settings guide](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
+[Controls and Settings guide](https://github.com/RegionallyFamous/swansong-core/wiki/Controls-and-Settings)
 explains the choices.
 
 An optional **Complete Frames 60.9Hz** motion mode reduces modeled frame skips
@@ -87,7 +87,7 @@ Swan Song launches through **openFPGA**, not Pocket's first-party Library.
 **Startup Action > openFPGA** shortens the route back, and Pocket firmware 2.6.0
 adds a host-owned **Recent** activity category. Its exact Swan Song entry and
 relaunch behavior still need physical Pocket validation. See [Compatibility and
-Current Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
+Current Limits](https://github.com/RegionallyFamous/swansong-core/wiki/Compatibility-and-Current-Limits)
 for the current Pocket integration boundaries.
 
 ### Known limits
@@ -105,7 +105,7 @@ for the current Pocket integration boundaries.
 
 There is nothing for most players to install yet. When the first verified
 release is ready, it will appear on this repository's
-[Releases page](https://github.com/RegionallyFamous/swan-song/releases) with a
+[Releases page](https://github.com/RegionallyFamous/swansong-core/releases) with a
 version number, installation notes, and checksums. If Swan Song is later listed
 by a trusted Pocket updater, the release notes will say so explicitly.
 
@@ -146,16 +146,16 @@ issue report, or a public testing service.
 
 Use the live player guides for:
 
-- [installing Swan Song](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song)
-- [updating, rolling back, uninstalling, and keeping another WonderSwan core](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song#update-swan-song)
-- [starting and playing games](https://github.com/RegionallyFamous/swan-song/wiki/Playing-Games)
-- [controls and settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
-- [saves and migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration)
-- [compatibility and current limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
-- [troubleshooting and bug reports](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
+- [installing Swan Song](https://github.com/RegionallyFamous/swansong-core/wiki/Install-Swan-Song)
+- [updating, rolling back, uninstalling, and keeping another WonderSwan core](https://github.com/RegionallyFamous/swansong-core/wiki/Install-Swan-Song#update-swan-song)
+- [starting and playing games](https://github.com/RegionallyFamous/swansong-core/wiki/Playing-Games)
+- [controls and settings](https://github.com/RegionallyFamous/swansong-core/wiki/Controls-and-Settings)
+- [saves and migration](https://github.com/RegionallyFamous/swansong-core/wiki/Saves-and-Migration)
+- [compatibility and current limits](https://github.com/RegionallyFamous/swansong-core/wiki/Compatibility-and-Current-Limits)
+- [troubleshooting and bug reports](https://github.com/RegionallyFamous/swansong-core/wiki/Troubleshooting-and-Bug-Reports)
 
 Technical contributors can start at the [Developer
-Hub](https://github.com/RegionallyFamous/swan-song/wiki/Developer-Hub).
+Hub](https://github.com/RegionallyFamous/swansong-core/wiki/Developer-Hub).
 Release owners and reviewers should use the checked-in
 [release decision record](RELEASE_DECISIONS.md).
 
@@ -175,12 +175,12 @@ filenames and sizes, valid whole-bank game sizes and per-game settings
 locations, older WonderSwan data, and unsafe SD-card paths. It never uploads
 ROMs, BIOS files, or saves. BIOS identification is available only when you
 explicitly add `--identify-bios`; game contents are never read. See the
-player-friendly [troubleshooting guide](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
+player-friendly [troubleshooting guide](https://github.com/RegionallyFamous/swansong-core/wiki/Troubleshooting-and-Bug-Reports)
 or the [complete Doctor reference](SWAN_SONG_DOCTOR.md) for help reading the
 result and for carefully previewing optional repairs.
 
 Found a problem? Open an
-[issue](https://github.com/RegionallyFamous/swan-song/issues) and include the
+[issue](https://github.com/RegionallyFamous/swansong-core/issues) and include the
 game title and region, Pocket firmware, Swan Song version or commit, selected
 system type, and whether you were playing on Pocket or Dock. If practical, say
 whether the same behavior appears in the earlier Pocket or MiSTer core. Never

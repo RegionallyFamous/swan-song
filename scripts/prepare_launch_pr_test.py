@@ -113,11 +113,11 @@ if [ "$1 $2" = "auth status" ]; then
   exit $?
 fi
 if [ "$1 $2" = "repo view" ]; then
-  printf '%s\\n' "${MOCK_GH_REPO:-RegionallyFamous/swan-song}"
+  printf '%s\\n' "${MOCK_GH_REPO:-RegionallyFamous/swansong-core}"
   exit 0
 fi
 if [ "$1 $2" = "pr create" ]; then
-  printf '%s\\n' 'https://github.com/RegionallyFamous/swan-song/pull/999'
+  printf '%s\\n' 'https://github.com/RegionallyFamous/swansong-core/pull/999'
   exit 0
 fi
 exit 91

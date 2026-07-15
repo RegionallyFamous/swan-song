@@ -46,7 +46,7 @@ the acceptance gate.
 Swan Song therefore declares useful labels and defaults
 without promising whether PocketOS will offer editing, apply a remap, or
 persist it. The researched contract and hardware matrix are in
-[`FIRST_CLASS_INPUT_DOCK.md`](https://github.com/RegionallyFamous/swan-song/blob/main/FIRST_CLASS_INPUT_DOCK.md).
+[`FIRST_CLASS_INPUT_DOCK.md`](https://github.com/RegionallyFamous/swansong-core/blob/main/FIRST_CLASS_INPUT_DOCK.md).
 
 ## Fast Forward
 
@@ -117,10 +117,10 @@ Pocket acceptance tests.
   implementation; it is not advertised as measured panel calibration.
 
 The exact cadence and buffering math are documented in [Frame delivery
-engineering](https://github.com/RegionallyFamous/swan-song/blob/main/FRAME_DELIVERY.md).
+engineering](https://github.com/RegionallyFamous/swansong-core/blob/main/FRAME_DELIVERY.md).
 The evidence and limitations behind the color and persistence options are in
 the [screen-authenticity
-contract](https://github.com/RegionallyFamous/swan-song/blob/main/SCREEN_AUTHENTICITY.md).
+contract](https://github.com/RegionallyFamous/swansong-core/blob/main/SCREEN_AUTHENTICITY.md).
 
 ## Sound setting
 

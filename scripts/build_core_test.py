@@ -105,7 +105,7 @@ class BuildCoreEvidenceTest(unittest.TestCase):
                 "QUARTUS_STA": str(quartus_sta),
                 "SWANSONG_SOURCE_COMMIT": SOURCE_COMMIT,
                 "SOURCE_DATE_EPOCH": SOURCE_EPOCH,
-                "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swan-song",
+                "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swansong-core",
                 "SWANSONG_WORKFLOW_PATH": ".github/workflows/quartus-fit.yml",
                 "SWANSONG_WORKFLOW_SHA": SOURCE_COMMIT,
                 "SWANSONG_WORKFLOW_RUN_ID": "100",
@@ -151,7 +151,7 @@ class BuildCoreEvidenceTest(unittest.TestCase):
                 [
                     f"source_commit={SOURCE_COMMIT}",
                     f"source_date_epoch={SOURCE_EPOCH}",
-                    "workflow_repository=RegionallyFamous/swan-song",
+                    "workflow_repository=RegionallyFamous/swansong-core",
                     "workflow_path=.github/workflows/quartus-fit.yml",
                     f"workflow_sha={SOURCE_COMMIT}",
                     "workflow_run_id=100",

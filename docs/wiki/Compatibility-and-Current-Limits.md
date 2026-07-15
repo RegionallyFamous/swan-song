@@ -58,9 +58,9 @@ compatibility, or original-panel authenticity. Those require the appropriate
 build or physical evidence.
 
 The full gate-by-gate record is in the [roadmap
-status](https://github.com/RegionallyFamous/swan-song/blob/main/PHASE_STATUS.md)
+status](https://github.com/RegionallyFamous/swansong-core/blob/main/PHASE_STATUS.md)
 and [first-class Pocket compliance
-matrix](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_FIRST_CLASS.md).
+matrix](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_FIRST_CLASS.md).
 
 ## Commercial games and private evidence
 
@@ -71,7 +71,7 @@ passing simulator fixture is not proof that a named commercial game works.
 Commercial ROMs, commercial ROM hashes, BIOS files, saves, and private
 captures are not bundled. Testers use their own legally obtained dumps and
 keep private evidence outside the repository. See the [known-title acceptance
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/KNOWN_TITLE_COMPATIBILITY.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/KNOWN_TITLE_COMPATIBILITY.md).
 
 ## Homebrew
 
@@ -79,4 +79,4 @@ Wonderful-generated `.ws` and `.wsc` programs have dedicated open regression
 coverage. WonderWitch `.fx` programs need a FreyaBIOS/FreyaOS filesystem and
 flash-cartridge environment that Swan Song does not currently provide. See the
 [homebrew and WonderWitch
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/HOMEBREW_WONDERWITCH.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/HOMEBREW_WONDERWITCH.md).

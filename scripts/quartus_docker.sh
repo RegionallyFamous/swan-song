@@ -48,8 +48,8 @@ require_build_identity() {
   fi
   [[ "$build_class" == candidate ]] \
     || fail "SWANSONG_BUILD_CLASS must be development or candidate"
-  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] \
-    || fail "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swan-song"
+  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swansong-core ]] \
+    || fail "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swansong-core"
   [[ "${SWANSONG_WORKFLOW_PATH:-}" == .github/workflows/quartus-fit.yml ]] \
     || fail "SWANSONG_WORKFLOW_PATH must be .github/workflows/quartus-fit.yml"
   [[ "${SWANSONG_WORKFLOW_SHA:-}" =~ ^[0-9a-f]{40}$ ]] \

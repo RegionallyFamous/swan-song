@@ -11,7 +11,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Search [existing Swan Song issues](https://github.com/RegionallyFamous/swan-song/issues) before asking a new question.
+        Search [existing Swan Song issues](https://github.com/RegionallyFamous/swansong-core/issues) before asking a new question.
 
   - type: textarea
     id: question

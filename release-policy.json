@@ -3,7 +3,7 @@
     "magic": "SWAN_SONG_RELEASE_POLICY_V2",
     "publisher": {
       "core_id": "RegionallyFamous.SwanSong",
-      "repository_url": "https://github.com/RegionallyFamous/swan-song"
+      "repository_url": "https://github.com/RegionallyFamous/swansong-core"
     },
     "authorization": {
       "identity_authorized": true,

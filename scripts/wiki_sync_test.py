@@ -35,14 +35,14 @@ class WikiSyncTest(unittest.TestCase):
             "# Controls and Settings\n\n## Controls\n", encoding="utf-8"
         )
         (self.wiki / "Developer-Hub.md").write_text(
-            "# Developer Hub\n\n[Guide](https://github.com/RegionallyFamous/swan-song/blob/main/GUIDE.md#details)\n",
+            "# Developer Hub\n\n[Guide](https://github.com/RegionallyFamous/swansong-core/blob/main/GUIDE.md#details)\n",
             encoding="utf-8",
         )
         (self.source / "GUIDE.md").write_text(
             "# Guide\n\n## Details\n", encoding="utf-8"
         )
         links = [
-            f"[{page}](https://github.com/RegionallyFamous/swan-song/wiki/{page})"
+            f"[{page}](https://github.com/RegionallyFamous/swansong-core/wiki/{page})"
             for page in checker.README_REQUIRED_WIKI_PAGES
         ]
         (self.source / "README.md").write_text(
@@ -89,7 +89,7 @@ class WikiSyncTest(unittest.TestCase):
         self._run(self.root, "git", "clone", "-q", str(self.remote), str(clone))
         self._run(clone, "git", "config", "user.name", "Offline Wiki Test")
         self._run(clone, "git", "config", "user.email", "offline@example.invalid")
-        canonical = "https://github.com/RegionallyFamous/swan-song.wiki.git"
+        canonical = "https://github.com/RegionallyFamous/swansong-core.wiki.git"
         self._run(clone, "git", "remote", "set-url", "origin", canonical)
         return clone
 

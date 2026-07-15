@@ -108,7 +108,7 @@ resolve_build_identity() {
     echo "SWANSONG_BUILD_CLASS must be development or candidate" >&2
     return 76
   }
-  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] || {
+  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swansong-core ]] || {
     echo "invalid or missing SWANSONG_WORKFLOW_REPOSITORY" >&2
     return 76
   }

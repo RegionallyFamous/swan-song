@@ -220,7 +220,7 @@ class RefreshFixture:
                 (
                     f"source_commit={self.commit}",
                     f"source_date_epoch={self.epoch}",
-                    "workflow_repository=RegionallyFamous/swan-song",
+                    "workflow_repository=RegionallyFamous/swansong-core",
                     "workflow_path=.github/workflows/quartus-fit.yml",
                     f"workflow_sha={self.commit}",
                     "workflow_run_id=200",

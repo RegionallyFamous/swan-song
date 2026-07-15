@@ -101,7 +101,7 @@ class PocketLauncherLibraryContractTest(unittest.TestCase):
             "will not ship such a patch",
         ):
             self.assertIn(marker, audit)
-        self.assertIn("https://github.com/RegionallyFamous/swan-song/wiki", readme)
+        self.assertIn("https://github.com/RegionallyFamous/swansong-core/wiki", readme)
         self.assertIn("POCKET_LAUNCHER_LIBRARY.md", developer_hub)
         self.assertIn("POCKET_LAUNCHER_LIBRARY.md", building)
         self.assertIn("pocket_launcher_library_contract_test.py", regression)

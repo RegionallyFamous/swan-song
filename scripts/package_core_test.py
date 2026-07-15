@@ -36,7 +36,7 @@ ASSEMBLY = ROOT / "src/support/chip32.asm"
 ENCODED_IMAGE = ROOT / "src/support/chip32.bin.hex"
 RELEASE_POLICY = ROOT / "release-policy.json"
 CORE_ID = "RegionallyFamous.SwanSong"
-CORE_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+CORE_REPOSITORY = "https://github.com/RegionallyFamous/swansong-core"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / CORE_ID
 
 
@@ -2155,19 +2155,19 @@ class PackageCoreTest(unittest.TestCase):
         bundle.write_bytes(b"synthetic-bundle")
         source_commit = "a" * 40
         signer_uri = (
-            "https://github.com/RegionallyFamous/swan-song/"
+            "https://github.com/RegionallyFamous/swansong-core/"
             ".github/workflows/quartus-fit.yml@refs/heads/main"
         )
         certificate = {
             "githubWorkflowTrigger": "workflow_dispatch",
             "githubWorkflowSHA": source_commit,
-            "githubWorkflowRepository": "RegionallyFamous/swan-song",
+            "githubWorkflowRepository": "RegionallyFamous/swansong-core",
             "githubWorkflowRef": "refs/heads/main",
             "buildSignerURI": signer_uri,
             "buildSignerDigest": source_commit,
             "runnerEnvironment": "self-hosted",
             "sourceRepositoryURI": (
-                "https://github.com/RegionallyFamous/swan-song"
+                "https://github.com/RegionallyFamous/swansong-core"
             ),
             "sourceRepositoryDigest": source_commit,
             "sourceRepositoryRef": "refs/heads/main",
@@ -2175,7 +2175,7 @@ class PackageCoreTest(unittest.TestCase):
             "buildConfigDigest": source_commit,
             "buildTrigger": "workflow_dispatch",
             "runInvocationURI": (
-                "https://github.com/RegionallyFamous/swan-song/"
+                "https://github.com/RegionallyFamous/swansong-core/"
                 "actions/runs/100/attempts/1"
             ),
         }

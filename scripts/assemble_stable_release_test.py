@@ -220,7 +220,7 @@ class StableReleaseAttestationTest(unittest.TestCase):
         self.candidate.write_bytes(b'{"candidate":"audit"}\n')
         self.bundle.write_bytes(b'{"synthetic":"sigstore-bundle"}\n')
         self.workflow_identity = {
-            "workflow_repository": "RegionallyFamous/swan-song",
+            "workflow_repository": "RegionallyFamous/swansong-core",
             "workflow_path": ".github/workflows/quartus-fit.yml",
             "workflow_sha": SOURCE_COMMIT,
             "workflow_run_id": "101",
@@ -234,7 +234,7 @@ class StableReleaseAttestationTest(unittest.TestCase):
 
     def verification_payload(self) -> list[dict[str, object]]:
         signer = (
-            "https://github.com/RegionallyFamous/swan-song/"
+            "https://github.com/RegionallyFamous/swansong-core/"
             ".github/workflows/quartus-fit.yml@refs/heads/main"
         )
         return [
@@ -244,13 +244,13 @@ class StableReleaseAttestationTest(unittest.TestCase):
                         "certificate": {
                             "githubWorkflowTrigger": "workflow_dispatch",
                             "githubWorkflowSHA": SOURCE_COMMIT,
-                            "githubWorkflowRepository": "RegionallyFamous/swan-song",
+                            "githubWorkflowRepository": "RegionallyFamous/swansong-core",
                             "githubWorkflowRef": "refs/heads/main",
                             "buildSignerURI": signer,
                             "buildSignerDigest": SOURCE_COMMIT,
                             "runnerEnvironment": "self-hosted",
                             "sourceRepositoryURI": (
-                                "https://github.com/RegionallyFamous/swan-song"
+                                "https://github.com/RegionallyFamous/swansong-core"
                             ),
                             "sourceRepositoryDigest": SOURCE_COMMIT,
                             "sourceRepositoryRef": "refs/heads/main",
@@ -258,7 +258,7 @@ class StableReleaseAttestationTest(unittest.TestCase):
                             "buildConfigDigest": SOURCE_COMMIT,
                             "buildTrigger": "workflow_dispatch",
                             "runInvocationURI": (
-                                "https://github.com/RegionallyFamous/swan-song/"
+                                "https://github.com/RegionallyFamous/swansong-core/"
                                 "actions/runs/101/attempts/2"
                             ),
                         }
@@ -314,7 +314,7 @@ class StableReleaseAttestationTest(unittest.TestCase):
         payload[0]["verificationResult"]["signature"]["certificate"][
             "runInvocationURI"
         ] = (
-            "https://github.com/RegionallyFamous/swan-song/"
+            "https://github.com/RegionallyFamous/swansong-core/"
             "actions/runs/999/attempts/2"
         )
         with self.assertRaisesRegex(assembler.AssemblyError, "run invocation"):

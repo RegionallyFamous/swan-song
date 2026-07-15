@@ -36,10 +36,10 @@ images/options/paths; and removes its temporary files. This is native host
 execution, not a security sandbox or a reproduction of Docker's filesystem and
 network isolation. Docker remains the default and pinned Linux CI evidence.
 Setup details and the exact safety boundary are in
-[BUILDING.md](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md#optional-native-ghdl-on-macos).
+[BUILDING.md](https://github.com/RegionallyFamous/swansong-core/blob/main/BUILDING.md#optional-native-ghdl-on-macos).
 
 The complete current result list, exact commands, trace options, and save
-conversion tools are maintained in [BUILDING.md](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md).
+conversion tools are maintained in [BUILDING.md](https://github.com/RegionallyFamous/swansong-core/blob/main/BUILDING.md).
 Do not replace that record with a generic “tests pass” claim.
 
 ## Simulation boundary
@@ -53,7 +53,7 @@ physical SDRAM timing, Dock firmware, or FPGA routing.
 Structured trace tooling can record CPU, memory, DMA, display provenance, and
 atomic rendered cells. It exists to answer specific implementation questions,
 not to catalogue private games. See [the trace
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/sim/verilator/TRACE.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/sim/verilator/TRACE.md).
 
 ## Quartus build
 
@@ -65,8 +65,8 @@ project.
 
 The exact archive identity, component manifest, Docker preflight, fit command,
 TimeQuest evidence, and known limitations are in [Quartus on Apple Silicon
-Mac](https://github.com/RegionallyFamous/swan-song/blob/main/QUARTUS_MAC_DOCKER.md)
-and the [fit-evidence audit](https://github.com/RegionallyFamous/swan-song/blob/main/QUARTUS_FIT_AUDIT.md).
+Mac](https://github.com/RegionallyFamous/swansong-core/blob/main/QUARTUS_MAC_DOCKER.md)
+and the [fit-evidence audit](https://github.com/RegionallyFamous/swansong-core/blob/main/QUARTUS_FIT_AUDIT.md).
 
 An optional, explicitly billable DigitalOcean launcher can create a temporary
 native x86_64 worker. It is dry-run-first, restricts SSH to one `/32`, binds
@@ -75,7 +75,7 @@ runner gets a random per-job label whose raw nonce must exactly match the
 workflow dispatch; rearm rotates it and recovery rejects mismatches. The
 launcher destroys the recorded cloud resources afterward. It is a Quartus
 worker, not a ROM testing server or remote ChatGPT host. Read [Swan Song
-Lab](https://github.com/RegionallyFamous/swan-song/blob/main/SWAN_SONG_LAB.md)
+Lab](https://github.com/RegionallyFamous/swansong-core/blob/main/SWAN_SONG_LAB.md)
 before creating anything.
 
 ## Private ROM-corpus smoke tests
@@ -93,27 +93,27 @@ no ROM or BIOS is uploaded.
 Do not upload a commercial ROM or BIOS to GitHub, DigitalOcean, Railway, CI,
 or a collaborator. The local runner's purpose, checks, privacy model, and
 limitations are documented in [Private local ROM-corpus
-testing](https://github.com/RegionallyFamous/swan-song/blob/main/PRIVATE_CORPUS_TESTING.md).
+testing](https://github.com/RegionallyFamous/swansong-core/blob/main/PRIVATE_CORPUS_TESTING.md).
 
 ## Publish the reviewed Wiki
 
 The pages you are reading are maintained under `docs/wiki` in the main Swan
 Song repository. A guarded local command validates those pages and compares
 them with an explicitly supplied clean clone of
-`RegionallyFamous/swan-song.wiki`:
+`RegionallyFamous/swansong-core.wiki`:
 
 ```sh
-python3 scripts/wiki_sync.py --wiki-clone /absolute/path/to/swan-song.wiki
+python3 scripts/wiki_sync.py --wiki-clone /absolute/path/to/swansong-core.wiki
 ```
 
 That command is an offline preview: it lists every page to add, change, or
 delete and never writes or publishes. After reviewing the plan, an authorized
 maintainer can use `--apply --confirm-publish
-RegionallyFamous/swan-song.wiki`. The apply path rechecks the clean clone and
+RegionallyFamous/swansong-core.wiki`. The apply path rechecks the clean clone and
 exact GitHub origin, commits only the planned page operations, preserves
 `.git`, and pushes noninteractively. The full clone, safety, authentication,
 and push-failure procedure is in
-[BUILDING.md](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md#publishing-the-reviewed-github-wiki).
+[BUILDING.md](https://github.com/RegionallyFamous/swansong-core/blob/main/BUILDING.md#publishing-the-reviewed-github-wiki).
 
 ## Package and release gates
 

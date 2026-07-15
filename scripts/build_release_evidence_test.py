@@ -106,7 +106,7 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
             builds.append(
                 {
                     "label": label,
-                    "repository": "RegionallyFamous/swan-song",
+                    "repository": "RegionallyFamous/swansong-core",
                     "workflow_path": ".github/workflows/quartus-fit.yml",
                     "source_ref": "refs/heads/main",
                     "source_commit": SOURCE_COMMIT,

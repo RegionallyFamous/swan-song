@@ -29,7 +29,7 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 WIKI_RELATIVE = Path("docs/wiki")
 README_RELATIVE = Path("README.md")
-REPOSITORY = "RegionallyFamous/swan-song"
+REPOSITORY = "RegionallyFamous/swansong-core"
 MAX_MARKDOWN_BYTES = 2 * 1024 * 1024
 
 WIKI_MANIFEST = (

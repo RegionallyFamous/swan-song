@@ -27,7 +27,7 @@ is deliberately not prescribed because Analogue reorganized those menus in
 Swan Song cannot add itself or individual ROMs to Analogue's first-party
 Library. That is a PocketOS boundary, not missing core artwork. The detailed
 research is in the [Pocket launcher and Library
-audit](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_LAUNCHER_LIBRARY.md).
+audit](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_LAUNCHER_LIBRARY.md).
 
 ## Enter the original console setup
 
@@ -53,7 +53,7 @@ picture. It does not change **Control Layout**, the D-pad matrix, or what the
 game reads.
 
 See [Controls and
-Settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
+Settings](https://github.com/RegionallyFamous/swansong-core/wiki/Controls-and-Settings)
 for the two layouts and display options.
 
 ## Fast Forward
@@ -73,7 +73,7 @@ and descriptive controls. Presets stay on your own SD card and do not inspect
 or catalogue ROM contents. PocketOS behavior around editable controls is still
 being verified.
 See the [per-game preset
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/PER_GAME_PRESETS.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/PER_GAME_PRESETS.md).
 
 ## Resetting remembered choices
 

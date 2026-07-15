@@ -261,7 +261,7 @@ class Fixture:
             (
                 "source_commit=" + "a" * 40 + "\n"
                 "source_date_epoch=1700000000\n"
-                "workflow_repository=RegionallyFamous/swan-song\n"
+                "workflow_repository=RegionallyFamous/swansong-core\n"
                 "workflow_path=.github/workflows/quartus-fit.yml\n"
                 "workflow_sha=" + "a" * 40 + "\n"
                 f"workflow_run_id={workflow_run_id}\n"

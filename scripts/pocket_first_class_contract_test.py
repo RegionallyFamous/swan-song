@@ -655,7 +655,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(core["metadata"]["shortname"], "SwanSong")
         self.assertEqual(
             core["metadata"]["url"],
-            "https://github.com/RegionallyFamous/swan-song",
+            "https://github.com/RegionallyFamous/swansong-core",
         )
         self.assertEqual(
             core["metadata"]["description"],

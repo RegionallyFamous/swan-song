@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-REPOSITORY = "RegionallyFamous/swan-song"
+REPOSITORY = "RegionallyFamous/swansong-core"
 CANONICAL_REPOSITORY_URL = f"https://github.com/{REPOSITORY}.git"
 BASE_BRANCH = "main"
 DEFAULT_BRANCH = "codex/launch-hardening"
