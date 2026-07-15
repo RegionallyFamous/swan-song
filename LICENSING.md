@@ -14,10 +14,17 @@ copyright holder or qualified reviewer.
 
 - MiSTer's pinned `WonderSwan.sv` expressly offers the WonderSwan program
   under GPL-2.0-or-later and credits Robert Peip and Sorgelig. Pocket's
-  `wonderswan.sv` adaptation omitted that header; the Git history still proves
-  the derivation, but the notice should be restored in the final source.
+  `wonderswan.sv` adaptation omitted that header; Swan Song now restores the
+  complete upstream copyright, GPL-2.0-or-later, warranty, and source-delivery
+  notice in the current Pocket-derived wrapper. All 18 files in the pinned
+  WonderSwan program scope that differ from upstream now carry a prominent
+  `2026-07-14` Swan Song modification notice; the source-bound manifest
+  validator enforces that this audited changed-file set retains the exact
+  dated notice text.
 - `ddram.sv` and `sdram.sv` retain GPL-3.0-or-later notices. The release
-  package now carries both complete GPLv2 and GPLv3 texts.
+  package now carries both complete GPLv2 and GPLv3 texts. The modified
+  `sdram.sv` also carries the dated Swan Song modification notice enforced by
+  the same validator.
 - Four Pocket utility files retain Adam Gastineau's MIT notice. The official
   Chip32 assembler repository has Peter Lemon's MIT notice. Both complete
   notices are now packaged.
@@ -32,24 +39,28 @@ copyright holder or qualified reviewer.
   MIT/GPL conflict rule. The remaining APF question is therefore the public
   modified APF source and combined terms, not whether Developer Applications
   may ever be distributed.
-- All 19 files under `testroms/spritepriority`, `testroms/timingtest`, and
-  `testroms/windowtest` are byte-identical to MiSTer commit
-  `8f7a4d670b4635eda0e518e7fd9a17ef8610db79`. Robert Peip introduced the
-  timing/window assets in `30f74aa4c02856763721a2ed00c8feed55300893` and
-  the sprite-priority assets in
-  `921240c3c4f67f545e52efe2050a288cfc2f4f2d`. Neither the files nor those
-  commit messages state a separate grant, so the manifest records
-  `NOASSERTION` instead of guessing.
+- The 19 inherited MiSTer assets that had no file-level grant have been
+  removed. Project-authored deterministic REP MOVSB, Color sprite-priority,
+  and dual window-boundary probes replace their material regression coverage.
+  The manifest requires those retired source roots to remain empty, so the
+  unresolved `legacy-mister-test-assets` blocker is mechanically closed.
+- The protected-main Quartus Lite 21.1.1 candidate's native IP Cores Summary
+  lists all five RAM, PLL, and DDIO rows with License Type `N/A`; its Assembler
+  report lists ordinary `ap_core.sof` and `ap_core.rbf` outputs and contains no
+  known OpenCore Plus/time-limited warning ID. The fail-closed candidate audit
+  now binds those facts. This is strong build evidence, not an interpretation
+  of Intel's agreements.
 
 ## Blocking decisions
 
 1. **Project contribution declaration.** Regionally Famous must declare a
    license for its original source, tests, documentation, and generated art,
    and a reviewer must confirm the combined-work license and required notices.
-2. **Inherited program notice.** Restore the pinned MiSTer
-   GPL-2.0-or-later/copyright notice to the Pocket-derived top level after the
-   currently active RTL integration is complete. Record maintainer
-   confirmation if the release reviewer requires it.
+2. **Inherited program notice.** The pinned MiSTer GPL-2.0-or-later/copyright
+   notice is restored in the Pocket-derived top level, and dated modification
+   notices are source-bound across the audited changed-file set. Record the
+   final combined-work license and notice review; obtain maintainer
+   confirmation if the reviewer requires it.
 3. **Pocket adaptation grant.** Record Adam Gastineau's intended grant for
    the unheaded Pocket-specific adaptation files. A repository-level GPLv2
    text is evidence, but the audit does not turn it into a file-level grant.
@@ -58,12 +69,10 @@ copyright holder or qualified reviewer.
    public redistribution of the modified APF source itself and the final
    combined-license/notice treatment.
 5. **Intel/Altera terms.** Review the accepted Quartus Prime Lite 21.1.1 and
-   generated-IP terms. Confirm from the final assembler report that the RBF is
-   unrestricted and contains no evaluation/time-limited IP.
-6. **Legacy test assets.** Obtain a grant for the 19 exact MiSTer test assets,
-   or remove/replace them and ensure the release source bundle does not contain
-   them. They are never placed in the Pocket binary package.
-7. **Exact source delivery.** Publish and test retrieval of the corresponding
+   generated-IP terms. The candidate audit now proves native License Type
+   `N/A` rows, ordinary SOF/RBF outputs, and no known evaluation/time-limited
+   warning IDs; repeat that gate on the exact final build.
+6. **Exact source delivery.** Publish and test retrieval of the corresponding
    source for the exact release commit, with build instructions and all needed
    notices. A repository URL alone is not recorded as completion.
 
@@ -72,11 +81,8 @@ copyright holder or qualified reviewer.
 ### Robert Peip / MiSTer WonderSwan
 
 > Swan Song derives from your MiSTer WonderSwan core. Could you confirm whether
-> the files in `testroms/spritepriority`, `testroms/timingtest`, and
-> `testroms/windowtest`, introduced by commits `921240c` and `30f74aa`,
-> are offered under the same GPL-2.0-or-later terms stated in
-> `WonderSwan.sv`? Could you also confirm that redistribution of the modified
-> core source and Pocket bitstream under GPLv3-or-later, with the original
+> redistribution of the modified core source and Pocket bitstream under
+> GPLv3-or-later, with the original
 > credits and notices preserved, matches your intent?
 
 ### Adam Gastineau / agg23

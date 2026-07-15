@@ -4,11 +4,40 @@
 from __future__ import annotations
 
 import csv
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
+from generate_bank_probe import (
+    FOOTER_SIZE,
+    PROGRAM,
+    ROM_SIZE,
+    footer,
+    generate,
+    image,
+)
 from verify_bank_probe import EXPECTED, verify
 from verify_trace import FIELDS_V5
+
+
+GENERATOR = Path(__file__).with_name("generate_bank_probe.py")
+
+
+def generate_with_ignored_input(unused: Path, output: Path) -> bytes:
+    subprocess.run(
+        (sys.executable, str(GENERATOR), str(unused), str(output)),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return output.read_bytes()
+
+
+def assert_footer_valid(rom: bytes) -> None:
+    metadata = rom[-FOOTER_SIZE:-2]
+    assert metadata == bytes.fromhex("ea000000f0000000430100000401")
+    assert int.from_bytes(rom[-2:], "little") == sum(rom[:-2]) & 0xFFFF
 
 
 def bank_row(
@@ -54,6 +83,26 @@ def must_fail(path: Path, rows: list[dict[str, object]], expected: str) -> None:
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="swansong-bank-probe-test-") as directory:
         root = Path(directory)
+        generated = root / "bank-probe.ws"
+        generate(generated)
+        rom = generated.read_bytes()
+        assert len(rom) == ROM_SIZE
+        assert rom[: len(PROGRAM)] == PROGRAM
+        assert footer()[-2:] == b"\x00\x00"
+        assert_footer_valid(rom)
+        assert rom == image()
+
+        # The historical two-path command form remains usable by regression,
+        # but the first path is neither required to exist nor consulted.
+        missing = root / "does-not-exist.ws"
+        absent_input = generate_with_ignored_input(missing, root / "absent.ws")
+        decoy = root / "unrelated.bin"
+        decoy.write_bytes(b"first arbitrary contents")
+        first_contents = generate_with_ignored_input(decoy, root / "first.ws")
+        decoy.write_bytes(b"different bytes and therefore a different hash")
+        second_contents = generate_with_ignored_input(decoy, root / "second.ws")
+        assert absent_input == first_contents == second_contents == rom
+
         rows = [
             bank_row(cycle, address, value, instruction_id, origin_pc)
             for cycle, (address, value, instruction_id, origin_pc) in enumerate(
@@ -95,7 +144,7 @@ def main() -> None:
             root / "duplicate-cycle.csv", duplicate_cycle, "does not follow cycle"
         )
 
-    print("PASS generated bank-probe verifier")
+    print("PASS self-contained checksummed bank probe and verifier")
 
 
 if __name__ == "__main__":

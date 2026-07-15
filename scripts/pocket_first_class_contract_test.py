@@ -19,6 +19,7 @@ SOURCE_PATHS = {
     "guard": "src/fpga/core/apf_dataslot_guard.sv",
     "metadata": "src/fpga/core/apf_save_metadata_cdc.sv",
     "settings": "src/fpga/core/apf_settings_cdc.sv",
+    "readback": "src/fpga/core/apf_interact_readback.sv",
     "startup": "src/fpga/core/apf_startup_sequencer.sv",
     "save_init": "src/fpga/core/pocket_save_init.sv",
     "wonderswan": "src/fpga/core/wonderswan.sv",
@@ -66,6 +67,7 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     metadata = strip_hdl_comments(sources["metadata"])
     metadata_compact = compact_hdl(sources["metadata"])
     settings_compact = compact_hdl(sources["settings"])
+    readback_compact = compact_hdl(sources["readback"])
     startup = strip_hdl_comments(sources["startup"])
     startup_compact = compact_hdl(sources["startup"])
     save_init = strip_hdl_comments(sources["save_init"])
@@ -162,6 +164,46 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
     )
     if not all(address in settings_write_compact for address in settings_addresses):
         errors.append("same-cycle settings write guard must cover every interact register")
+    readback_mappings = (
+        "32'h00000100:data={30'd0,settings_source[12:11]};",
+        "32'h00000110:data={31'd0,settings_source[10]};",
+        "32'h00000200:data={31'd0,settings_source[9]};",
+        "32'h00000204:data={30'd0,settings_source[8:7]};",
+        "32'h00000208:data={30'd0,settings_source[6:5]};",
+        "32'h0000020c:data={31'd0,settings_source[2]};",
+        "32'h00000210:data={31'd0,settings_source[1]};",
+        "32'h00000214:data={30'd0,settings_source[4:3]};",
+        "32'h00000300:data={31'd0,settings_source[0]};",
+    )
+    if (
+        "moduleapf_interact_readback(" not in readback_compact
+        or "inputwire[12:0]settings_source" not in readback_compact
+        or not all(mapping in readback_compact for mapping in readback_mappings)
+        or "default:beginhit=1'b0;data=32'd0;end" not in readback_compact
+    ):
+        errors.append("persistent interact readback must exactly decode all nine settings")
+    source_bundle_expression = (
+        "wire[12:0]settings_source_74a={configured_system,use_cpu_turbo,"
+        "use_triple_buffer,configured_flickerblend,configured_orientation,"
+        "configured_control_layout,use_flip_horizontal,configured_color_profile,"
+        "use_fastforward_sound};"
+    )
+    if (
+        source_bundle_expression not in core_top_compact
+        or core_top_compact.count(".settings_source(settings_source_74a)") != 2
+        or "apf_interact_readbackinteract_settings_readback("
+        not in core_top_compact
+        or "if(interact_readback_hit)beginbridge_rd_data<="
+        "interact_readback_data;endelsebegincasex(bridge_addr)"
+        not in core_top_compact
+    ):
+        errors.append("core_top must prioritize exact readback from the requested settings bundle")
+    if sources["qsf"].count(
+        "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_interact_readback.sv"
+    ) != 1:
+        errors.append("Quartus must compile exactly one interact readback source")
+    if "run_apf_interact_readback_tb.sh" not in sources["regression"]:
+        errors.append("regression must run the exhaustive interact readback test")
     if bridge_compact.count("reset_exit_ready") != 2:
         errors.append("settings acknowledgement may qualify only Reset Exit")
     if "run_apf_settings_boot_barrier_tb.sh" not in sources["regression"]:
@@ -620,8 +662,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
             "Swan Song for WonderSwan and WonderSwan Color",
         )
 
-        # Framework 2.3 fixes Reset to Defaults for the persisted file-browser
-        # history used by the cartridge and BIOS data slots.
+        # Framework 2.3 is the declared package floor.  The current APF data-slot
+        # contract defines Reset All to Defaults as clearing the per-core browser
+        # history used by the cartridge and BIOS slots.
         self.assertEqual(core["framework"]["version_required"], "2.3")
         # Memories/sleep remains disabled until the full controller and a
         # physical Pocket endurance matrix have passed.
@@ -677,8 +720,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
             lines,
         )
         self.assertIn(
-            "* Pocket firmware "
-            f"{core['framework']['version_required']} minimum; 2.6.0 recommended",
+            "* Minimum firmware "
+            f"{core['framework']['version_required']}; "
+            "launch qualification targets 2.6.0",
             lines,
         )
 
@@ -688,16 +732,16 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertNotIn("Last cartridge is remembered", info)
         self.assertNotIn("Tear-safe", info)
         self.assertNotIn("source-pinned", info)
-        self.assertNotIn("Analogue OS", info)
+        self.assertNotIn("Pocket firmware 2.3", info)
 
         variables = {
             number(variable["id"]): variable
             for variable in load("interact.json")["interact"]["variables"]
         }
         self.assertEqual(variables[41]["name"], "Triple Buffer")
-        self.assertEqual(variables[42]["name"], "LCD Response")
+        self.assertEqual(variables[42]["name"], "Motion / LCD Response")
         self.assertIn(
-            "* Triple-buffered video and optional LCD response effects", lines
+            "* Complete-frame video, optional 60.9Hz and LCD response modes", lines
         )
         self.assertEqual(variables[45]["name"], "Color Profile")
         self.assertEqual(
@@ -917,7 +961,44 @@ class PocketFirstClassContractTest(unittest.TestCase):
         variables = interact["variables"]
         self.assertLessEqual(len(variables), 16)
         self.assertEqual(len({number(item["id"]) for item in variables}), len(variables))
+        for item in variables:
+            self.assertLessEqual(len(item["name"]), 23)
+            self.assertIn(number(item["id"]), range(0x10000))
+            if item["type"] == "list":
+                self.assertLessEqual(len(item["options"]), 16)
+                self.assertTrue(
+                    all(len(option["name"]) <= 23 for option in item["options"])
+                )
+
+        data_slots = load("data.json")["data"]["data_slots"]
+        reloadable_slots = sum(
+            bool(number(slot["parameters"]) & 1) for slot in data_slots
+        )
+        self.assertLessEqual(len(variables) + reloadable_slots, 20)
         variables_by_id = {number(item["id"]): item for item in variables}
+        persistent_addresses = {
+            number(item["id"]): number(item["address"])
+            for item in variables
+            if item.get("persist") is True
+        }
+        self.assertEqual(
+            persistent_addresses,
+            {
+                10: 0x100,
+                14: 0x110,
+                41: 0x200,
+                42: 0x204,
+                43: 0x208,
+                44: 0x20C,
+                45: 0x210,
+                46: 0x214,
+                81: 0x300,
+            },
+        )
+        self.assertTrue(
+            all("writeonly" not in variables_by_id[identifier]
+                for identifier in persistent_addresses)
+        )
         self.assertEqual(
             variables_by_id[40],
             {
@@ -950,13 +1031,18 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(number(variables_by_id[43]["address"]), 0x208)
         self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
         self.assertEqual(number(variables_by_id[44]["address"]), 0x20C)
-        self.assertEqual(variables_by_id[42]["name"], "LCD Response")
+        self.assertEqual(variables_by_id[42]["name"], "Motion / LCD Response")
         self.assertEqual(
             [
                 (number(option["value"]), option["name"])
                 for option in variables_by_id[42]["options"]
             ],
-            [(0, "Off"), (1, "2-Frame Blend"), (2, "Persistence")],
+            [
+                (0, "Off"),
+                (1, "2-Frame Blend"),
+                (2, "Persistence"),
+                (3, "Complete Frames 60.9Hz"),
+            ],
         )
         self.assertEqual(variables_by_id[45]["name"], "Color Profile")
         self.assertEqual(number(variables_by_id[45]["address"]), 0x210)
@@ -1218,6 +1304,30 @@ class PocketFirstClassContractTest(unittest.TestCase):
                 "same-cycle settings write guard must cover every interact register",
             ),
             (
+                "readback",
+                "32'h00000214: data = {30'd0, settings_source[4:3]};",
+                "32'h00000218: data = {30'd0, settings_source[4:3]};",
+                "persistent interact readback must exactly decode all nine settings",
+            ),
+            (
+                "core_top",
+                "if (interact_readback_hit) begin",
+                "if (1'b0) begin",
+                "core_top must prioritize exact readback from the requested settings bundle",
+            ),
+            (
+                "qsf",
+                "set_global_assignment -name SYSTEMVERILOG_FILE core/apf_interact_readback.sv",
+                "# interact readback omitted",
+                "Quartus must compile exactly one interact readback source",
+            ),
+            (
+                "regression",
+                '"$ROOT/sim/rtl/run_apf_interact_readback_tb.sh"\n',
+                "",
+                "regression must run the exhaustive interact readback test",
+            ),
+            (
                 "settings",
                 "assign update_pending_source = transfer_busy_source ||\n"
                 "      settings_source != settings_hold_source;",
@@ -1395,8 +1505,8 @@ class PocketFirstClassContractTest(unittest.TestCase):
             ),
             (
                 "core_top",
-                "32'h00000014: begin\n        bridge_rd_data <= rom_validation_status_74a;",
-                "32'h00000018: begin\n        bridge_rd_data <= rom_validation_status_74a;",
+                "32'h00000014: begin\n          bridge_rd_data <= rom_validation_status_74a;",
+                "32'h00000018: begin\n          bridge_rd_data <= rom_validation_status_74a;",
                 "validation at PMP 0x14",
             ),
             (

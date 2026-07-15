@@ -88,6 +88,71 @@ resolve_source_identity() {
   fi
 }
 
+resolve_build_identity() {
+  SWANSONG_BUILD_CLASS="${SWANSONG_BUILD_CLASS:-development}"
+  export SWANSONG_BUILD_CLASS
+  if [[ "$SWANSONG_BUILD_CLASS" == development ]]; then
+    for name in \
+      SWANSONG_WORKFLOW_REPOSITORY SWANSONG_WORKFLOW_PATH \
+      SWANSONG_WORKFLOW_SHA SWANSONG_WORKFLOW_RUN_ID \
+      SWANSONG_WORKFLOW_RUN_ATTEMPT SWANSONG_WORKFLOW_JOB \
+      SWANSONG_BUILD_JOB_NONCE; do
+      [[ -z "${!name:-}" ]] || {
+        echo "development build refuses GitHub workflow identity: $name" >&2
+        return 76
+      }
+    done
+    return 0
+  fi
+  [[ "$SWANSONG_BUILD_CLASS" == candidate ]] || {
+    echo "SWANSONG_BUILD_CLASS must be development or candidate" >&2
+    return 76
+  }
+  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] || {
+    echo "invalid or missing SWANSONG_WORKFLOW_REPOSITORY" >&2
+    return 76
+  }
+  [[ "${SWANSONG_WORKFLOW_PATH:-}" == .github/workflows/quartus-fit.yml ]] || {
+    echo "invalid or missing SWANSONG_WORKFLOW_PATH" >&2
+    return 76
+  }
+  [[ "${SWANSONG_WORKFLOW_SHA:-}" == "$SWANSONG_SOURCE_COMMIT" ]] || {
+    echo "SWANSONG_WORKFLOW_SHA does not identify the build source commit" >&2
+    return 76
+  }
+  case "${SWANSONG_WORKFLOW_RUN_ID:-}" in
+    ([1-9]*)
+      [[ "$SWANSONG_WORKFLOW_RUN_ID" != *[!0-9]* ]] || {
+        echo "invalid SWANSONG_WORKFLOW_RUN_ID" >&2
+        return 76
+      }
+      ;;
+    (*) echo "invalid or missing SWANSONG_WORKFLOW_RUN_ID" >&2; return 76 ;;
+  esac
+  case "${SWANSONG_WORKFLOW_RUN_ATTEMPT:-}" in
+    ([1-9]*)
+      [[ "$SWANSONG_WORKFLOW_RUN_ATTEMPT" != *[!0-9]* ]] || {
+        echo "invalid SWANSONG_WORKFLOW_RUN_ATTEMPT" >&2
+        return 76
+      }
+      ;;
+    (*) echo "invalid or missing SWANSONG_WORKFLOW_RUN_ATTEMPT" >&2; return 76 ;;
+  esac
+  [[ "${SWANSONG_WORKFLOW_JOB:-}" == fit ]] || {
+    echo "invalid or missing SWANSONG_WORKFLOW_JOB" >&2
+    return 76
+  }
+  case "${SWANSONG_BUILD_JOB_NONCE:-}" in
+    (????????????????????????????????)
+      [[ "$SWANSONG_BUILD_JOB_NONCE" != *[!0-9a-f]* ]] || {
+        echo "invalid SWANSONG_BUILD_JOB_NONCE" >&2
+        return 76
+      }
+      ;;
+    (*) echo "invalid or missing SWANSONG_BUILD_JOB_NONCE" >&2; return 76 ;;
+  esac
+}
+
 prepare_artifact_root() {
   mkdir -p "$ARTIFACT_ROOT"
   [[ -d "$ARTIFACT_ROOT" && ! -L "$ARTIFACT_ROOT" ]] || {
@@ -110,6 +175,7 @@ prepare_artifact_root() {
     return 76
   }
   resolve_source_identity
+  resolve_build_identity
 }
 
 run_quartus() {
@@ -157,6 +223,7 @@ copy_partial_outputs() {
 
 write_success_evidence() {
   local output rbf_digest
+  local -a metadata
   for output in "${required_outputs[@]}"; do
     test -s "$ARTIFACT_ROOT/output_files/$output" || {
       echo "successful flow did not produce required compilation artifact: $output" >&2
@@ -180,13 +247,30 @@ write_success_evidence() {
   }
   printf '%s  /artifacts/output_files/ap_core.rbf\n' "$rbf_digest" \
     > "$ARTIFACT_ROOT/ap_core.rbf.sha256" || return 78
-  printf '%s\n' \
-    "source_commit=$SWANSONG_SOURCE_COMMIT" \
-    "source_date_epoch=$SOURCE_DATE_EPOCH" \
-    "platform=linux/amd64" \
-    "quartus=21.1.1.850 Lite" \
-    "device=5CEBA4F23C8" \
-    > "$ARTIFACT_ROOT/build-metadata.txt" || return 78
+  metadata=(
+    "source_commit=$SWANSONG_SOURCE_COMMIT"
+    "source_date_epoch=$SOURCE_DATE_EPOCH"
+  )
+  if [[ "$SWANSONG_BUILD_CLASS" == candidate ]]; then
+    metadata+=(
+      "workflow_repository=$SWANSONG_WORKFLOW_REPOSITORY"
+      "workflow_path=$SWANSONG_WORKFLOW_PATH"
+      "workflow_sha=$SWANSONG_WORKFLOW_SHA"
+      "workflow_run_id=$SWANSONG_WORKFLOW_RUN_ID"
+      "workflow_run_attempt=$SWANSONG_WORKFLOW_RUN_ATTEMPT"
+      "workflow_job=$SWANSONG_WORKFLOW_JOB"
+      "workflow_job_nonce=$SWANSONG_BUILD_JOB_NONCE"
+    )
+  else
+    metadata+=("build_class=development")
+  fi
+  metadata+=(
+    "platform=linux/amd64"
+    "quartus=21.1.1.850 Lite"
+    "device=5CEBA4F23C8"
+  )
+  printf '%s\n' "${metadata[@]}" > "$ARTIFACT_ROOT/build-metadata.txt" \
+    || return 78
 }
 
 if [[ -z "$ARTIFACT_ROOT" ]]; then

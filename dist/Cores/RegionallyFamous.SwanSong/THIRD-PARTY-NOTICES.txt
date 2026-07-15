@@ -17,9 +17,14 @@ MiSTer commit 8f7a4d670b4635eda0e518e7fd9a17ef8610db79 retains the
 WonderSwan.sv program notice offering that program under the GNU General
 Public License, version 2 or (at the recipient's option) any later version.
 Swan Song descends through agg23/openfpga-wonderswan commit
-073213a2e5992cff23b174d17763cb6354ee862b. The Pocket adaptation omitted that
-program notice from wonderswan.sv; this provenance record does not treat the
-omission as a new grant.
+073213a2e5992cff23b174d17763cb6354ee862b. That Pocket adaptation omitted the
+program notice from wonderswan.sv; Swan Song restores the original copyright,
+GPL-2.0-or-later, warranty, and source-delivery notice at the top of its current
+Pocket-derived wrapper. The historical omission is not treated as a new grant.
+The 18 files in the pinned WonderSwan program scope that differ from upstream
+carry a prominent notice that Regionally Famous modified them for Swan Song on
+2026-07-14. The source-bound license validator requires this audited
+changed-file set to retain the exact dated notice text.
 
 The GNU GPL version 2 text is in COPYING-GPL-2.0.txt.
 
@@ -31,6 +36,9 @@ src/fpga/core/rtl/sdram.sv is copyright (c) 2015-2019 Sorgelig.
 
 Their retained headers offer each source file under the GNU General Public
 License, version 3 or (at the recipient's option) any later version.
+The modified sdram.sv also carries a prominent notice that Regionally Famous
+modified it for Swan Song on 2026-07-14; the source-bound license validator
+requires that notice to remain present.
 
 The GNU GPL version 3 text is in COPYING-GPL-3.0.txt.
 
@@ -83,9 +91,11 @@ Not included in the Pocket package
 
 Commercial game ROMs, Bandai BIOS images, WonderWitch firmware, save data, and
 the repository's test ROM corpus are not included in this Pocket package.
-The 19 legacy MiSTer test assets under testroms/spritepriority,
-testroms/timingtest, and testroms/windowtest have no file-level grant; their
-status is therefore not inferred from this package notice.
+The 19 legacy MiSTer test assets that previously occupied
+testroms/spritepriority, testroms/timingtest, and testroms/windowtest were
+removed from Swan Song. Project-authored deterministic REP MOVSB,
+sprite-priority, and window-boundary probes now provide that regression
+coverage without carrying those inherited bytes.
 
 Corresponding source
 --------------------

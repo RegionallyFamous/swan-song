@@ -76,6 +76,14 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
         ("if(!reset_n)", "host reset does not cancel setup"),
         ("elseif(trigger)", "setup retrigger does not reload the intervals"),
         (
+            "inputwiremenu_focus_source",
+            "setup sequencer does not consume the source-domain menu level",
+        ),
+        (
+            "elseif(!menu_focus_source)begin",
+            "setup intervals can expire while PocketOS still owns focus",
+        ),
+        (
             "reset_counter_source<=reset_cycles[counter_width-1:0]",
             "setup reset counter is not reloaded",
         ),
@@ -116,9 +124,17 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
             ".button_start(cont1_key_s[15]|console_setup_start_sys_s)",
             "forced Start is not ORed at the logical Start boundary",
         ),
+        (
+            ".menu_focus_source(osnotify_inmenu)",
+            "raw 00B0 focus does not hold the setup gesture in its source domain",
+        ),
     ):
         if expression not in core_top:
             raise ValueError(message)
+    if core_top.count(".menu_focus_source(osnotify_inmenu)") != 2:
+        raise ValueError(
+            "raw 00B0 must feed exactly Console Setup hold and the menu-pause CDC"
+        )
     for no_op_address in ("58", "5c"):
         if re.search(rf"32'h0*{no_op_address}(?![0-9a-f])", core_top):
             raise ValueError(
@@ -145,6 +161,7 @@ def verify_contract(interact: dict, sources: dict[str, str]) -> None:
         "owner",
         "original bios",
         "does not change display orientation",
+        "menu focus",
     ):
         if phrase not in docs:
             raise ValueError(f"Console Setup documentation is missing {phrase!r}")
@@ -195,6 +212,11 @@ def main() -> None:
         ("sequencer", "or negedge reset_n", ""),
         (
             "sequencer",
+            "else if (!menu_focus_source) begin",
+            "else begin",
+        ),
+        (
+            "sequencer",
             "SYNCHRONIZER_IDENTIFICATION FORCED",
             'ASYNC_REG = "TRUE"',
         ),
@@ -211,6 +233,11 @@ def main() -> None:
         ),
         ("core_top", "32'h100: begin", "32'h05c: begin"),
         ("core_top", "cont1_key_s[15] | console_setup_start_sys_s", "cont1_key_s[15]"),
+        (
+            "core_top",
+            ".menu_focus_source(osnotify_inmenu)",
+            ".menu_focus_source(1'b0)",
+        ),
         ("qsf", "core/apf_console_setup.sv", "core/missing_console_setup.sv"),
         ("regression", "run_apf_console_setup_tb.sh", "run_missing_console_setup_tb.sh"),
     ):

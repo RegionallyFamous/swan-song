@@ -165,6 +165,7 @@ class StagePocketSDTest(unittest.TestCase):
         document = json.loads(provenance.read_text(encoding="utf-8"))
         body = document["package_provenance"]
         body["release"] = True
+        body["license_manifest"]["wonderswan_notice_sha256"] = "d" * 64
         body["build_evidence"] = {
             "magic": RELEASE_EVIDENCE_V2,
             "manifest_filename": "release-evidence.json",
@@ -199,7 +200,162 @@ class StagePocketSDTest(unittest.TestCase):
                     gate: True for gate in sorted(AUDIT_REQUIRED_TRUE_GATES)
                 },
             },
+            "hardware_qa": {
+                "manifest": {
+                    "filename": "hardware-qa-manifest.json",
+                    "size": 1,
+                    "sha256": digest,
+                },
+                "inventory": {
+                    "filename": "hardware-qa-inventory.json",
+                    "size": 1,
+                    "sha256": digest,
+                },
+                "magic": staging.HARDWARE_QA_MANIFEST_MAGIC,
+                "run_id": "synthetic-stage-test",
+                "case_count": len(staging.HARDWARE_QA_CASE_SPECS),
+                "artifact_count": 72,
+                "firmware_version": "2.6.0",
+                "core": {
+                    "core_id": "RegionallyFamous.SwanSong",
+                    "version": definition.version,
+                    "date_release": definition.release_date,
+                    "core_json": {
+                        "filename": "core.json",
+                        "size": len((release_dist / staging.CORE_JSON).read_bytes()),
+                        "sha256": hashlib.sha256(
+                            (release_dist / staging.CORE_JSON).read_bytes()
+                        ).hexdigest(),
+                    },
+                    "interact_json": {
+                        "filename": "interact.json",
+                        "size": len(
+                            (release_dist / staging.INTERACT_JSON).read_bytes()
+                        ),
+                        "sha256": hashlib.sha256(
+                            (release_dist / staging.INTERACT_JSON).read_bytes()
+                        ).hexdigest(),
+                    },
+                    "persistent_settings": list(
+                        staging.HARDWARE_QA_PERSISTENT_SETTING_NAMES
+                    ),
+                    "raw_rbf": body["raw_rbf"],
+                    "installed_bitstream": body["packaged_bitstream"],
+                },
+                "pocket": {
+                    "model": "Analogue Pocket",
+                    "hardware_revision": "synthetic",
+                    "device_id_sha256": "1" * 64,
+                },
+                "dock": {
+                    "model": "Analogue Dock",
+                    "hardware_revision": "synthetic",
+                    "firmware_version": "synthetic",
+                    "device_id_sha256": "2" * 64,
+                },
+            },
+            "known_title_compatibility": {
+                "catalogue": {
+                    "filename": "known-title-compatibility-catalogue.json",
+                    "size": 1,
+                    "sha256": digest,
+                },
+                "manifest": {
+                    "filename": "known-title-compatibility-manifest.json",
+                    "size": 1,
+                    "sha256": digest,
+                },
+                "magic": staging.KNOWN_TITLE_COMPATIBILITY_MAGIC,
+                "run_id": "synthetic-known-title-run",
+                "case_count": len(staging.KNOWN_TITLE_COMMERCIAL_IDS)
+                + len(staging.KNOWN_TITLE_OPEN_IDS),
+                "commercial_case_count": len(staging.KNOWN_TITLE_COMMERCIAL_IDS),
+                "open_sanity_case_count": len(staging.KNOWN_TITLE_OPEN_IDS),
+                "mode_pass_count": 2
+                * (
+                    len(staging.KNOWN_TITLE_COMMERCIAL_IDS)
+                    + len(staging.KNOWN_TITLE_OPEN_IDS)
+                ),
+                "artifact_count": 100,
+                "artifact_index_sha256": digest,
+                "firmware_version": "2.6.0",
+            },
             "gates": {gate: True for gate in sorted(staging.RELEASE_GATE_NAMES)},
+        }
+        body["build_evidence"]["signed_build_origins"] = {
+            "magic": staging.SIGNED_BUILD_PAIR_V1,
+            "source_commit": commit,
+            "source_date_epoch": 1,
+            "rbf": body["raw_rbf"],
+            "build_id": body["build_evidence"]["build_id"],
+            "builds": [
+                {
+                    "label": "a",
+                    "repository": "RegionallyFamous/swan-song",
+                    "workflow_path": ".github/workflows/quartus-fit.yml",
+                    "source_ref": "refs/heads/main",
+                    "source_commit": commit,
+                    "run_id": 100,
+                    "run_attempt": 1,
+                    "job": "fit",
+                    "job_nonce": "0" * 32,
+                    "runner_environment": "self-hosted",
+                    "candidate_audit": {
+                        "filename": (
+                            "signed-builds/a/quartus-audit-candidate.json"
+                        ),
+                        "size": 1,
+                        "sha256": digest,
+                    },
+                    "attestation_bundle": {
+                        "filename": (
+                            "signed-builds/a/"
+                            "quartus-audit-candidate.attestation.json"
+                        ),
+                        "size": 1,
+                        "sha256": "c" * 64,
+                    },
+                    "recomputed_audit_sha256": "0" * 64,
+                    "submitted_audit_sha256": digest,
+                },
+                {
+                    "label": "b",
+                    "repository": "RegionallyFamous/swan-song",
+                    "workflow_path": ".github/workflows/quartus-fit.yml",
+                    "source_ref": "refs/heads/main",
+                    "source_commit": commit,
+                    "run_id": 200,
+                    "run_attempt": 1,
+                    "job": "fit",
+                    "job_nonce": "1" * 32,
+                    "runner_environment": "self-hosted",
+                    "candidate_audit": {
+                        "filename": (
+                            "signed-builds/b/quartus-audit-candidate.json"
+                        ),
+                        "size": 2,
+                        "sha256": "e" * 64,
+                    },
+                    "attestation_bundle": {
+                        "filename": (
+                            "signed-builds/b/"
+                            "quartus-audit-candidate.attestation.json"
+                        ),
+                        "size": 2,
+                        "sha256": "f" * 64,
+                    },
+                    "recomputed_audit_sha256": "1" * 64,
+                    "submitted_audit_sha256": "e" * 64,
+                },
+            ],
+        }
+        hardware_core = body["build_evidence"]["hardware_qa"]["core"]
+        hardware_core["installed_payloads"] = {
+            name: body["entries"][name]
+            for name in staging.hardware_qa_installed_payload_names(
+                body["packaged_bitstream"]["filename"],
+                body["chip32"]["filename"],
+            )
         }
         tracked: dict[str, dict[str, object]] = {}
         directories: list[str] = []
@@ -1011,6 +1167,128 @@ class StagePocketSDTest(unittest.TestCase):
             (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "color.rom").exists()
         )
 
+    def test_release_verification_rejects_untrusted_signed_build_pairs(self) -> None:
+        (
+            package,
+            provenance,
+            policy,
+            version,
+            commit,
+            digest,
+            _provenance_digest,
+        ) = self.release_fixture()
+        arguments = {
+            "staging_dir": self.stage,
+            "package": package,
+            "bw_bios": None,
+            "color_bios": None,
+            "verify_release": True,
+            "expected_package_sha256": digest,
+            "expected_version": version,
+            "expected_source_commit": commit,
+        }
+
+        def reject(name: str, message: str, mutation) -> None:
+            document = json.loads(provenance.read_text(encoding="utf-8"))
+            mutation(document["package_provenance"]["build_evidence"])
+            changed = self.root / f"signed-pair-{name}.json"
+            changed.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(StagingError, message):
+                plan_staging(
+                    **{
+                        **arguments,
+                        "provenance": changed,
+                        "expected_provenance_sha256": hashlib.sha256(
+                            changed.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+
+        cases = (
+            (
+                "missing",
+                "wrong schema",
+                lambda evidence: evidence.pop("signed_build_origins"),
+            ),
+            (
+                "self-asserted-verified",
+                "wrong schema",
+                lambda evidence: evidence["signed_build_origins"].__setitem__(
+                    "verified", True
+                ),
+            ),
+            (
+                "same-run",
+                "distinct workflow run IDs",
+                lambda evidence: evidence["signed_build_origins"]["builds"][1].__setitem__(
+                    "run_id", 100
+                ),
+            ),
+            (
+                "same-nonce",
+                "distinct workflow job nonces",
+                lambda evidence: evidence["signed_build_origins"]["builds"][1].__setitem__(
+                    "job_nonce", "0" * 32
+                ),
+            ),
+            (
+                "rbf-drift",
+                "signed build RBF identity",
+                lambda evidence: evidence["signed_build_origins"]["rbf"].__setitem__(
+                    "sha256", "7" * 64
+                ),
+            ),
+            (
+                "build-id-drift",
+                "build ID does not match evidence",
+                lambda evidence: evidence["signed_build_origins"]["build_id"].__setitem__(
+                    "sha256", "8" * 64
+                ),
+            ),
+            (
+                "root-audit-drift",
+                "not the root recomputed Quartus audit",
+                lambda evidence: (
+                    evidence["signed_build_origins"]["builds"][0][
+                        "candidate_audit"
+                    ].__setitem__("sha256", "9" * 64),
+                    evidence["signed_build_origins"]["builds"][0].__setitem__(
+                        "submitted_audit_sha256", "9" * 64
+                    ),
+                ),
+            ),
+            (
+                "submitted-drift",
+                "submitted audit identity mismatch",
+                lambda evidence: evidence["signed_build_origins"]["builds"][1].__setitem__(
+                    "submitted_audit_sha256", "a" * 64
+                ),
+            ),
+            (
+                "same-candidate",
+                "distinct candidate audits",
+                lambda evidence: (
+                    evidence["signed_build_origins"]["builds"][1][
+                        "candidate_audit"
+                    ].update({"size": 1, "sha256": "b" * 64}),
+                    evidence["signed_build_origins"]["builds"][1].__setitem__(
+                        "submitted_audit_sha256", "b" * 64
+                    ),
+                ),
+            ),
+            (
+                "same-bundle",
+                "distinct attestation bundles",
+                lambda evidence: evidence["signed_build_origins"]["builds"][1][
+                    "attestation_bundle"
+                ].update({"size": 1, "sha256": "c" * 64}),
+            ),
+        )
+        with mock.patch.object(staging, "RELEASE_POLICY", policy):
+            for name, message, mutation in cases:
+                with self.subTest(case=name):
+                    reject(name, message, mutation)
+
     def test_release_verification_rejects_checksum_commit_and_schema_drift(self) -> None:
         (
             package,
@@ -1172,6 +1450,94 @@ class StagePocketSDTest(unittest.TestCase):
                         ).hexdigest(),
                     }
                 )
+
+            hardware_mutations = (
+                (
+                    "core-json",
+                    lambda core: core["core_json"].__setitem__("sha256", "0" * 64),
+                    "hardware QA core.json identity",
+                ),
+                (
+                    "interact-json",
+                    lambda core: core["interact_json"].__setitem__("sha256", "0" * 64),
+                    "hardware QA interact.json identity",
+                ),
+                (
+                    "version",
+                    lambda core: core.__setitem__("version", "99.0.0"),
+                    "hardware QA core version",
+                ),
+                (
+                    "date",
+                    lambda core: core.__setitem__("date_release", "2099-01-01"),
+                    "hardware QA core date",
+                ),
+                (
+                    "installed-bitstream",
+                    lambda core: core["installed_bitstream"].__setitem__(
+                        "sha256", "0" * 64
+                    ),
+                    "hardware QA installed bitstream",
+                ),
+            )
+            for name, mutation, message in hardware_mutations:
+                with self.subTest(hardware_binding=name):
+                    hardware_document = json.loads(
+                        provenance.read_text(encoding="utf-8")
+                    )
+                    hardware_core = hardware_document["package_provenance"][
+                        "build_evidence"
+                    ]["hardware_qa"]["core"]
+                    mutation(hardware_core)
+                    hardware_mismatch = self.root / f"hardware-{name}-mismatch.json"
+                    hardware_mismatch.write_text(
+                        json.dumps(hardware_document), encoding="utf-8"
+                    )
+                    with self.assertRaisesRegex(StagingError, message):
+                        plan_staging(
+                            **{
+                                **arguments,
+                                "provenance": hardware_mismatch,
+                                "expected_provenance_sha256": hashlib.sha256(
+                                    hardware_mismatch.read_bytes()
+                                ).hexdigest(),
+                            }
+                        )
+            installed_payload_mutations = (
+                "Cores/RegionallyFamous.SwanSong/data.json",
+                "Cores/RegionallyFamous.SwanSong/input.json",
+                "Cores/RegionallyFamous.SwanSong/video.json",
+                "Cores/RegionallyFamous.SwanSong/audio.json",
+                "Cores/RegionallyFamous.SwanSong/variants.json",
+                "Platforms/wonderswan.json",
+                "Platforms/_images/wonderswan.bin",
+            )
+            for index, relative_name in enumerate(installed_payload_mutations):
+                with self.subTest(hardware_payload_binding=relative_name):
+                    hardware_document = json.loads(
+                        provenance.read_text(encoding="utf-8")
+                    )
+                    hardware_document["package_provenance"]["build_evidence"][
+                        "hardware_qa"
+                    ]["core"]["installed_payloads"][relative_name]["sha256"] = "0" * 64
+                    hardware_mismatch = (
+                        self.root / f"hardware-payload-{index}-mismatch.json"
+                    )
+                    hardware_mismatch.write_text(
+                        json.dumps(hardware_document), encoding="utf-8"
+                    )
+                    with self.assertRaisesRegex(
+                        StagingError, "installed payload inventory"
+                    ):
+                        plan_staging(
+                            **{
+                                **arguments,
+                                "provenance": hardware_mismatch,
+                                "expected_provenance_sha256": hashlib.sha256(
+                                    hardware_mismatch.read_bytes()
+                                ).hexdigest(),
+                            }
+                        )
         self.assertEqual(list(self.stage.iterdir()), [])
 
     def test_checked_in_policy_blocks_unauthorized_release_even_with_apply(self) -> None:

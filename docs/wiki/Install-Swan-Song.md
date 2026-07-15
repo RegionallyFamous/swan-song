@@ -5,6 +5,14 @@
 > for an explicitly verified package on the official [Swan Song Releases
 > page](https://github.com/RegionallyFamous/swan-song/releases).
 
+Historical protected-main Quartus candidate `f0345ee4` exists for controlled
+Pocket/Dock hardware QA, but it remains a tester-only development package.
+Newer source changes require a fresh regression and two distinct signed Quartus
+workflow executions with byte-identical RBF and build-ID outputs. That proves
+two signed workflow runs, not two different physical build hosts. The earlier
+successful build does not authorize public distribution or replace the hardware
+acceptance run.
+
 This page describes the intended installation flow once the first verified
 release is published.
 
@@ -13,7 +21,10 @@ release is published.
 - an Analogue Pocket with the official firmware required by that Swan Song
   release (the current development acceptance target is firmware 2.6.0);
 - a backed-up Pocket SD card;
-- the verified Swan Song APF ZIP from the official Releases page;
+- the verified Swan Song APF ZIP and `SHA256SUMS` from the official Releases
+  page;
+- `signed-quartus-provenance.tar` and `release-manifest.json` when independently
+  checking the two signed build origins;
 - your own legally obtained original WonderSwan and WonderSwan Color BIOS
   dumps; and
 - your own legally obtained `.ws` and `.wsc` game images.
@@ -24,10 +35,18 @@ a cloud server. Those are developer tools.
 Pocket firmware must come from the official [Analogue Pocket support
 page](https://www.analogue.co/support/pocket), not from a core ZIP or a mirror.
 
+The `framework.version_required` value in Swan Song's `core.json` makes
+Analogue OS 2.3 the minimum firmware that may load the core. That loader
+minimum is not yet a promise that every 2.3-era host behavior is supported.
+The first release's evidence-backed support floor remains an owner decision;
+development hardware acceptance targets and recommends Analogue OS 2.6.0.
+The verified release notes will state the final supported version.
+
 ## Install the core
 
 1. Power off the Pocket and make a complete backup of the SD card.
-2. Download the verified Swan Song ZIP from the official Releases page.
+2. Download the verified Swan Song ZIP and verify it against the release's
+   `SHA256SUMS`.
 3. Extract the ZIP. Merge its `Assets`, `Cores`, and `Platforms` folders into
    the matching folders at the root of the SD card.
 4. Eject the SD card cleanly, return it to the Pocket, and start Swan Song from
@@ -77,6 +96,84 @@ Cartridge saves use Swan Song's core-specific namespace. Older shared saves do
 not appear automatically; back up the card and use the ROM-aware migration
 helper rather than copying them by hand. See [Saves and
 Migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration).
+
+## Update Swan Song
+
+Do not update while a game is running, and do not use a development ZIP as an
+update for a verified release.
+
+1. Power off the Pocket and back up the complete SD card. At minimum, preserve
+   `/Saves/wonderswan/RegionallyFamous.SwanSong/`,
+   `/Settings/RegionallyFamous.SwanSong/`, and
+   `/Presets/RegionallyFamous.SwanSong/`.
+2. Read the new release notes for save, settings, firmware, or migration
+   changes.
+3. Download the new verified ZIP from the official Releases page and verify it
+   against the published `SHA256SUMS` file. For an independent build-origin
+   check, also download `signed-quartus-provenance.tar` and
+   `release-manifest.json`, extract the former, and verify both candidate audits
+   with GitHub CLI using the full source commit from the manifest:
+
+   ```sh
+   mkdir -p /tmp/swan-song-signed
+   tar -xf signed-quartus-provenance.tar -C /tmp/swan-song-signed
+   FINAL_COMMIT="FULL_40_HEX_COMMIT_FROM_RELEASE_MANIFEST"
+
+   gh attestation verify \
+     /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.json \
+     --repo RegionallyFamous/swan-song \
+     --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+     --source-digest "$FINAL_COMMIT" \
+     --source-ref refs/heads/main \
+     --bundle /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.attestation.json
+
+   gh attestation verify \
+     /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.json \
+     --repo RegionallyFamous/swan-song \
+     --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+     --source-digest "$FINAL_COMMIT" \
+     --source-ref refs/heads/main \
+     --bundle /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.attestation.json
+   ```
+
+   These commands use GitHub's current online Sigstore trust material. They
+   prove two distinct signed workflow executions, not two physical hosts, and
+   do not replace the package checksum or Pocket/Dock hardware evidence.
+4. Merge the ZIP's `Assets`, `Cores`, and `Platforms` folders into the matching
+   folders on the SD card. Keep unrelated cores and personal files.
+5. Start one familiar game and confirm that its save and controls behave as
+   expected before continuing normal play.
+
+Swan Song updates must not delete games, BIOS files, or the core-specific
+`Saves`, `Settings`, and `Presets` folders. If a release note calls for a data
+migration, use only the documented preview-first helper for that release.
+
+## Roll back to an earlier release
+
+The safest rollback is to restore the complete SD-card backup made immediately
+before the update. That restores the core and its data as one known set.
+
+Replacing only `/Cores/RegionallyFamous.SwanSong` with an older verified core
+may be useful for diagnosis, but it is not a data rollback: a newer release may
+have already changed saves or settings. Never copy a Pocket Memories blob
+between releases or between Swan Song and `agg23.WonderSwan`. If the release
+notes do not explicitly authorize an in-place downgrade, restore the full
+backup instead.
+
+## Uninstall Swan Song
+
+1. Power off the Pocket and back up the SD card.
+2. Remove only `/Cores/RegionallyFamous.SwanSong`.
+3. Keep `/Assets/wonderswan/common/` if another WonderSwan core uses your games
+   or BIOS files.
+4. Keep `/Platforms/wonderswan.json` and `/Platforms/_images/wonderswan.bin` if
+   another installed core uses the WonderSwan platform.
+5. Keep the Swan Song folders below `/Saves`, `/Settings`, and `/Presets` if
+   you may reinstall. Delete those core-specific folders only when you are
+   certain their saves and configuration are no longer wanted.
+
+Uninstalling Swan Song does not require removing `agg23.WonderSwan`, and
+removing that older core does not require removing Swan Song.
 
 ## Mac staging and development packages
 

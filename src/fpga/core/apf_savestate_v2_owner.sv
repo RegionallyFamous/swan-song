@@ -60,9 +60,15 @@ module apf_savestate_v2_owner #(
     // continuous invariant once the staging client starts issuing requests.
     input  wire                    sdram_quiescent,
 
-    // RTC plus internal/cartridge EEPROM controller boundaries.
+    // RTC plus internal/cartridge EEPROM controller boundaries.  Raw frozen
+    // acknowledgements are never forged.  device_settling may retain an
+    // already-acquired device only while a proved load-settle guard covers an
+    // intentional raw-ack gap; release still requires every raw ack high and
+    // every settling bit low.  device_protocol_fault is sticky at its source.
     output wire                    device_freeze,
     input  wire [DEVICE_COUNT-1:0] device_frozen,
+    input  wire [DEVICE_COUNT-1:0] device_settling,
+    input  wire                    device_protocol_fault,
 
     // Exclusive ownership of the payload staging SDRAM range.
     output wire                    stage_acquire,
@@ -95,12 +101,16 @@ module apf_savestate_v2_owner #(
 
   reg [3:0] state;
   reg restore_operation;
+  reg datapath_started;
   reg pending_failure;
   reg fatal_after_apply;
   reg [31:0] accepted_generation;
   integer wait_cycles;
 
   wire all_devices_frozen = &device_frozen;
+  wire any_device_settling = |device_settling;
+  wire all_devices_retained = &(device_frozen | device_settling);
+  wire all_devices_settled = all_devices_frozen && !any_device_settling;
   wire no_devices_frozen = ~|device_frozen;
   wire generation_current = staged_image_valid &&
                             staged_image_generation == accepted_generation;
@@ -139,6 +149,7 @@ module apf_savestate_v2_owner #(
     if (!lifecycle_reset_n) begin
       state <= STATE_IDLE;
       restore_operation <= 1'b0;
+      datapath_started <= 1'b0;
       pending_failure <= 1'b0;
       fatal_after_apply <= 1'b0;
       accepted_generation <= 32'd0;
@@ -162,6 +173,9 @@ module apf_savestate_v2_owner #(
       if (state != STATE_IDLE && (capture_request || restore_request))
         protocol_error <= 1'b1;
 
+      if (state != STATE_IDLE && device_protocol_fault)
+        protocol_error <= 1'b1;
+
       // A pulse from a prior transaction cannot be allowed to disappear while
       // the new transaction is still acquiring its atomic window. Likewise,
       // a terminal for the inactive operation is proof that the data-plane/CDC
@@ -178,6 +192,7 @@ module apf_savestate_v2_owner #(
           wait_cycles <= 0;
           capture_busy <= 1'b0;
           restore_busy <= 1'b0;
+          datapath_started <= 1'b0;
           pending_failure <= 1'b0;
           fatal_after_apply <= 1'b0;
 
@@ -193,7 +208,8 @@ module apf_savestate_v2_owner #(
             restore_done <= 1'b0;
             restore_failed <= 1'b0;
             restore_operation <= 1'b0;
-            if (any_terminal) begin
+            if (any_terminal || device_protocol_fault ||
+                any_device_settling) begin
               protocol_error <= 1'b1;
               capture_failed <= 1'b1;
             end else begin
@@ -207,7 +223,8 @@ module apf_savestate_v2_owner #(
             restore_failed <= 1'b0;
             restore_operation <= 1'b1;
             accepted_generation <= staged_image_generation;
-            if (any_terminal) begin
+            if (any_terminal || device_protocol_fault ||
+                any_device_settling) begin
               protocol_error <= 1'b1;
               restore_failed <= 1'b1;
             end else if (!staged_image_valid) begin
@@ -221,12 +238,28 @@ module apf_savestate_v2_owner #(
 
         STATE_WAIT_PAUSE: begin
           wait_cycles <= wait_cycles + 1;
-          if (prestart_terminal || cancel ||
+          if (prestart_terminal || device_protocol_fault ||
+              any_device_settling || cancel ||
               (restore_operation && !generation_current) ||
               wait_timeout) begin
             pending_failure <= 1'b1;
             fatal_after_apply <= 1'b0;
             wait_cycles <= 0;
+            // A device guard fault/settle indication is categorically
+            // different from a stale terminal, cancel, or staged-generation
+            // change: it means a live device may already have accepted a
+            // load/reset.  Never resume that machine, even though the normal
+            // data-plane start barrier has not yet been crossed.
+            if (device_protocol_fault || any_device_settling) begin
+              if (restore_operation) begin
+                restore_busy <= 1'b0;
+                restore_failed <= 1'b1;
+              end else begin
+                capture_busy <= 1'b0;
+                capture_failed <= 1'b1;
+              end
+              fatal_reset_hold <= 1'b1;
+            end
             state <= STATE_ABORT_DRAIN;
           end else if (runtime_pause_ack) begin
             wait_cycles <= 0;
@@ -236,12 +269,23 @@ module apf_savestate_v2_owner #(
 
         STATE_WAIT_QUIESCE: begin
           wait_cycles <= wait_cycles + 1;
-          if (prestart_terminal || cancel ||
+          if (prestart_terminal || device_protocol_fault ||
+              any_device_settling || cancel ||
               (restore_operation && !generation_current) ||
               !runtime_pause_ack || wait_timeout) begin
             pending_failure <= 1'b1;
             fatal_after_apply <= 1'b0;
             wait_cycles <= 0;
+            if (device_protocol_fault || any_device_settling) begin
+              if (restore_operation) begin
+                restore_busy <= 1'b0;
+                restore_failed <= 1'b1;
+              end else begin
+                capture_busy <= 1'b0;
+                capture_failed <= 1'b1;
+              end
+              fatal_reset_hold <= 1'b1;
+            end
             state <= STATE_ABORT_DRAIN;
           end else if (sdram_quiescent && all_devices_frozen) begin
             wait_cycles <= 0;
@@ -251,12 +295,23 @@ module apf_savestate_v2_owner #(
 
         STATE_WAIT_STAGE: begin
           wait_cycles <= wait_cycles + 1;
-          if (prestart_terminal || cancel ||
+          if (prestart_terminal || device_protocol_fault ||
+              any_device_settling || cancel ||
               (restore_operation && !generation_current) ||
               !runtime_pause_ack || !all_devices_frozen || wait_timeout) begin
             pending_failure <= 1'b1;
             fatal_after_apply <= 1'b0;
             wait_cycles <= 0;
+            if (device_protocol_fault || any_device_settling) begin
+              if (restore_operation) begin
+                restore_busy <= 1'b0;
+                restore_failed <= 1'b1;
+              end else begin
+                capture_busy <= 1'b0;
+                capture_failed <= 1'b1;
+              end
+              fatal_reset_hold <= 1'b1;
+            end
             state <= STATE_ABORT_DRAIN;
           end else if (stage_granted && datapath_quiescent) begin
             wait_cycles <= 0;
@@ -266,20 +321,30 @@ module apf_savestate_v2_owner #(
             end else begin
               capture_start <= 1'b1;
             end
+            datapath_started <= 1'b1;
             state <= STATE_ACTIVE;
           end
         end
 
         STATE_ACTIVE: begin
           wait_cycles <= wait_cycles + 1;
-          if (!runtime_pause_ack || !all_devices_frozen || !stage_granted ||
+          if (!runtime_pause_ack || !all_devices_retained || !stage_granted ||
+              device_protocol_fault ||
+              (!restore_operation && any_device_settling) ||
               (restore_operation && !generation_current) || cancel ||
               wrong_operation_terminal || wait_timeout) begin
             pending_failure <= 1'b1;
             wait_cycles <= 0;
-            if (restore_operation && fatal_after_apply) begin
-              restore_busy <= 1'b0;
-              restore_failed <= 1'b1;
+            if ((restore_operation && fatal_after_apply) ||
+                device_protocol_fault ||
+                (!restore_operation && any_device_settling)) begin
+              if (restore_operation) begin
+                restore_busy <= 1'b0;
+                restore_failed <= 1'b1;
+              end else begin
+                capture_busy <= 1'b0;
+                capture_failed <= 1'b1;
+              end
               fatal_reset_hold <= 1'b1;
             end
             state <= STATE_ABORT_DRAIN;
@@ -294,7 +359,7 @@ module apf_savestate_v2_owner #(
             state <= STATE_ABORT_DRAIN;
           end else if (current_complete) begin
             wait_cycles <= 0;
-            if (datapath_quiescent)
+            if (datapath_quiescent && all_devices_settled)
               state <= STATE_RELEASE_STAGE;
             else
               state <= STATE_FINISH_DRAIN;
@@ -303,14 +368,23 @@ module apf_savestate_v2_owner #(
 
         STATE_FINISH_DRAIN: begin
           wait_cycles <= wait_cycles + 1;
-          if (!runtime_pause_ack || !all_devices_frozen || !stage_granted ||
+          if (!runtime_pause_ack || !all_devices_retained || !stage_granted ||
+              device_protocol_fault ||
+              (!restore_operation && any_device_settling) ||
               (restore_operation && !generation_current) || cancel ||
               wrong_operation_terminal || wait_timeout) begin
             pending_failure <= 1'b1;
             wait_cycles <= 0;
-            if (restore_operation && fatal_after_apply) begin
-              restore_busy <= 1'b0;
-              restore_failed <= 1'b1;
+            if ((restore_operation && fatal_after_apply) ||
+                device_protocol_fault ||
+                (!restore_operation && any_device_settling)) begin
+              if (restore_operation) begin
+                restore_busy <= 1'b0;
+                restore_failed <= 1'b1;
+              end else begin
+                capture_busy <= 1'b0;
+                capture_failed <= 1'b1;
+              end
               fatal_reset_hold <= 1'b1;
             end
             state <= STATE_ABORT_DRAIN;
@@ -326,7 +400,7 @@ module apf_savestate_v2_owner #(
               fatal_reset_hold <= 1'b1;
             end
             state <= STATE_ABORT_DRAIN;
-          end else if (datapath_quiescent) begin
+          end else if (datapath_quiescent && all_devices_settled) begin
             wait_cycles <= 0;
             state <= STATE_RELEASE_STAGE;
           end
@@ -334,11 +408,28 @@ module apf_savestate_v2_owner #(
 
         STATE_ABORT_DRAIN: begin
           wait_cycles <= wait_cycles + 1;
+          // A pre-start raw-ack drop can move WAIT_STAGE into abort on the
+          // same edge that its guard registers the causal reset fault.  Catch
+          // that one-cycle-later proof here: once device ownership acquisition
+          // has begun, a guard fault/settle window can never be downgraded to a
+          // recoverable abort or followed by runtime release.
+          if (device_protocol_fault || any_device_settling) begin
+            protocol_error <= 1'b1;
+            pending_failure <= 1'b1;
+            capture_busy <= 1'b0;
+            restore_busy <= 1'b0;
+            if (restore_operation)
+              restore_failed <= 1'b1;
+            else
+              capture_failed <= 1'b1;
+            fatal_reset_hold <= 1'b1;
+          end
           // datapath_abort remains asserted by state decode until every
           // outstanding request and late completion has drained.
           if (datapath_quiescent) begin
             wait_cycles <= 0;
-            if (fatal_reset_hold)
+            if (fatal_reset_hold || device_protocol_fault ||
+                any_device_settling)
               state <= STATE_FATAL_RELEASE;
             else
               state <= STATE_RELEASE_STAGE;
@@ -359,7 +450,26 @@ module apf_savestate_v2_owner #(
 
         STATE_RELEASE_STAGE: begin
           wait_cycles <= wait_cycles + 1;
-          if (!stage_granted) begin
+          if (device_protocol_fault || any_device_settling ||
+              (datapath_started && !all_devices_settled)) begin
+            // stage_acquire is already low in this state. A completion racing
+            // EEPROM reset therefore must never jump back to ABORT_DRAIN and
+            // reassert acquisition after the mux has started releasing. The
+            // data plane was proven quiescent before entry: keep runtime and
+            // devices frozen, continue requesting stage release, and enter
+            // the fatal hold without a release/reacquire pulse.
+            protocol_error <= 1'b1;
+            pending_failure <= 1'b1;
+            capture_busy <= 1'b0;
+            restore_busy <= 1'b0;
+            if (restore_operation)
+              restore_failed <= 1'b1;
+            else
+              capture_failed <= 1'b1;
+            fatal_reset_hold <= 1'b1;
+            wait_cycles <= 0;
+            state <= STATE_FATAL_RELEASE;
+          end else if (!stage_granted) begin
             wait_cycles <= 0;
             state <= STATE_RELEASE_DEVICES;
           end else if (wait_timeout) begin

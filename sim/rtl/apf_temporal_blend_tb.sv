@@ -200,7 +200,7 @@ module apf_temporal_blend_tb;
                                 rgb_newest[7:4], rgb_newest[7:4],
                                 rgb_newest[3:0], rgb_newest[3:0]
                             }) begin
-                            $fatal(1, "reserved mode did not clamp to Off");
+                            $fatal(1, "60.9 Hz mode did not preserve newest sample");
                         end
                     end
                 end

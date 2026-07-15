@@ -24,7 +24,6 @@
         "type": "list",
         "enabled": true,
         "persist": true,
-        "writeonly": true,
         "address": "0x100",
         "defaultval": 0,
         "options": [
@@ -49,7 +48,6 @@
         "enabled": true,
         "address": "0x110",
         "persist": true,
-        "writeonly": true,
         "defaultval": 0,
         "value": 1
       },
@@ -68,17 +66,15 @@
         "enabled": true,
         "address": "0x200",
         "persist": true,
-        "writeonly": true,
         "defaultval": 1,
         "value": 1
       },
       {
-        "name": "LCD Response",
+        "name": "Motion / LCD Response",
         "id": 42,
         "type": "list",
         "enabled": true,
         "persist": true,
-        "writeonly": true,
         "address": "0x204",
         "defaultval": 0,
         "options": [
@@ -93,6 +89,10 @@
           {
             "value": 2,
             "name": "Persistence"
+          },
+          {
+            "value": 3,
+            "name": "Complete Frames 60.9Hz"
           }
         ]
       },
@@ -102,7 +102,6 @@
         "type": "list",
         "enabled": true,
         "persist": true,
-        "writeonly": true,
         "address": "0x208",
         "defaultval": 0,
         "options": [
@@ -127,7 +126,6 @@
         "enabled": true,
         "address": "0x20C",
         "persist": true,
-        "writeonly": true,
         "defaultval": 0,
         "value": 1
       },
@@ -137,7 +135,6 @@
         "type": "list",
         "enabled": true,
         "persist": true,
-        "writeonly": true,
         "address": "0x210",
         "defaultval": 0,
         "options": [
@@ -157,7 +154,6 @@
         "type": "list",
         "enabled": true,
         "persist": true,
-        "writeonly": true,
         "address": "0x214",
         "defaultval": 0,
         "options": [
@@ -190,7 +186,6 @@
         "enabled": true,
         "address": "0x300",
         "persist": true,
-        "writeonly": true,
         "defaultval": 1,
         "value": 1
       }

@@ -6,7 +6,7 @@
 // mode 0: newest sample only
 // mode 1: rounded average of newest and previous samples
 // mode 2: finite LCD response, 1/2 newest + 1/4 previous + 1/4 oldest
-// mode 3: reserved; fail safely to mode 0
+// mode 3: newest sample only; frame cadence is selected outside this module
 //
 // color_profile 0 is the exact RGB444 x17 expansion used by Mednafen 1.32.1.
 // color_profile 1 is the high eight bits of pinned ares' WonderSwan Color /
@@ -78,7 +78,7 @@ module apf_temporal_blend (
         end
 
         default: begin
-          // Both Off and the reserved encoding preserve the newest sample.
+          // Off and complete-frame 60.9 Hz preserve the newest sample.
           weighted_sum = 10'd0;
           blend_channel = newest;
         end

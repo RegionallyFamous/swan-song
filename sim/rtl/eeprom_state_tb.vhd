@@ -15,6 +15,10 @@ end entity;
 architecture test of eeprom_state_tb is
    constant CPU_PERIOD : time := 10 ns;
    constant RAM_PERIOD : time := 14 ns;
+   -- Must match apf_savestate_v2_load_settle_guard's default. The canonical
+   -- path consumes one raw-low sample; hidden legacy-state normalization below
+   -- proves the defensive two-sample maximum used at the native boundary.
+   constant MAX_V2_LOAD_ACK_LOW_CYCLES : natural := 2;
 
    constant REG_DATA_LO : regmap_type := (16#BA#, 7, 0, 1, 0, readwrite);
    constant REG_DATA_HI : regmap_type := (16#BB#, 7, 0, 1, 0, readwrite);
@@ -100,6 +104,7 @@ begin
 
    stimulus : process
       procedure load_frozen(constant image : std_logic_vector(127 downto 0)) is
+         variable ack_low_samples : natural := 0;
       begin
          freeze <= '1';
          -- Cooperative ordering: observe a prior-cycle frozen_ack before
@@ -119,12 +124,16 @@ begin
          wait for 1 ns;
          assert ack = '0'
             report "state load was acknowledged before RAM settle" severity failure;
+         ack_low_samples := ack_low_samples + 1;
          wait until falling_edge(clk);
          load <= '0';
          wait until rising_edge(clk);
          wait for 1 ns;
          assert ack = '1'
             report "state load did not acknowledge after RAM settle" severity failure;
+         assert ack_low_samples <= MAX_V2_LOAD_ACK_LOW_CYCLES
+            report "canonical EEPROM load exceeded settle-guard bound"
+            severity failure;
          assert state_out(115) = '0' and state_out(116) = '0'
             report "acknowledged state is not canonical" severity failure;
          assert state_out(127 downto 118) = (127 downto 118 => '0')
@@ -449,6 +458,9 @@ begin
              state_out(31 downto 16) = x"2468" and state_out(59) = '1'
          report "frozen SSBus_rst destroyed hidden legacy register"
          severity failure;
+      assert 2 <= MAX_V2_LOAD_ACK_LOW_CYCLES
+         report "legacy normalization exceeded settle-guard bound"
+         severity failure;
       wait until rising_edge(clk);
       wait for 1 ns;
       assert ack = '1'
@@ -541,7 +553,8 @@ begin
          report "device reset did not interrupt freeze deterministically"
          severity failure;
 
-      report "PASS EEPROM exact controller freeze/export/load state";
+      report "PASS EEPROM exact controller freeze/export/load state; max load ack-low samples=" &
+             integer'image(MAX_V2_LOAD_ACK_LOW_CYCLES);
       finish;
    end process;
 end architecture;

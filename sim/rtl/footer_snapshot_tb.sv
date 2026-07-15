@@ -61,6 +61,7 @@ module footer_snapshot_tb;
         .bios_dout(16'd0),
         .rtc_epoch_seconds(32'd0),
         .rtc_epoch_valid(1'b0),
+        .menu_focus_paused(1'b0),
         .configured_system(configured_system),
         .use_cpu_turbo(1'b0),
         .use_rewind_capture(1'b0),

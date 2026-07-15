@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """Focused tests for the fail-closed Swan Song license manifest."""
 
+import hashlib
 import json
 import pathlib
 import shutil
 import tempfile
 import unittest
 
-from license_manifest import CORE_RELATIVE, validate_license_manifest
+from license_manifest import (
+    CORE_RELATIVE,
+    MODIFIED_GPL_PATHS,
+    SV_MODIFICATION_NOTICE,
+    WONDERSWAN_NOTICE,
+    WONDERSWAN_WRAPPER,
+    validate_license_manifest,
+    validate_modified_file_notices,
+    validate_wonderswan_notice,
+)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -55,12 +65,22 @@ class LicenseManifestTest(unittest.TestCase):
 
         self.mutate(update)
 
+    def copy_modified_gpl_sources(self, destination: pathlib.Path) -> None:
+        for relative in MODIFIED_GPL_PATHS:
+            target = destination / pathlib.Path(*relative.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / pathlib.Path(*relative.parts), target)
+
     def test_checked_manifest_binds_notices_assets_and_open_blockers(self) -> None:
         summary = validate_license_manifest(self.dist, source_root=ROOT)
         self.assertEqual(summary["package_notice_count"], 7)
-        self.assertEqual(summary["component_count"], 11)
-        self.assertEqual(summary["legacy_test_asset_count"], 19)
+        self.assertEqual(summary["component_count"], 10)
+        self.assertEqual(summary["legacy_test_asset_count"], 0)
         self.assertFalse(summary["licensing_review_complete"])
+        self.assertEqual(
+            summary["wonderswan_notice_sha256"],
+            hashlib.sha256(WONDERSWAN_NOTICE.encode("utf-8")).hexdigest(),
+        )
         self.assertEqual(
             summary["unresolved_ids"],
             [
@@ -68,7 +88,6 @@ class LicenseManifestTest(unittest.TestCase):
                 "analogue-apf",
                 "corresponding-source-delivery",
                 "intel-altera-generated-material",
-                "legacy-mister-test-assets",
                 "regionally-famous-original-work",
                 "wonderswan-program",
             ],
@@ -130,34 +149,123 @@ class LicenseManifestTest(unittest.TestCase):
             component = next(
                 item
                 for item in manifest["components"]
-                if item["id"] == "legacy-mister-test-assets"
+                if item["id"] == "regionally-famous-original-work"
             )
             component["review_status"] = "documented"
             component["blocker"] = None
             manifest["release_gate"]["unresolved_ids"].remove(
-                "legacy-mister-test-assets"
+                "regionally-famous-original-work"
             )
 
         self.mutate(update)
         with self.assertRaisesRegex(ValueError, "cannot be documented.*NOASSERTION"):
             validate_license_manifest(self.dist)
 
-    def test_legacy_asset_bytes_are_source_bound(self) -> None:
+    def test_retired_legacy_asset_roots_must_stay_empty(self) -> None:
         source = self.root / "source"
-        for relative in (
-            "testroms/spritepriority",
-            "testroms/timingtest",
-            "testroms/windowtest",
-        ):
-            target = source / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(ROOT / relative, target)
+        self.copy_modified_gpl_sources(source)
         validate_license_manifest(self.dist, source_root=source)
 
-        changed = source / "testroms/spritepriority/spritepriority.asm"
-        changed.write_bytes(changed.read_bytes() + b"\n")
-        with self.assertRaisesRegex(ValueError, "identity is absent or changed"):
+        retired = source / "testroms/spritepriority/unknown.ws"
+        retired.parent.mkdir(parents=True)
+        retired.write_bytes(b"unreviewed inherited fixture")
+        with self.assertRaisesRegex(ValueError, "must remain empty"):
             validate_license_manifest(self.dist, source_root=source)
+
+    def test_exact_modified_gpl_sources_retain_dated_notices(self) -> None:
+        expected_paths = {
+            "src/fpga/core/wonderswan.sv",
+            "src/fpga/core/rtl/IRQ.vhd",
+            "src/fpga/core/rtl/cpu.vhd",
+            "src/fpga/core/rtl/dma.vhd",
+            "src/fpga/core/rtl/dummyregs.vhd",
+            "src/fpga/core/rtl/eeprom.vhd",
+            "src/fpga/core/rtl/gpu.vhd",
+            "src/fpga/core/rtl/gpu_bg.vhd",
+            "src/fpga/core/rtl/joypad.vhd",
+            "src/fpga/core/rtl/memorymux.vhd",
+            "src/fpga/core/rtl/reg_savestates.vhd",
+            "src/fpga/core/rtl/reg_swan.vhd",
+            "src/fpga/core/rtl/registerpackage.vhd",
+            "src/fpga/core/rtl/rtc.vhd",
+            "src/fpga/core/rtl/savestate_ui.sv",
+            "src/fpga/core/rtl/savestates.vhd",
+            "src/fpga/core/rtl/sprites.vhd",
+            "src/fpga/core/rtl/swanTop.vhd",
+            "src/fpga/core/rtl/sdram.sv",
+        }
+        self.assertEqual(
+            {path.as_posix() for path in MODIFIED_GPL_PATHS}, expected_paths
+        )
+
+        source = self.root / "modified-gpl-source"
+        self.copy_modified_gpl_sources(source)
+        notices = validate_modified_file_notices(source)
+        self.assertEqual(set(notices), expected_paths)
+
+        changed = source / "src/fpga/core/rtl/sdram.sv"
+        changed.write_text(
+            changed.read_text(encoding="utf-8").replace(
+                SV_MODIFICATION_NOTICE, "", 1
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "exact dated Swan Song notice"):
+            validate_modified_file_notices(source)
+
+        shutil.copy2(ROOT / "src/fpga/core/rtl/sdram.sv", changed)
+        vhdl = source / "src/fpga/core/rtl/IRQ.vhd"
+        vhdl.write_text(
+            vhdl.read_text(encoding="utf-8").replace(
+                "2026-07-14", "2026-07-15", 1
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "exact dated Swan Song notice"):
+            validate_modified_file_notices(source)
+
+        vhdl.unlink()
+        vhdl.symlink_to(ROOT / "src/fpga/core/rtl/IRQ.vhd")
+        with self.assertRaisesRegex(ValueError, "must be a regular file"):
+            validate_modified_file_notices(source)
+
+        vhdl.unlink()
+        vhdl.write_bytes(b"\xff\xfe")
+        with self.assertRaisesRegex(ValueError, "must be UTF-8"):
+            validate_modified_file_notices(source)
+
+    def test_modified_notice_paths_are_bound_to_manifest_scopes(self) -> None:
+        def update(manifest) -> None:
+            component = next(
+                item
+                for item in manifest["components"]
+                if item["id"] == "sorgelig-memory-controllers"
+            )
+            component["scope"].remove("src/fpga/core/rtl/sdram.sv")
+
+        self.mutate(update)
+        with self.assertRaisesRegex(ValueError, "scope omits audited modified files"):
+            validate_license_manifest(self.dist)
+
+    def test_wonderswan_program_notice_is_exact_and_source_bound(self) -> None:
+        source = self.root / "notice-source"
+        wrapper = source / pathlib.Path(*WONDERSWAN_WRAPPER.parts)
+        wrapper.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / pathlib.Path(*WONDERSWAN_WRAPPER.parts), wrapper)
+        validate_wonderswan_notice(source)
+
+        wrapper.write_text(
+            wrapper.read_text(encoding="utf-8").replace(
+                "Copyright (c) 2021 Robert Peip",
+                "Copyright (c) 2021 Someone Else",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            ValueError, "exact upstream GPL-2.0-or-later notice"
+        ):
+            validate_wonderswan_notice(source)
 
 
 if __name__ == "__main__":

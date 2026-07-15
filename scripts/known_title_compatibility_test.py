@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import re
 import struct
 import tempfile
 import unittest
@@ -146,6 +147,12 @@ class KnownTitleCompatibilityTest(unittest.TestCase):
             ["track-flicker", "final-lap-2000-england-start"],
         )
         by_id = {case["id"]: case for case in cases}
+        meta_communication = by_id["meta-communication-name-select"]
+        self.assertEqual(
+            meta_communication["title"],
+            "Metakomi Theraphy: Nee Kiite! (upstream shorthand: Meta comm)",
+        )
+        self.assertEqual(meta_communication["system"], "ws")
         required_issue_roots = {
             "cho-denki-crash": {"https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/3"},
             "meta-communication-name-select": {"https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4"},
@@ -171,6 +178,31 @@ class KnownTitleCompatibilityTest(unittest.TestCase):
         for case_id, sources in required_issue_roots.items():
             self.assertTrue(sources.issubset(set(by_id[case_id]["source_urls"])), case_id)
 
+    def test_catalogue_rejects_duplicate_members_and_nonstandard_numbers(self) -> None:
+        original = CATALOGUE.read_text(encoding="utf-8")
+        duplicate = original.replace(
+            '"catalogue_revision": 1,',
+            '"catalogue_revision": 1,\n    "catalogue_revision": 1,',
+            1,
+        )
+        self.manifest.write_text(duplicate, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicate object member 'catalogue_revision'"):
+            validate_catalogue(self.manifest)
+
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+                nonstandard = original.replace(
+                    '"catalogue_revision": 1,',
+                    f'"catalogue_revision": {constant},',
+                    1,
+                )
+                self.manifest.write_text(nonstandard, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"contains non-standard number {re.escape(constant)}",
+                ):
+                    validate_catalogue(self.manifest)
+
     def test_final_lap_2000_ws_identity_mutation_fails_closed(self) -> None:
         document = self.accepted_fixture()
         cases = document["known_title_compatibility"]["cases"]
@@ -190,9 +222,19 @@ class KnownTitleCompatibilityTest(unittest.TestCase):
     def test_complete_synthetic_contract_verifies(self) -> None:
         self.write(self.accepted_fixture())
         summary = verify_manifest(CATALOGUE, self.manifest, require_pass=True)
+        self.assertEqual(summary["magic"], "SWAN_SONG_KNOWN_TITLE_COMPATIBILITY_V1")
+        self.assertEqual(summary["catalogue_revision"], 1)
+        self.assertEqual(
+            summary["catalogue_sha256"],
+            hashlib.sha256(CATALOGUE.read_bytes()).hexdigest(),
+        )
         self.assertEqual(summary["cases"], 17)
+        self.assertEqual(summary["commercial_cases"], 12)
+        self.assertEqual(summary["open_sanity_cases"], 5)
         self.assertEqual(summary["status"], {"pass": 34, "fail": 0, "pending": 0})
         self.assertGreater(summary["artifacts"], 100)
+        self.assertEqual(summary["run"]["core_commit"], "1" * 40)
+        self.assertEqual(summary["run"]["raw_rbf_sha256"], "2" * 64)
 
     def test_case_deletion_and_procedure_mutation_fail_closed(self) -> None:
         document = self.accepted_fixture()

@@ -67,9 +67,10 @@ enable cadence rather than the FPGA clock.
 
 `gpu.vhd` produces linear 224×144 RGB444 pixels (`pixel_out_addr`,
 `pixel_out_data`, `pixel_out_we`). With buffering disabled,
-`wonderswan.sv` writes and reads one direct 32,256-pixel array. With buffering
-or flicker blending enabled, a five-bank arbiter owns one writer, at most one
-pending completed frame, and up to three immutable scanout/history frames. A
+`wonderswan.sv` writes and reads one direct 32,256-pixel array. With explicit
+buffering or any nonzero Motion / LCD Response mode enabled, a five-bank
+arbiter owns one writer, at most one pending completed frame, and up to three
+immutable scanout/history frames. A
 new producer frame may supersede only the pending frame; it can never acquire
 a bank visible to scanout. Reset/title changes invalidate history, and early
 two/three-frame samples duplicate the newest completed frame while re-priming.
@@ -80,16 +81,20 @@ so the split targets 40 blocks per bank (200 for five) instead of the naïve
 one-clock synchronous read latency. The Quartus fitter report remains the
 authority for the realized block count.
 
-The same wrapper generates the outgoing 60 Hz-compatible raster. Because its
-terminal-count comparisons are inclusive, the default path uses 401 horizontal
-pixel-enable periods at a `/6` divider (about 59.39 Hz over 258 lines); the
-dormant native-rate path uses 379 periods at `/5` (about 75.40 Hz). Frame-bank
-buffering is enabled by `use_triple_buffer` or either nonzero LCD-response
-mode. The default color path expands each native RGB444 channel exactly by
-`×17`, matching Mednafen 1.32.1. For color-system output, an optional
-pinned-ares profile applies its cross-channel Color/SwanCrystal matrix before
-temporal processing; mono WonderSwan grayscale remains neutral/full-range. The legacy
-two-frame mode retains rounded averaging; the persistence mode uses a
+The same wrapper generates the outgoing APF raster. Because its terminal-count
+comparisons are inclusive, the standard path uses exactly 397 horizontal
+pixel-enable periods at a `/6` divider (about 59.985 Hz over 258 lines). The
+optional **Complete Frames 60.9Hz** path uses 391 periods (about 60.905 Hz,
+inside APF's documented approximate 61 Hz ceiling); its selection is latched
+only at an output-frame boundary. The dormant native-rate path uses 379 periods
+at `/5` (about 75.40 Hz). Frame-bank buffering is enabled by
+`use_triple_buffer` or any nonzero Motion / LCD Response mode, including the
+complete-frame cadence. The default color path expands each native RGB444
+channel exactly by `×17`, matching Mednafen 1.32.1. For color-system output,
+an optional pinned-ares profile applies its cross-channel Color/SwanCrystal
+matrix before temporal processing; mono WonderSwan grayscale remains
+neutral/full-range. The legacy two-frame mode retains rounded averaging; the
+persistence mode uses a
 project-designed finite `1/2, 1/4, 1/4` approximation of ares' recursive
 interframe response. All transforms preserve constant inputs; only raw full
 white reaches 255 because the ares profile deliberately maps `0xFFF` to
@@ -106,6 +111,8 @@ boundary for landscape, portrait, or landscape 180 degrees from `video.json`.
 | B&W BIOS | 9 | `0x3.......` | 4 KiB inferred BIOS RAM in `memorymux` |
 | Color BIOS | 10 | `0x3.......` | 8 KiB inferred BIOS RAM in `memorymux` |
 | Save | 11 | `0x2.......` | external SRAM in SDRAM or EEPROM BRAM; RTC data follows save payload |
+| Mono EEPROM | 12 | `0x5.......` | fixed 128-byte core-specific console EEPROM image |
+| Color EEPROM | 13 | `0x6.......` | fixed 2,048-byte core-specific console EEPROM image |
 | APF Memory | command protocol | `0x4.......` | `save_state_controller` and MiSTer state bus |
 
 `src/support/chip32.asm` detects `.wsc`, sequences cartridge/BIOS/save loading,
@@ -120,7 +127,7 @@ metadata has crossed atomically into the APF clock domain.
 `core.json` names that Chip32 program as `chip32.bin`; it is a required package
 dependency even though the source repository carries only its assembly and a
 canonical encoded build image. `package_core.py` materializes the verified
-259-byte binary under that declared name. It does not fetch code during a build.
+411-byte binary under that declared name. It does not fetch code during a build.
 
 No BIOS or commercial cartridge image is part of this repository.
 
@@ -132,6 +139,24 @@ When the console's native `vertical` signal is active, the effective matrix
 maps the face buttons to X1–X4, the D-pad to the Y directions, and the triggers
 to A/B. APF scaler presentation is selected independently from that live
 console orientation; forced presentation intentionally never remaps gameplay.
+
+## Disabled Memories device boundary
+
+The RTC and both EEPROM controllers expose their exact native state protocols
+through the production hierarchy: RTC is a 256-bit image, while internal and
+cartridge EEPROM are independent 128-bit images. `memorymux` and `SwanTop`
+perform no byte swapping or format adaptation; `wonderswan` passes the buses to
+`core_top`, which is the sole production tie-off. There, freeze/load requests
+are fixed low and load images are fixed zero while `SAVESTATE_SUPPORTED=0` and
+`memories_pause_request=0`.
+
+This is plumbing, not enabled Memories or sleep/wake support. The fixed-v2
+owner, EEPROM backing walker, staging store, serializer, and validator remain
+outside the Quartus source list. In addition, the EEPROM device protocol drops
+its frozen acknowledgement while applying and settling a load, whereas the
+isolated owner currently treats an acknowledgement drop during ACTIVE as a
+fatal safety failure. That restore handshake must be reconciled and tested
+before the owner can drive these buses.
 
 ## Simulation boundary
 

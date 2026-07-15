@@ -1,7 +1,9 @@
 .PHONY: sim regression chip32 quartus package clean
 
 sim:
-	./sim/verilator/run.sh --rom testroms/spritepriority/spritepriority.ws --frames 6 --out build/sim/manual
+	python3 ./sim/verilator/generate_window_boundary_probe.py --output-dir build/sim/manual/roms
+	./sim/verilator/run.sh --rom build/sim/manual/roms/wsc_window_inside_probe.wsc --frames 2 --max-cycles 1500000 --out build/sim/manual/frames
+	python3 ./sim/verilator/verify_window_boundary_probe.py --variant inside --rom build/sim/manual/roms/wsc_window_inside_probe.wsc --frame build/sim/manual/frames/frame-1.rgb
 
 regression:
 	./scripts/regression.sh

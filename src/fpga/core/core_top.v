@@ -333,35 +333,40 @@ module core_top (
   // for bridge read data, we have to mux it
   // add your own devices here
   always @(*) begin
-    casex (bridge_addr)
-      default: begin
-        bridge_rd_data <= 0;
-      end
-      // Bridge
-      32'hF8xxxxxx: begin
-        bridge_rd_data <= cmd_bridge_rd_data;
-      end
-      32'h2xxxxxxx: begin
-        bridge_rd_data <= sd_read_data;
-      end
-      32'h5xxxxxxx: begin
-        bridge_rd_data <= mono_console_eeprom_read_data;
-      end
-      32'h6xxxxxxx: begin
-        bridge_rd_data <= color_console_eeprom_read_data;
-      end
-      // Chip32 post-LOADF compact-ROM validation: 0 pending, 1 ready, 2 fail.
-      32'h00000014: begin
-        bridge_rd_data <= rom_validation_status_74a;
-      end
-      32'h4xxxxxxx: begin
-        // Memories is not advertised yet, so its private payload window must
-        // also be inert.  This gate is part of the capability boundary: it
-        // lets Quartus remove the large legacy bridge FIFOs without changing
-        // any supported APF operation.
-        bridge_rd_data <= savestate_supported ? save_state_bridge_read_data : 32'd0;
-      end
-    endcase
+    if (interact_readback_hit) begin
+      // Exact interact addresses take priority over broad peripheral windows.
+      bridge_rd_data <= interact_readback_data;
+    end else begin
+      casex (bridge_addr)
+        default: begin
+          bridge_rd_data <= 0;
+        end
+        // Bridge
+        32'hF8xxxxxx: begin
+          bridge_rd_data <= cmd_bridge_rd_data;
+        end
+        32'h2xxxxxxx: begin
+          bridge_rd_data <= sd_read_data;
+        end
+        32'h5xxxxxxx: begin
+          bridge_rd_data <= mono_console_eeprom_read_data;
+        end
+        32'h6xxxxxxx: begin
+          bridge_rd_data <= color_console_eeprom_read_data;
+        end
+        // Chip32 post-LOADF compact-ROM validation: 0 pending, 1 ready, 2 fail.
+        32'h00000014: begin
+          bridge_rd_data <= rom_validation_status_74a;
+        end
+        32'h4xxxxxxx: begin
+          // Memories is not advertised yet, so its private payload window must
+          // also be inert.  This gate is part of the capability boundary: it
+          // lets Quartus remove the large legacy bridge FIFOs without changing
+          // any supported APF operation.
+          bridge_rd_data <= savestate_supported ? save_state_bridge_read_data : 32'd0;
+        end
+      endcase
+    end
   end
 
   always @(posedge clk_74a) begin
@@ -411,8 +416,9 @@ module core_top (
           use_triple_buffer <= bridge_wr_data[0];
         end
         32'h204: begin
-          configured_flickerblend <=
-              bridge_wr_data[1:0] > 2'd2 ? 2'd0 : bridge_wr_data[1:0];
+          // All four encodings are intentional. Values 0-2 select temporal
+          // response behavior; value 3 selects complete-frame 60.9 Hz output.
+          configured_flickerblend <= bridge_wr_data[1:0];
         end
         32'h208: begin
           configured_orientation <=
@@ -1071,6 +1077,29 @@ module core_top (
   wire memories_pause_request = 1'b0;
   wire memories_pause_ack;
 
+  // The exact RTC and EEPROM device images now reach this production
+  // boundary without lower-level tie-offs.  Keep every request and load image
+  // inert here until the atomic v2 owner, validator, serializer, and restore
+  // protocol are integrated.  Readback/ack wires are intentionally retained
+  // so that future ownership can be added at this one boundary.
+  wire rtc_state_freeze = 1'b0;
+  wire rtc_state_frozen;
+  wire rtc_state_load = 1'b0;
+  wire [255:0] rtc_state_data_in = 256'd0;
+  wire [255:0] rtc_state_data_out;
+
+  wire internal_eeprom_state_freeze = 1'b0;
+  wire internal_eeprom_state_frozen;
+  wire internal_eeprom_state_load = 1'b0;
+  wire [127:0] internal_eeprom_state_in = 128'd0;
+  wire [127:0] internal_eeprom_state_out;
+
+  wire cartridge_eeprom_state_freeze = 1'b0;
+  wire cartridge_eeprom_state_frozen;
+  wire cartridge_eeprom_state_load = 1'b0;
+  wire [127:0] cartridge_eeprom_state_in = 128'd0;
+  wire [127:0] cartridge_eeprom_state_out;
+
   wire [31:0] save_state_bridge_read_data;
 
   generate
@@ -1379,6 +1408,7 @@ module core_top (
       .clk_destination(clk_sys_36_864),
       .reset_n(reset_n),
       .trigger(console_setup_trigger_74a),
+      .menu_focus_source(osnotify_inmenu),
       .reset_active_destination(console_setup_reset_sys_s),
       .start_active_destination(console_setup_start_sys_s)
   );
@@ -1396,6 +1426,30 @@ module core_top (
   reg configured_color_profile = 1'b0;
 
   reg use_fastforward_sound = 1'b1;
+
+  // This is the authoritative requested-settings image in Pocket's bridge
+  // clock domain. It feeds both persistent Interact readback and the atomic
+  // transfer into the WonderSwan system clock domain.
+  wire [12:0] settings_source_74a = {
+    configured_system,
+    use_cpu_turbo,
+    use_triple_buffer,
+    configured_flickerblend,
+    configured_orientation,
+    configured_control_layout,
+    use_flip_horizontal,
+    configured_color_profile,
+    use_fastforward_sound
+  };
+  wire interact_readback_hit;
+  wire [31:0] interact_readback_data;
+
+  apf_interact_readback interact_settings_readback (
+      .bridge_addr(bridge_addr),
+      .settings_source(settings_source_74a),
+      .hit(interact_readback_hit),
+      .data(interact_readback_data)
+  );
 
   // Reset and download controls are consumed in two clock domains. Keep a
   // dedicated copy in each destination domain; a signal synchronized to the
@@ -1460,18 +1514,7 @@ module core_top (
   ) settings_command_cdc (
       .reset_n(pll_core_ready_74a),
       .clk_source(clk_74a),
-      .settings_source({
-        configured_system,
-        use_cpu_turbo,
-        // use_rewind_capture,
-        use_triple_buffer,
-        configured_flickerblend,
-        configured_orientation,
-        configured_control_layout,
-        use_flip_horizontal,
-        configured_color_profile,
-        use_fastforward_sound
-      }),
+      .settings_source(settings_source_74a),
       .update_pending_source(settings_update_pending_74a),
       .clk_destination(clk_sys_36_864),
       .settings_destination(settings_snapshot_s)
@@ -1510,6 +1553,7 @@ module core_top (
 
   wire [15:0] cont1_key_s;
   wire physical_input_blocked_sys_s;
+  wire menu_focus_sys_s;
 
   // Buttons and ownership are one atomic cross-domain payload.  Keeping them
   // in one acknowledged transfer prevents torn multi-button states and makes
@@ -1522,6 +1566,17 @@ module core_top (
       .input_blocked_source(physical_input_blocked_74a),
       .buttons_destination(cont1_key_s),
       .input_blocked_destination(physical_input_blocked_sys_s)
+  );
+
+  // Menu ownership and physical-input ownership intentionally cross through
+  // separate paths.  The held 00B0 level pauses the console, but menu exit can
+  // resume it immediately even while PAD input remains blocked until a fresh
+  // neutral gamepad sample arrives.
+  apf_menu_focus_cdc menu_focus_system_cdc (
+      .clk_destination(clk_sys_36_864),
+      .reset_n_async(reset_n),
+      .menu_focus_source(osnotify_inmenu),
+      .menu_focus_destination(menu_focus_sys_s)
   );
 
   wire [2:0] scaler_slot_command_sys;
@@ -1573,6 +1628,7 @@ module core_top (
       .dpad_left(cont1_key_s[2]),
       .dpad_right(cont1_key_s[3]),
       .physical_input_blocked(physical_input_blocked_sys_s),
+      .menu_focus_paused(menu_focus_sys_s),
 
       // Settings
       .configured_system(configured_system_s),
@@ -1627,6 +1683,24 @@ module core_top (
 
       .memories_pause_request(memories_pause_request),
       .memories_pause_ack(memories_pause_ack),
+
+      .rtc_state_freeze(rtc_state_freeze),
+      .rtc_state_frozen(rtc_state_frozen),
+      .rtc_state_load(rtc_state_load),
+      .rtc_state_data_in(rtc_state_data_in),
+      .rtc_state_data_out(rtc_state_data_out),
+
+      .internal_eeprom_state_freeze(internal_eeprom_state_freeze),
+      .internal_eeprom_state_frozen(internal_eeprom_state_frozen),
+      .internal_eeprom_state_load(internal_eeprom_state_load),
+      .internal_eeprom_state_in(internal_eeprom_state_in),
+      .internal_eeprom_state_out(internal_eeprom_state_out),
+
+      .cartridge_eeprom_state_freeze(cartridge_eeprom_state_freeze),
+      .cartridge_eeprom_state_frozen(cartridge_eeprom_state_frozen),
+      .cartridge_eeprom_state_load(cartridge_eeprom_state_load),
+      .cartridge_eeprom_state_in(cartridge_eeprom_state_in),
+      .cartridge_eeprom_state_out(cartridge_eeprom_state_out),
 
       // SDRAM
       .dram_a(dram_a),

@@ -18,7 +18,6 @@ EXPECTED_LAYOUT_VARIABLE = {
     "type": "list",
     "enabled": True,
     "persist": True,
-    "writeonly": True,
     "address": "0x214",
     "defaultval": 0,
     "options": [
@@ -111,14 +110,19 @@ def verify_contract(bundle: dict[str, object]) -> None:
         ("reg[1:0]configured_control_layout=2'd0;", "bridge layout reset is not Auto"),
         ("wire[1:0]configured_control_layout_s;", "console layout signal is not two bits"),
         ("wire[12:0]settings_snapshot_s;", "settings snapshot is not 13 bits"),
+        (
+            "wire[12:0]settings_source_74a={configured_system,use_cpu_turbo,"
+            "use_triple_buffer,configured_flickerblend,configured_orientation,"
+            "configured_control_layout,use_flip_horizontal,"
+            "configured_color_profile,use_fastforward_sound};",
+            "authoritative 13-bit settings source packing/order changed",
+        ),
         (".DEFAULT_SETTINGS(13'h0201)", "settings CDC instance default changed"),
         (".reset_n(pll_core_ready_74a)", "settings CDC reset boundary changed"),
         (".settings_destination(settings_snapshot_s)", "settings snapshot destination changed"),
         (
-            ".settings_source({configured_system,use_cpu_turbo,use_triple_buffer,"
-            "configured_flickerblend,configured_orientation,configured_control_layout,"
-            "use_flip_horizontal,configured_color_profile,use_fastforward_sound})",
-            "13-bit settings source packing/order changed",
+            ".settings_source(settings_source_74a)",
+            "settings CDC no longer consumes the authoritative source bundle",
         ),
         (
             "assign{configured_system_s,use_cpu_turbo_s,use_triple_buffer_s,"
@@ -276,7 +280,7 @@ def main() -> None:
         ("interact address", ("address",), "0x218"),
         ("interact default", ("defaultval",), 1),
         ("interact persistence", ("persist",), False),
-        ("interact write-only", ("writeonly",), False),
+        ("interact write-only", ("writeonly",), True),
         ("Auto option", ("options", 0, "name"), "Native"),
         ("Horizontal encoding", ("options", 1, "value"), 2),
         ("Vertical encoding", ("options", 2, "value"), 3),
@@ -326,8 +330,8 @@ def main() -> None:
         (
             "source packing",
             "core_top",
-            "configured_orientation,\n        configured_control_layout,",
-            "configured_control_layout,\n        configured_orientation,",
+            "configured_orientation,\n    configured_control_layout,",
+            "configured_control_layout,\n    configured_orientation,",
         ),
         (
             "destination unpacking",

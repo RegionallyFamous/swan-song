@@ -16,4 +16,4 @@ verilator \
 
 output="$("$BUILD/obj_dir/apf_scanout_cadence_tb" 2>&1)"
 printf '%s\n' "$output"
-grep -q '^PASS APF scanout cadence raster=397x258 system_cycles=614556 pixel_clock=6.144MHz refresh=59.984769Hz$' <<<"$output"
+grep -q '^PASS APF scanout cadence standard=397x258@59.984769Hz smooth=391x258@60.905252Hz mode-switch=frame-atomic$' <<<"$output"

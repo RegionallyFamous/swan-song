@@ -21,6 +21,7 @@ Usage:
 Environment:
   QUARTUS_IMAGE        Override the local image tag.
   QUARTUS_ACCEPT_EULA  Must be exactly 1 before the unattended installer runs.
+  SWANSONG_BUILD_CLASS `development` by default; CI sets `candidate`.
 
 The default archive is ~/Downloads/Quartus-lite-21.1.1.850-linux.tar.
 The default artifact directory is build/quartus-docker/<Git-short-commit>.
@@ -30,6 +31,37 @@ EOF
 fail() {
   echo "quartus_docker.sh: $*" >&2
   exit 1
+}
+
+require_build_identity() {
+  local build_class="$1" name
+  if [[ "$build_class" == development ]]; then
+    for name in \
+      SWANSONG_WORKFLOW_REPOSITORY SWANSONG_WORKFLOW_PATH \
+      SWANSONG_WORKFLOW_SHA SWANSONG_WORKFLOW_RUN_ID \
+      SWANSONG_WORKFLOW_RUN_ATTEMPT SWANSONG_WORKFLOW_JOB \
+      SWANSONG_BUILD_JOB_NONCE; do
+      [[ -z "${!name:-}" ]] \
+        || fail "development build refuses GitHub workflow identity: $name"
+    done
+    return 0
+  fi
+  [[ "$build_class" == candidate ]] \
+    || fail "SWANSONG_BUILD_CLASS must be development or candidate"
+  [[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] \
+    || fail "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swan-song"
+  [[ "${SWANSONG_WORKFLOW_PATH:-}" == .github/workflows/quartus-fit.yml ]] \
+    || fail "SWANSONG_WORKFLOW_PATH must be .github/workflows/quartus-fit.yml"
+  [[ "${SWANSONG_WORKFLOW_SHA:-}" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "SWANSONG_WORKFLOW_SHA must be the full lowercase source SHA"
+  [[ "${SWANSONG_WORKFLOW_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "SWANSONG_WORKFLOW_RUN_ID must be a positive decimal GitHub run ID"
+  [[ "${SWANSONG_WORKFLOW_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "SWANSONG_WORKFLOW_RUN_ATTEMPT must be a positive decimal attempt"
+  [[ "${SWANSONG_WORKFLOW_JOB:-}" == fit ]] \
+    || fail "SWANSONG_WORKFLOW_JOB must be fit"
+  [[ "${SWANSONG_BUILD_JOB_NONCE:-}" =~ ^[0-9a-f]{32}$ ]] \
+    || fail "SWANSONG_BUILD_JOB_NONCE must be a fresh 32-character lowercase-hex nonce"
 }
 
 require_docker() {
@@ -235,7 +267,10 @@ build_image() (
 
 build_core() (
   require_docker
-  local image_id provenance_root container_status
+  local build_class image_id provenance_root container_status
+  local -a docker_arguments
+  build_class="${SWANSONG_BUILD_CLASS:-development}"
+  require_build_identity "$build_class"
   provenance_root=""
   [[ -O "$ROOT" ]] || fail "source checkout must be owned by the current host user"
   # Invoked indirectly by the EXIT trap below.
@@ -277,13 +312,26 @@ build_core() (
   # Git's ownership hardening only accepts safe.directory from protected
   # configuration. A root process explicitly trusts the sudo caller's UID, so
   # pass the exact owner already validated above instead of trusting a wildcard.
-  docker run --rm \
+  docker_arguments=(run --rm \
     --platform linux/amd64 \
     --network none \
     --user 0:0 \
     --env "SUDO_UID=$(id -u)" \
     --env "ARTIFACT_UID=$(id -u)" \
     --env "ARTIFACT_GID=$(id -g)" \
+    --env "SWANSONG_BUILD_CLASS=$build_class")
+  if [[ "$build_class" == candidate ]]; then
+    docker_arguments+=(
+      --env "SWANSONG_WORKFLOW_REPOSITORY=$SWANSONG_WORKFLOW_REPOSITORY"
+      --env "SWANSONG_WORKFLOW_PATH=$SWANSONG_WORKFLOW_PATH"
+      --env "SWANSONG_WORKFLOW_SHA=$SWANSONG_WORKFLOW_SHA"
+      --env "SWANSONG_WORKFLOW_RUN_ID=$SWANSONG_WORKFLOW_RUN_ID"
+      --env "SWANSONG_WORKFLOW_RUN_ATTEMPT=$SWANSONG_WORKFLOW_RUN_ATTEMPT"
+      --env "SWANSONG_WORKFLOW_JOB=$SWANSONG_WORKFLOW_JOB"
+      --env "SWANSONG_BUILD_JOB_NONCE=$SWANSONG_BUILD_JOB_NONCE"
+    )
+  fi
+  docker "${docker_arguments[@]}" \
     --volume "$ROOT:/source:ro" \
     --volume "$output:/artifacts:rw" \
     --entrypoint /usr/local/bin/container-build-core \
@@ -296,11 +344,14 @@ build_core() (
     return "$container_status"
   fi
 
-  python3 "$ROOT/scripts/quartus_fit_audit.py" \
-    --artifacts "$output" \
-    --output "$output/quartus-audit-candidate.json"
-
-  echo "audited non-release fit/timing candidate: $output"
+  if [[ "$build_class" == candidate ]]; then
+    python3 "$ROOT/scripts/quartus_fit_audit.py" \
+      --artifacts "$output" \
+      --output "$output/quartus-audit-candidate.json"
+    echo "audited non-release fit/timing candidate: $output"
+  else
+    echo "development fit artifacts (not a signed candidate): $output"
+  fi
 )
 
 command="${1:-}"

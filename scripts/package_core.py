@@ -18,6 +18,19 @@ import quartus_fit_audit as fit_audit
 
 from build_chip32 import chip32_image, chip32_image_bytes
 from license_manifest import validate_license_manifest
+from known_title_compatibility import (
+    MAGIC as KNOWN_TITLE_COMPATIBILITY_MAGIC,
+    REQUIRED_COMMERCIAL_IDS as KNOWN_TITLE_COMMERCIAL_IDS,
+    REQUIRED_OPEN_IDS as KNOWN_TITLE_OPEN_IDS,
+    verify_manifest as verify_known_title_compatibility_manifest,
+)
+from pocket_hardware_qa import (
+    CASE_SPECS as HARDWARE_QA_CASE_SPECS,
+    MANIFEST_MAGIC as HARDWARE_QA_MANIFEST_MAGIC,
+    PERSISTENT_SETTING_NAMES as HARDWARE_QA_PERSISTENT_SETTING_NAMES,
+    installed_payload_names as hardware_qa_installed_payload_names,
+    verify_manifest as verify_hardware_qa_manifest,
+)
 from package_validator import (
     StrictJsonError,
     ValidatedDistribution,
@@ -44,10 +57,23 @@ MIF_ASSIGNMENT_PATTERN = re.compile(
 )
 RELEASE_EVIDENCE_V1 = "SWAN_SONG_RELEASE_EVIDENCE_V1"
 RELEASE_EVIDENCE_V2 = "SWAN_SONG_RELEASE_EVIDENCE_V2"
+SIGNED_BUILD_PAIR_V1 = "SWAN_SONG_SIGNED_BUILD_PAIR_V1"
 RELEASE_SOURCE_INPUTS_V1 = "SWAN_SONG_RELEASE_SOURCE_INPUTS_V1"
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
 QUARTUS_AUDIT_FILENAME = "quartus-audit-candidate.json"
+ATTESTATION_FILENAME = "quartus-audit-candidate.attestation.json"
+ATTESTATION_REPOSITORY = "RegionallyFamous/swan-song"
+ATTESTATION_WORKFLOW = (
+    "github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml"
+)
+ATTESTATION_WORKFLOW_PATH = ".github/workflows/quartus-fit.yml"
+ATTESTATION_SOURCE_REF = "refs/heads/main"
+ATTESTATION_RUN_INVOCATION_PATTERN = re.compile(
+    r"https://github[.]com/RegionallyFamous/swan-song/actions/runs/"
+    r"([1-9][0-9]*)/attempts/([1-9][0-9]*)"
+)
+JOB_NONCE_PATTERN = re.compile(r"[0-9a-f]{32}")
 AUDIT_REQUIRED_TRUE_GATES = {
     "assembly_success",
     "connectivity_warnings_reviewed",
@@ -55,6 +81,7 @@ AUDIT_REQUIRED_TRUE_GATES = {
     "flow_success",
     "hold_timing",
     "io_delay_constraints_preserved",
+    "no_evaluation_or_time_limited_ip",
     "no_critical_warnings",
     "no_unconstrained_paths",
     "pll_self_reset_configured",
@@ -82,6 +109,29 @@ def package_filename(value: object, description: str) -> str:
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def installed_payload_records(
+    *,
+    dist: pathlib.Path,
+    bitstream_name: str,
+    bitstream: bytes,
+    chip32_name: str,
+    chip32: bytes,
+) -> dict[str, dict[str, object]]:
+    """Identify the exact non-private Pocket-facing files in one package."""
+
+    generated = {
+        (pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong") / bitstream_name).as_posix(): bitstream,
+        (pathlib.PurePosixPath("Cores/RegionallyFamous.SwanSong") / chip32_name).as_posix(): chip32,
+    }
+    result: dict[str, dict[str, object]] = {}
+    for name in hardware_qa_installed_payload_names(bitstream_name, chip32_name):
+        payload = generated.get(name)
+        if payload is None:
+            payload = (dist / pathlib.Path(*pathlib.PurePosixPath(name).parts)).read_bytes()
+        result[name] = {"size": len(payload), "sha256": sha256_bytes(payload)}
+    return result
 
 
 def exact_members(
@@ -425,6 +475,419 @@ def parse_build_id_words(build_id_text: str) -> dict[str, str]:
     return parsed
 
 
+def _canonical_json_sha256(value: object) -> str:
+    return sha256_bytes(
+        json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+    )
+
+
+def _bound_signed_build_file(
+    *,
+    evidence_directory: pathlib.Path,
+    value: object,
+    expected_relative: str,
+    description: str,
+) -> tuple[pathlib.Path, bytes, dict[str, object]]:
+    record = exact_members(value, description, {"filename", "size", "sha256"})
+    if record["filename"] != expected_relative:
+        raise ValueError(f"{description} filename must be {expected_relative}")
+    relative = pathlib.PurePosixPath(expected_relative)
+    current = evidence_directory
+    for part in relative.parts[:-1]:
+        current = current / part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError as error:
+            raise ValueError(f"{description} parent directory is missing: {current}") from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError(f"{description} parent must be a real directory: {current}")
+    path = evidence_directory.joinpath(*relative.parts)
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as error:
+        raise ValueError(f"{description} is missing: {path}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"{description} must be a nonsymlink regular file: {path}")
+    if metadata.st_nlink != 1:
+        raise ValueError(f"{description} must not be a hard link: {path}")
+    expected_size = evidence_integer(record["size"], f"{description} size")
+    if expected_size <= 0 or expected_size > 8 * 1024 * 1024:
+        raise ValueError(f"{description} size is outside the accepted bound")
+    payload = path.read_bytes()
+    if len(payload) != expected_size:
+        raise ValueError(f"{description} size mismatch")
+    expected_sha256 = evidence_sha256(
+        record["sha256"], f"{description} SHA-256"
+    )
+    if sha256_bytes(payload) != expected_sha256:
+        raise ValueError(f"{description} SHA-256 mismatch")
+    return path, payload, {
+        "filename": expected_relative,
+        "size": expected_size,
+        "sha256": expected_sha256,
+    }
+
+
+def _verify_signed_origin_attestation(
+    *,
+    candidate: pathlib.Path,
+    bundle: pathlib.Path,
+    source_commit: str,
+) -> dict[str, object]:
+    """Verify one candidate audit against GitHub's official attestation roots."""
+
+    command = [
+        "gh",
+        "attestation",
+        "verify",
+        str(candidate),
+        "--repo",
+        ATTESTATION_REPOSITORY,
+        "--signer-workflow",
+        ATTESTATION_WORKFLOW,
+        "--source-digest",
+        source_commit,
+        "--source-ref",
+        ATTESTATION_SOURCE_REF,
+        "--bundle",
+        str(bundle),
+        "--format",
+        "json",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = (
+            error.stderr.strip()
+            if isinstance(error, subprocess.CalledProcessError) and error.stderr
+            else str(error)
+        )
+        raise ValueError(
+            "signed Quartus candidate provenance did not verify"
+            + (f": {detail}" if detail else "")
+        ) from error
+    try:
+        payload = strict_json_loads(completed.stdout)
+    except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
+        raise ValueError("gh returned malformed attestation verification JSON") from error
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise ValueError("expected exactly one verified candidate attestation")
+    envelope = payload[0]
+    result = (
+        envelope.get("verificationResult") if isinstance(envelope, dict) else None
+    )
+    signature = result.get("signature") if isinstance(result, dict) else None
+    certificate = signature.get("certificate") if isinstance(signature, dict) else None
+    timestamps = result.get("verifiedTimestamps") if isinstance(result, dict) else None
+    statement = result.get("statement") if isinstance(result, dict) else None
+    if not isinstance(certificate, dict) or not isinstance(timestamps, list) or not timestamps:
+        raise ValueError("verified attestation lacks certificate or timestamp evidence")
+    subjects = statement.get("subject") if isinstance(statement, dict) else None
+    if not isinstance(subjects, list) or len(subjects) != 1:
+        raise ValueError("verified attestation must bind exactly one subject")
+    subject = subjects[0] if isinstance(subjects[0], dict) else None
+    digest = subject.get("digest") if isinstance(subject, dict) else None
+    candidate_sha256 = sha256_bytes(candidate.read_bytes())
+    if (
+        not isinstance(subject, dict)
+        or subject.get("name") != QUARTUS_AUDIT_FILENAME
+        or digest != {"sha256": candidate_sha256}
+    ):
+        raise ValueError("verified attestation subject is not the candidate audit")
+
+    signer_uri = (
+        "https://github.com/RegionallyFamous/swan-song/"
+        ".github/workflows/quartus-fit.yml@refs/heads/main"
+    )
+    expected_certificate = {
+        "githubWorkflowTrigger": "workflow_dispatch",
+        "githubWorkflowSHA": source_commit,
+        "githubWorkflowRepository": ATTESTATION_REPOSITORY,
+        "githubWorkflowRef": ATTESTATION_SOURCE_REF,
+        "buildSignerURI": signer_uri,
+        "buildSignerDigest": source_commit,
+        "runnerEnvironment": "self-hosted",
+        "sourceRepositoryURI": "https://github.com/RegionallyFamous/swan-song",
+        "sourceRepositoryDigest": source_commit,
+        "sourceRepositoryRef": ATTESTATION_SOURCE_REF,
+        "buildConfigURI": signer_uri,
+        "buildConfigDigest": source_commit,
+        "buildTrigger": "workflow_dispatch",
+    }
+    if any(
+        certificate.get(name) != expected
+        for name, expected in expected_certificate.items()
+    ):
+        raise ValueError("verified candidate certificate origin does not match release")
+    invocation = certificate.get("runInvocationURI")
+    match = (
+        ATTESTATION_RUN_INVOCATION_PATTERN.fullmatch(invocation)
+        if isinstance(invocation, str)
+        else None
+    )
+    if match is None:
+        raise ValueError("verified candidate certificate has no exact run invocation")
+    return {
+        "run_id": int(match.group(1)),
+        "run_attempt": int(match.group(2)),
+        "runner_environment": certificate["runnerEnvironment"],
+    }
+
+
+def validate_signed_build_origins(
+    *,
+    value: object,
+    evidence_directory: pathlib.Path,
+    source_commit: str,
+    source_date_epoch: int,
+    rbf: dict[str, object],
+    build_id: dict[str, object],
+    root_audit: dict[str, object],
+) -> dict[str, object]:
+    """Reverify and bind two distinct signed GitHub Quartus build origins."""
+
+    pair = exact_members(
+        value,
+        "build evidence.signed_build_origins",
+        {"magic", "source_commit", "source_date_epoch", "rbf", "build_id", "builds"},
+    )
+    if pair["magic"] != SIGNED_BUILD_PAIR_V1:
+        raise ValueError(
+            f"build evidence signed origins require {SIGNED_BUILD_PAIR_V1}"
+        )
+    if pair["source_commit"] != source_commit:
+        raise ValueError("signed build origins source commit does not match evidence")
+    if evidence_integer(
+        pair["source_date_epoch"], "signed build origins source_date_epoch"
+    ) != source_date_epoch:
+        raise ValueError("signed build origins source epoch does not match evidence")
+    expected_rbf = {
+        "filename": "ap_core.rbf",
+        "size": rbf["size"],
+        "sha256": rbf["sha256"],
+    }
+    if exact_members(
+        pair["rbf"], "signed build origins RBF", {"filename", "size", "sha256"}
+    ) != expected_rbf:
+        raise ValueError("signed build origins RBF does not match release evidence")
+    expected_build_id = {
+        "filename": "build_id.mif",
+        "size": build_id["size"],
+        "sha256": build_id["sha256"],
+    }
+    if exact_members(
+        pair["build_id"],
+        "signed build origins build ID",
+        {"filename", "size", "sha256"},
+    ) != expected_build_id:
+        raise ValueError("signed build origins build ID does not match release evidence")
+
+    builds = pair["builds"]
+    if not isinstance(builds, list) or len(builds) != 2:
+        raise ValueError("signed build origins must contain exactly two builds")
+    expected_fields = {
+        "label",
+        "repository",
+        "workflow_path",
+        "source_ref",
+        "source_commit",
+        "run_id",
+        "run_attempt",
+        "job",
+        "job_nonce",
+        "runner_environment",
+        "candidate_audit",
+        "attestation_bundle",
+        "recomputed_audit_sha256",
+        "submitted_audit_sha256",
+    }
+    normalized: list[dict[str, object]] = []
+    for index, label in enumerate(("a", "b")):
+        build = exact_members(
+            builds[index], f"signed build origin {label}", expected_fields
+        )
+        expected_static = {
+            "label": label,
+            "repository": ATTESTATION_REPOSITORY,
+            "workflow_path": ATTESTATION_WORKFLOW_PATH,
+            "source_ref": ATTESTATION_SOURCE_REF,
+            "source_commit": source_commit,
+            "job": "fit",
+            "runner_environment": "self-hosted",
+        }
+        if any(build.get(name) != expected for name, expected in expected_static.items()):
+            raise ValueError(f"signed build origin {label} identity is invalid")
+        run_id = evidence_integer(build["run_id"], f"signed build origin {label} run_id")
+        run_attempt = evidence_integer(
+            build["run_attempt"], f"signed build origin {label} run_attempt"
+        )
+        if run_id == 0 or run_attempt == 0:
+            raise ValueError(f"signed build origin {label} run identity must be positive")
+        nonce = build["job_nonce"]
+        if not isinstance(nonce, str) or JOB_NONCE_PATTERN.fullmatch(nonce) is None:
+            raise ValueError(
+                f"signed build origin {label} job_nonce must be 32 lowercase hex"
+            )
+        candidate_relative = (
+            f"signed-builds/{label}/{QUARTUS_AUDIT_FILENAME}"
+        )
+        bundle_relative = f"signed-builds/{label}/{ATTESTATION_FILENAME}"
+        candidate_path, candidate_bytes, candidate_identity = _bound_signed_build_file(
+            evidence_directory=evidence_directory,
+            value=build["candidate_audit"],
+            expected_relative=candidate_relative,
+            description=f"signed build origin {label} candidate audit",
+        )
+        bundle_path, _bundle_bytes, bundle_identity = _bound_signed_build_file(
+            evidence_directory=evidence_directory,
+            value=build["attestation_bundle"],
+            expected_relative=bundle_relative,
+            description=f"signed build origin {label} attestation bundle",
+        )
+        submitted_sha256 = evidence_sha256(
+            build["submitted_audit_sha256"],
+            f"signed build origin {label} submitted audit SHA-256",
+        )
+        if submitted_sha256 != candidate_identity["sha256"]:
+            raise ValueError(
+                f"signed build origin {label} submitted audit identity mismatch"
+            )
+        try:
+            audit_document = strict_json_loads(candidate_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError, StrictJsonError) as error:
+            raise ValueError(
+                f"signed build origin {label} candidate audit is invalid JSON"
+            ) from error
+        recomputed_sha256 = evidence_sha256(
+            build["recomputed_audit_sha256"],
+            f"signed build origin {label} recomputed audit SHA-256",
+        )
+        if recomputed_sha256 != _canonical_json_sha256(audit_document):
+            raise ValueError(
+                f"signed build origin {label} recomputed audit identity mismatch"
+            )
+        audit_top = exact_members(
+            audit_document, f"signed build origin {label} audit", {"quartus_audit"}
+        )
+        audit = audit_top["quartus_audit"]
+        if not isinstance(audit, dict):
+            raise ValueError(f"signed build origin {label} audit body is invalid")
+        if (
+            audit.get("magic") != "SWAN_SONG_QUARTUS_AUDIT_V1"
+            or audit.get("audit_pass") is not True
+            or audit.get("release_eligible") is not False
+        ):
+            raise ValueError(f"signed build origin {label} audit is not a candidate pass")
+        provenance = audit.get("provenance")
+        expected_provenance = {
+            "source_commit": source_commit,
+            "source_date_epoch": str(source_date_epoch),
+            "workflow_repository": ATTESTATION_REPOSITORY,
+            "workflow_path": ATTESTATION_WORKFLOW_PATH,
+            "workflow_sha": source_commit,
+            "workflow_run_id": str(run_id),
+            "workflow_run_attempt": str(run_attempt),
+            "workflow_job": "fit",
+            "workflow_job_nonce": nonce,
+            "platform": "linux/amd64",
+            "quartus": "21.1.1.850 Lite",
+            "device": "5CEBA4F23C8",
+        }
+        if not isinstance(provenance, dict) or any(
+            provenance.get(name) != expected
+            for name, expected in expected_provenance.items()
+        ):
+            raise ValueError(
+                f"signed build origin {label} workflow metadata does not match"
+            )
+        artifacts = audit.get("artifacts")
+        if not isinstance(artifacts, dict):
+            raise ValueError(f"signed build origin {label} audit artifacts are missing")
+        if artifacts.get("output_files/ap_core.rbf") != {
+            "size": expected_rbf["size"],
+            "sha256": expected_rbf["sha256"],
+        }:
+            raise ValueError(f"signed build origin {label} RBF binding does not match")
+        if artifacts.get("build_id.mif") != {
+            "size": expected_build_id["size"],
+            "sha256": expected_build_id["sha256"],
+        }:
+            raise ValueError(
+                f"signed build origin {label} build ID binding does not match"
+            )
+        candidate_gates = audit.get("candidate_gates")
+        if not isinstance(candidate_gates, dict) or any(
+            candidate_gates.get(gate) is not True
+            for gate in AUDIT_REQUIRED_TRUE_GATES
+        ):
+            raise ValueError(
+                f"signed build origin {label} audit has unaccepted candidate gates"
+            )
+        if candidate_gates.get("compressed_bitstream") is not None or any(
+            candidate_gates.get(gate) is not False
+            for gate in ("pocket_hardware", "dock_hardware")
+        ):
+            raise ValueError(
+                f"signed build origin {label} audit makes invalid release claims"
+            )
+        verified_attestation = _verify_signed_origin_attestation(
+            candidate=candidate_path,
+            bundle=bundle_path,
+            source_commit=source_commit,
+        )
+        if verified_attestation != {
+            "run_id": run_id,
+            "run_attempt": run_attempt,
+            "runner_environment": "self-hosted",
+        }:
+            raise ValueError(
+                f"signed build origin {label} certificate run identity does not match"
+            )
+        if label == "a" and (
+            candidate_identity["size"] != root_audit["size"]
+            or candidate_identity["sha256"] != root_audit["sha256"]
+        ):
+            raise ValueError(
+                "signed build origin a is not the root recomputed Quartus audit"
+            )
+        normalized.append(
+            {
+                **expected_static,
+                "run_id": run_id,
+                "run_attempt": run_attempt,
+                "job_nonce": nonce,
+                "candidate_audit": candidate_identity,
+                "attestation_bundle": bundle_identity,
+                "recomputed_audit_sha256": recomputed_sha256,
+                "submitted_audit_sha256": submitted_sha256,
+            }
+        )
+    if normalized[0]["run_id"] == normalized[1]["run_id"]:
+        raise ValueError("signed build origins must have distinct workflow run IDs")
+    if normalized[0]["job_nonce"] == normalized[1]["job_nonce"]:
+        raise ValueError("signed build origins must have distinct workflow job nonces")
+    if normalized[0]["candidate_audit"]["sha256"] == normalized[1]["candidate_audit"]["sha256"]:
+        raise ValueError("signed build origins must have distinct candidate audits")
+    if normalized[0]["attestation_bundle"]["sha256"] == normalized[1]["attestation_bundle"]["sha256"]:
+        raise ValueError("signed build origins must have distinct attestation bundles")
+    return {
+        "magic": SIGNED_BUILD_PAIR_V1,
+        "source_commit": source_commit,
+        "source_date_epoch": source_date_epoch,
+        "rbf": expected_rbf,
+        "build_id": expected_build_id,
+        "builds": normalized,
+    }
+
+
 def validate_quartus_audit_binding(
     *,
     entry_value: object,
@@ -500,7 +963,10 @@ def validate_quartus_audit_binding(
         "quartus": "21.1.1.850 Lite",
         "device": "5CEBA4F23C8",
     }
-    if provenance != expected_provenance:
+    if any(
+        provenance.get(key) != value
+        for key, value in expected_provenance.items()
+    ):
         raise ValueError("Quartus audit source identity does not match release evidence")
     if audit.get("identity") != {
         "revision": "ap_core",
@@ -565,6 +1031,187 @@ def validate_quartus_audit_binding(
     }
 
 
+def validate_hardware_qa_binding(
+    *,
+    entry_value: object,
+    evidence_directory: pathlib.Path,
+    rbf_filename: str,
+    rbf_size: int,
+    rbf_sha256: str,
+) -> dict[str, object]:
+    """Re-verify and bind the exact physical Pocket/Dock QA record.
+
+    The private inventory is used during verification but is never copied into
+    the release package. Its identity is retained in provenance so the review
+    inputs cannot be silently swapped after the package is made.
+    """
+
+    entry = exact_members(
+        entry_value,
+        "build evidence.hardware_qa",
+        {"manifest", "inventory"},
+    )
+
+    def bound_file(value: object, description: str) -> tuple[pathlib.Path, dict[str, object]]:
+        record = exact_members(value, description, {"filename", "size", "sha256"})
+        filename = package_filename(record["filename"], f"{description} filename")
+        path = evidence_directory / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"{description} is missing or not a regular file: {path}")
+        if path.stat().st_nlink != 1:
+            raise ValueError(f"{description} must not be a hard link: {path}")
+        payload = path.read_bytes()
+        size = evidence_integer(record["size"], f"{description} size")
+        if not payload or size != len(payload):
+            raise ValueError(f"{description} size mismatch")
+        digest = evidence_sha256(record["sha256"], f"{description} SHA-256")
+        if digest != sha256_bytes(payload):
+            raise ValueError(f"{description} SHA-256 mismatch")
+        return path, {"filename": filename, "size": size, "sha256": digest}
+
+    manifest_path, manifest = bound_file(
+        entry["manifest"], "build evidence hardware QA manifest"
+    )
+    inventory_path, inventory = bound_file(
+        entry["inventory"], "build evidence hardware QA inventory"
+    )
+    if manifest["filename"].casefold() == inventory["filename"].casefold():
+        raise ValueError("hardware QA manifest and inventory filenames must be distinct")
+
+    try:
+        summary = verify_hardware_qa_manifest(
+            manifest_path, inventory_path, require_pass=True
+        )
+    except ValueError as error:
+        raise ValueError(f"hardware QA verification failed: {error}") from error
+    if summary.get("magic") != HARDWARE_QA_MANIFEST_MAGIC:
+        raise ValueError("hardware QA verifier returned an unexpected manifest magic")
+    if summary.get("manifest_sha256") != manifest["sha256"]:
+        raise ValueError("hardware QA verifier manifest identity does not match evidence")
+    if summary.get("inventory_sha256") != inventory["sha256"]:
+        raise ValueError("hardware QA verifier inventory identity does not match evidence")
+    if summary.get("cases") != len(HARDWARE_QA_CASE_SPECS):
+        raise ValueError("hardware QA verifier returned an incomplete case catalogue")
+
+    core = summary.get("core")
+    if not isinstance(core, dict):
+        raise ValueError("hardware QA verifier did not return a core identity")
+    raw_rbf = core.get("raw_rbf")
+    expected_raw_rbf = {
+        "filename": rbf_filename,
+        "size": rbf_size,
+        "sha256": rbf_sha256,
+    }
+    if raw_rbf != expected_raw_rbf:
+        raise ValueError("hardware QA raw RBF identity does not match release evidence")
+    if core.get("core_id") != "RegionallyFamous.SwanSong":
+        raise ValueError("hardware QA core identity is not RegionallyFamous.SwanSong")
+
+    return {
+        "manifest": manifest,
+        "inventory": inventory,
+        "magic": summary["magic"],
+        "run_id": summary["run_id"],
+        "case_count": len(HARDWARE_QA_CASE_SPECS),
+        "artifact_count": summary["artifacts"],
+        "firmware_version": summary["firmware_version"],
+        "core": core,
+        "pocket": summary["pocket"],
+        "dock": summary["dock"],
+    }
+
+
+def validate_known_title_compatibility_binding(
+    *,
+    entry_value: object,
+    evidence_directory: pathlib.Path,
+    source_commit: str,
+    rbf_sha256: str,
+) -> dict[str, object]:
+    """Re-verify the exact private known-title Pocket/Dock campaign."""
+
+    entry = exact_members(
+        entry_value,
+        "build evidence.known_title_compatibility",
+        {"catalogue", "manifest"},
+    )
+
+    def bound_file(value: object, description: str) -> tuple[pathlib.Path, dict[str, object]]:
+        record = exact_members(value, description, {"filename", "size", "sha256"})
+        filename = package_filename(record["filename"], f"{description} filename")
+        path = evidence_directory / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"{description} is missing or not a regular file: {path}")
+        if path.stat().st_nlink != 1:
+            raise ValueError(f"{description} must not be a hard link: {path}")
+        payload = path.read_bytes()
+        size = evidence_integer(record["size"], f"{description} size")
+        if not payload or size != len(payload):
+            raise ValueError(f"{description} size mismatch")
+        digest = evidence_sha256(record["sha256"], f"{description} SHA-256")
+        if digest != sha256_bytes(payload):
+            raise ValueError(f"{description} SHA-256 mismatch")
+        return path, {"filename": filename, "size": size, "sha256": digest}
+
+    catalogue_path, catalogue = bound_file(
+        entry["catalogue"], "build evidence known-title catalogue"
+    )
+    manifest_path, manifest = bound_file(
+        entry["manifest"], "build evidence known-title manifest"
+    )
+    if catalogue["filename"].casefold() == manifest["filename"].casefold():
+        raise ValueError("known-title catalogue and manifest filenames must be distinct")
+    checked_in_catalogue = SOURCE_ROOT / "known-title-compatibility.json"
+    if checked_in_catalogue.is_symlink() or not checked_in_catalogue.is_file():
+        raise ValueError("checked-in known-title compatibility catalogue is unavailable")
+    if catalogue["sha256"] != sha256_bytes(checked_in_catalogue.read_bytes()):
+        raise ValueError(
+            "build evidence known-title catalogue is not the exact checked-in catalogue"
+        )
+    try:
+        summary = verify_known_title_compatibility_manifest(
+            catalogue_path, manifest_path, require_pass=True
+        )
+    except ValueError as error:
+        raise ValueError(f"known-title compatibility verification failed: {error}") from error
+    expected_cases = len(KNOWN_TITLE_COMMERCIAL_IDS) + len(KNOWN_TITLE_OPEN_IDS)
+    if summary.get("magic") != KNOWN_TITLE_COMPATIBILITY_MAGIC:
+        raise ValueError("known-title verifier returned an unexpected manifest magic")
+    if summary.get("catalogue_sha256") != catalogue["sha256"]:
+        raise ValueError("known-title verifier catalogue identity does not match evidence")
+    if summary.get("manifest_sha256") != manifest["sha256"]:
+        raise ValueError("known-title verifier manifest identity does not match evidence")
+    if summary.get("cases") != expected_cases:
+        raise ValueError("known-title verifier returned an incomplete case catalogue")
+    if summary.get("commercial_cases") != len(KNOWN_TITLE_COMMERCIAL_IDS):
+        raise ValueError("known-title verifier returned an incomplete commercial catalogue")
+    if summary.get("open_sanity_cases") != len(KNOWN_TITLE_OPEN_IDS):
+        raise ValueError("known-title verifier returned an incomplete open-fixture catalogue")
+    if summary.get("status") != {"pass": expected_cases * 2, "fail": 0, "pending": 0}:
+        raise ValueError("known-title verifier did not return all Pocket and Dock passes")
+    run = summary.get("run")
+    if not isinstance(run, dict):
+        raise ValueError("known-title verifier did not return a run identity")
+    if run.get("core_commit") != source_commit:
+        raise ValueError("known-title run source commit does not match release evidence")
+    if run.get("raw_rbf_sha256") != rbf_sha256:
+        raise ValueError("known-title run raw RBF does not match release evidence")
+
+    return {
+        "catalogue": catalogue,
+        "manifest": manifest,
+        "magic": summary["magic"],
+        "run_id": run.get("run_id"),
+        "case_count": expected_cases,
+        "commercial_case_count": len(KNOWN_TITLE_COMMERCIAL_IDS),
+        "open_sanity_case_count": len(KNOWN_TITLE_OPEN_IDS),
+        "mode_pass_count": expected_cases * 2,
+        "artifact_count": summary["artifacts"],
+        "artifact_index_sha256": summary["artifact_index_sha256"],
+        "firmware_version": run.get("firmware_version"),
+    }
+
+
 def validate_build_evidence(
     path: pathlib.Path, rbf_bytes: bytes, rbf_filename: str
 ) -> dict[str, object]:
@@ -607,7 +1254,11 @@ def validate_build_evidence(
         "gates",
     }
     if evidence_magic == RELEASE_EVIDENCE_V2:
-        evidence_members.add("quartus_audit")
+        evidence_members.update(
+            {"quartus_audit", "hardware_qa", "signed_build_origins"}
+        )
+        if "known_title_compatibility" in raw_evidence:
+            evidence_members.add("known_title_compatibility")
     evidence = exact_members(
         raw_evidence,
         "build evidence.release_evidence",
@@ -782,6 +1433,9 @@ def validate_build_evidence(
         raise ValueError("build evidence has unaccepted gates: " + ", ".join(failed_gates))
 
     verified_audit = None
+    verified_hardware_qa = None
+    verified_known_title_compatibility = None
+    verified_signed_build_origins = None
     if evidence_magic == RELEASE_EVIDENCE_V2:
         verified_audit = validate_quartus_audit_binding(
             entry_value=evidence["quartus_audit"],
@@ -797,6 +1451,35 @@ def validate_build_evidence(
                 "sha256": build_id_digest,
             },
             reports=verified_reports,
+        )
+        verified_hardware_qa = validate_hardware_qa_binding(
+            entry_value=evidence["hardware_qa"],
+            evidence_directory=path.parent,
+            rbf_filename=rbf_filename,
+            rbf_size=len(rbf_bytes),
+            rbf_sha256=rbf["sha256"],
+        )
+        if "known_title_compatibility" in evidence:
+            verified_known_title_compatibility = validate_known_title_compatibility_binding(
+                entry_value=evidence["known_title_compatibility"],
+                evidence_directory=path.parent,
+                source_commit=source_commit,
+                rbf_sha256=rbf["sha256"],
+            )
+        verified_signed_build_origins = validate_signed_build_origins(
+            value=evidence["signed_build_origins"],
+            evidence_directory=path.parent,
+            source_commit=source_commit,
+            source_date_epoch=source_date_epoch,
+            rbf={
+                "size": len(rbf_bytes),
+                "sha256": rbf["sha256"],
+            },
+            build_id={
+                "size": len(build_id_bytes),
+                "sha256": build_id_digest,
+            },
+            root_audit=verified_audit,
         )
 
     return {
@@ -814,6 +1497,9 @@ def validate_build_evidence(
         },
         "reports": verified_reports,
         "quartus_audit": verified_audit,
+        "hardware_qa": verified_hardware_qa,
+        "known_title_compatibility": verified_known_title_compatibility,
+        "signed_build_origins": verified_signed_build_origins,
         "gates": {name: True for name in sorted(gate_names)},
     }
 
@@ -1268,10 +1954,71 @@ def create_package(
         source_root=SOURCE_ROOT if release else None,
         require_release_ready=release,
     )
+    if release and verified_evidence.get("known_title_compatibility") is None:
+        raise ValueError(
+            "--release requires accepted known-title compatibility evidence for "
+            "every Pocket and Dock case"
+        )
+    chip32 = (
+        release_chip32_image(SOURCE_ROOT, verified_evidence["source_commit"])
+        if release
+        else chip32_image(chip32_assembly, chip32_encoded_image)
+    )
+    reversed_rbf = rbf_bytes.translate(REVERSE)
     if release and output.name != definition.recommended_archive_name:
         raise ValueError(
             "release package filename must be " + definition.recommended_archive_name
         )
+    if release:
+        hardware_core = verified_evidence["hardware_qa"]["core"]
+        core_json_path = core_directory / "core.json"
+        core_json_bytes = core_json_path.read_bytes()
+        expected_core_json = {
+            "filename": "core.json",
+            "size": len(core_json_bytes),
+            "sha256": sha256_bytes(core_json_bytes),
+        }
+        if hardware_core.get("core_json") != expected_core_json:
+            raise ValueError(
+                "hardware QA core.json identity does not match the release distribution"
+            )
+        interact_json_path = core_directory / "interact.json"
+        interact_json_bytes = interact_json_path.read_bytes()
+        expected_interact_json = {
+            "filename": "interact.json",
+            "size": len(interact_json_bytes),
+            "sha256": sha256_bytes(interact_json_bytes),
+        }
+        if hardware_core.get("interact_json") != expected_interact_json:
+            raise ValueError(
+                "hardware QA interact.json identity does not match the release distribution"
+            )
+        if hardware_core.get("persistent_settings") != list(
+            HARDWARE_QA_PERSISTENT_SETTING_NAMES
+        ):
+            raise ValueError(
+                "hardware QA persistent-setting catalogue does not match release policy"
+            )
+        if hardware_core.get("version") != definition.version:
+            raise ValueError("hardware QA core version does not match release metadata")
+        if hardware_core.get("date_release") != definition.release_date:
+            raise ValueError("hardware QA core date does not match release metadata")
+        installed = hardware_core.get("installed_bitstream")
+        if not isinstance(installed, dict) or installed.get("filename") != bitstream_name:
+            raise ValueError(
+                "hardware QA installed bitstream does not match release metadata"
+            )
+        expected_installed_payloads = installed_payload_records(
+            dist=dist,
+            bitstream_name=bitstream_name,
+            bitstream=reversed_rbf,
+            chip32_name=chip32_name,
+            chip32=chip32,
+        )
+        if hardware_core.get("installed_payloads") != expected_installed_payloads:
+            raise ValueError(
+                "hardware QA installed payload inventory does not match the release distribution"
+            )
 
     release_source_inputs = (
         validate_release_source_checkout(
@@ -1287,12 +2034,6 @@ def create_package(
         else None
     )
 
-    chip32 = (
-        release_chip32_image(SOURCE_ROOT, verified_evidence["source_commit"])
-        if release
-        else chip32_image(chip32_assembly, chip32_encoded_image)
-    )
-
     with tempfile.TemporaryDirectory(prefix="swan-song-") as temporary:
         stage = pathlib.Path(temporary)
         shutil.copytree(dist, stage, dirs_exist_ok=True)
@@ -1304,7 +2045,6 @@ def create_package(
             placeholder.unlink()
         stage_core_directory = stage / definition.core_directory
         bitstream = stage_core_directory / bitstream_name
-        reversed_rbf = rbf_bytes.translate(REVERSE)
         bitstream.write_bytes(reversed_rbf)
         (stage_core_directory / chip32_name).write_bytes(chip32)
 
@@ -1412,7 +2152,10 @@ def main() -> None:
     parser.add_argument(
         "--release",
         action="store_true",
-        help="require accepted evidence and the official archive naming convention",
+        help=(
+            "assembler-internal only; direct CLI release use is rejected (run "
+            "scripts/assemble_stable_release.py)"
+        ),
     )
     parser.add_argument(
         "--release-policy",
@@ -1431,6 +2174,12 @@ def main() -> None:
         type=pathlib.Path,
     )
     args = parser.parse_args()
+
+    if args.release:
+        parser.error(
+            "public release packaging is assembler-only; use "
+            "scripts/assemble_stable_release.py"
+        )
 
     try:
         create_package(

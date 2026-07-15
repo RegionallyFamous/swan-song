@@ -73,8 +73,8 @@
       {
         "id": "meta-communication-name-select",
         "class": "commercial",
-        "title": "Meta Communication (upstream shorthand: Meta comm)",
-        "system": "wsc",
+        "title": "Metakomi Theraphy: Nee Kiite! (upstream shorthand: Meta comm)",
+        "system": "ws",
         "source_urls": [
           "https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4"
         ],

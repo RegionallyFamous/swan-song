@@ -8,6 +8,7 @@ module apf_console_setup_tb;
   reg clk_destination = 1'b0;
   reg reset_n = 1'b0;
   reg trigger = 1'b0;
+  reg menu_focus_source = 1'b0;
 
   wire reset_active_destination;
   wire start_active_destination;
@@ -23,6 +24,7 @@ module apf_console_setup_tb;
       .clk_destination(clk_destination),
       .reset_n(reset_n),
       .trigger(trigger),
+      .menu_focus_source(menu_focus_source),
       .reset_active_destination(reset_active_destination),
       .start_active_destination(start_active_destination)
   );
@@ -77,8 +79,24 @@ module apf_console_setup_tb;
     if (reset_active_destination || start_active_destination)
       $fatal(1, "idle sequencer exposed a setup level");
 
-    // The source intervals are exact and reset releases first.
+    // The action is selected while PocketOS still owns focus. The complete
+    // gesture must remain armed indefinitely rather than expiring behind the
+    // menu pause; both exact intervals begin only when focus returns.
+    menu_focus_source = 1'b1;
     pulse_trigger();
+    wait_destination_pair_high();
+    repeat (START_CYCLES + 4) begin
+      @(posedge clk_source);
+      #1ps;
+      if (dut.reset_counter_source !== RESET_CYCLES ||
+          dut.start_counter_source !== START_CYCLES)
+        $fatal(1, "Console Setup countdown advanced while menu owned focus");
+    end
+    @(negedge clk_source);
+    menu_focus_source = 1'b0;
+
+    // After focus release the source intervals are exact and reset releases
+    // first, leaving a bounded held-Start window for the original BIOS.
     repeat (RESET_CYCLES - 1) begin
       @(posedge clk_source);
       #1ps;
@@ -123,14 +141,16 @@ module apf_console_setup_tb;
     if (dut.reset_active_source || dut.start_active_source)
       $fatal(1, "trigger was accepted while host reset was active");
     trigger = 1'b0;
+    menu_focus_source = 1'b1;
     reset_n = 1'b1;
     repeat (5) @(posedge clk_destination);
     #1ps;
     if (reset_active_destination || start_active_destination)
       $fatal(1, "cancelled Console Setup reappeared after Reset Exit");
+    menu_focus_source = 1'b0;
 
     $display(
-        "PASS APF Console Setup reset_cycles=%0d start_cycles=%0d CDC=3-stage retrigger/cancel",
+        "PASS APF Console Setup menu-hold reset_cycles=%0d start_cycles=%0d CDC=3-stage retrigger/cancel",
         RESET_CYCLES,
         START_CYCLES
     );

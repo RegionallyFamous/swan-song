@@ -4,8 +4,9 @@
 
 - GHDL 6.0.0 successfully analyzes and translates the VHDL console hierarchy.
 - Verilator 5.050 successfully elaborates, compiles, and runs that translation.
-- The open MiSTer sprite-priority and window test ROMs produce deterministic
-  224×144 PNG frame hashes in repeated runs.
+- Project-authored generated REP MOVSB, Color sprite-priority, and dual
+  window-boundary ROMs pass strict trace and deterministic 224×144 frame
+  checks without carrying the 19 retired unlicensed MiSTer test assets.
 - Wonderful's open WSC extended-range fixture renders all three PASS fields and
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
   above 16 KiB without aliasing; all 16,281 physical display reads match
@@ -83,20 +84,18 @@
   translated model, including `CS:IP` conversion, inclusive PC/address filters,
   exact CPU memory origins, exact C0-C3 mapper-write instruction origins,
   resolved mapper offsets, completion-aligned display words/collision status,
-  and all six screen-map/tile and sprite-table/tile roles.
-  A byte-lane correlator independently reconstructs all 80,452 fetched words
-  from complete IRAM history. In that bootstrap trace, its conservative CPU
-  ROM-to-IRAM classifier requires a trace-observed `F3 A4` origin signature
-  plus an immediate exact same-instruction byte transfer. It accepts two
-  2,048-byte chains—ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` and ROM
-  `0x00a52..0x01251` to IRAM `0x2000..0x27ff`—for 4,096 bytes, two origins,
-  52,516 display words, and 26,224 atomic cells whose contributing tile-row
-  bytes are MOVSB-sourced. The extended-range and
-  Shift-JIS fixtures report zero in all four categories; `unattributed` alone
-  is not treated as proven prefetch. A dedicated verifier binds the open ROM,
-  complete v5 manifest, opcode bytes, uninterrupted alternating transaction
-  chains, address progression, byte lanes, and every copied byte. The suite
-  also generates build-only
+  and the screen-map/tile and sprite-table/tile roles exercised by each
+  translated workload. A dedicated clean-room REP MOVSB probe generates two
+  independently initialized 2,048-byte chains from mapped ROM offsets
+  `0x12000` and `0x15000` to disjoint IRAM windows `0x0800..0x0fff` and
+  `0x2800..0x2fff`. Its verifier binds the exact generated ROM, versioned
+  marker, complete v5 manifest, trace-observed `F3 A4` origins, uninterrupted
+  alternating read/write chains, addresses, mapped offsets, lanes, all 4,096
+  values, destination integrity, completion word, and terminal PC. The live
+  run records 4,123 CPU and 8,250 memory events. Display-provenance correlation
+  remains independently covered by the generated 4bpp, Shift-JIS, and
+  extended-range workloads; `unattributed` alone is never treated as proven
+  prefetch. The suite also generates build-only
   ROMs that verify all C0-C3 bank writes with their owning instruction IDs/PCs,
   including both accepted byte writes from one word `OUT`, and an exact GDMA
   ROM-to-IRAM chain.
@@ -143,12 +142,13 @@
   row also binds an exact latched OAM DMA generation, so an identical later
   refresh cannot steal its writer provenance, plus an explicit line-load epoch
   so overlapping DMA and repeated 8-bit line numbers cannot blur slot order. V6 preserves
-  the exact v5 prefix and is emitted only when `sprite_row` is requested. The translated
-  ROM regression validates 26,226 bootstrap cells across both layers and 5,177
-  extended-range Color cells. The Shift-JIS workload adds 8,308 Screen 1 cells,
+  the exact v5 prefix and is emitted only when `sprite_row` is requested. The
+  focused fixtures cover simultaneous Screen 1/2 behavior. Translated
+  regression validates 5,177 extended-range Color cells and each generated
+  window variant adds 8,494 Screen 2 cells. The Shift-JIS workload adds 8,308 Screen 1 cells,
   including 96 manifest-bound Japanese glyph-row promotions. The generated
   planar and packed workloads add 8,494 Screen 1 4bpp cells apiece, including
-  64 exact diagnostic rows per encoding. All five runs
+  64 exact diagnostic rows per encoding. All six translated runs
   account explicitly for superseded and end-of-capture prefetches.
 - A pinned Wonderful-toolchain `initfini` ROM boots reproducibly, renders its
   constructor-pass checkmark, and produces identical traces and final frames in
@@ -225,26 +225,28 @@
   verifies both its assembly-source and image identities, and rejects missing,
   changed, or path-escaping core references. The image is the exact official
   assembler output for this fork's extended loader source.
-- Quartus compilation, fitting, assembly, and four-corner TimeQuest have run in
-  the pinned Quartus Lite 21.1.1 Linux/amd64 container. A fresh full engineering
-  compile of temporary non-public source commit `1e32ff6a` used the current
-  5.9/2.5 ns SDRAM model, produced a valid RBF, and fit at 11,761/18,480 ALMs
-  and 289/308 RAM blocks. Strict signoff reported positive setup and hold at all
-  four slow/fast, 0/85 C corners, zero unconstrained paths and `check_timing`
-  findings, and exactly 16 positive SDRAM DQ setup plus 16 positive DQ hold
-  paths per corner. The surrounding command returned 1 only because the
-  source-bound connectivity policy still described older source, so this is
-  engineering evidence rather than an accepted candidate or final-release
-  build. A reviewed policy for the frozen public commit, its complete accepted
-  evidence bundle, a second byte-identical build, and physical Pocket/Dock
-  validation remain open.
+- Quartus compilation, fitting, assembly, and four-corner TimeQuest passed in
+  the pinned Quartus Lite 21.1.1 Linux/amd64 flow for protected-main commit
+  `f0345ee4bae92cf137c600dfca876494cb17a5fe`. Workflow `29378537385` and a
+  separate clean DigitalOcean build produced the identical RBF and build ID.
+  The accepted historical candidate fits at 13,207/18,480 logic elements and
+  289/308 RAM blocks, has minimum setup/hold/recovery/removal/pulse slack of
+  `+0.426/+0.030/+3.679/+0.264/+0.753 ns`, zero critical warnings, and no
+  unconstrained/check-timing findings. Its native IP summary has five `N/A`
+  license rows, its Assembler inventory contains ordinary `ap_core.sof` and
+  `ap_core.rbf`, and its bounded reports contain none of the pinned
+  evaluation/time-limit warning or info IDs. It is historical hardware-QA
+  candidate build evidence, not a public release or a legal conclusion; the
+  newer source changes require a fresh accepted build and independent
+  reproduction from the final public commit.
 - No build has been confirmed on an Analogue Pocket in this fork.
 
 ## Simulation
 
 Requirements:
 
-- Docker (for the GHDL translation image)
+- Docker (the default and CI path for the pinned GHDL translation image), or
+  the explicit native-macOS GHDL wrapper described below
 - Verilator 5.x
 - a C++17 compiler
 - Python 3
@@ -255,6 +257,63 @@ Run the regression suite:
 ```sh
 make regression
 ```
+
+### Optional native GHDL on macOS
+
+Docker remains the default local path and the immutable Linux CI contract. An
+Apple-Silicon (`arm64`) Mac may instead run the same Docker-shaped RTL scripts
+with the official `ghdl-llvm-6.0.0-macos15-aarch64` bundle from the
+[GHDL v6.0.0 release](https://github.com/ghdl/ghdl/releases/tag/v6.0.0):
+
+```sh
+./scripts/with_native_macos_ghdl.sh \
+  --bundle /absolute/path/to/ghdl-llvm-6.0.0-macos15-aarch64 \
+  -- make regression
+```
+
+Use a narrower command while iterating:
+
+```sh
+./scripts/with_native_macos_ghdl.sh \
+  --bundle /absolute/path/to/ghdl-llvm-6.0.0-macos15-aarch64 \
+  -- sim/rtl/run_soc_control_tb.sh
+```
+
+The wrapper does not download or install anything. `--ghdl /absolute/bin/ghdl`,
+`SWAN_GHDL_BUNDLE`, and `SWAN_GHDL` are explicit alternatives; only when none
+is supplied does it look for `ghdl` on `PATH`. It accepts only the official
+Apple-Silicon build whose first version line is
+`GHDL 6.0.0 (6.0.0.r0.ge589c698c) [Dunoon edition]`, requires the LLVM backend,
+and checks the bundle's `lib/ghdl`, `ghdl1-llvm`, `ghwdump`, and bundled
+`libgcc_s.1.1.dylib`. This exact build check gives local runs a stable identity;
+it is not a cryptographic archive attestation. Keep the extracted toolchain
+outside the repository.
+
+Some downloaded macOS bundles fail when their driver is launched in place,
+and macOS removes `DYLD_*` variables while crossing its protected shell. The
+wrapper therefore copies the minimal executable runtime—`ghdl`, `ghdl1-llvm`,
+`ghwdump`, and its bundled `libgcc`—into a private temporary `bin` directory,
+clears copied extended attributes, and removes the directory on success,
+failure, or interruption. Docker environment/secret options are rejected.
+
+This is deliberately not a general Docker replacement. Its temporary
+`docker` command accepts only the exact `docker run --rm --platform
+linux/amd64` subset used by the RTL tests, the project's tagged or
+digest-pinned GHDL image identity, absolute non-overlapping volume mounts and
+their mapped workdir, and either `ghdl` or a single generated test executable.
+Unsupported options, images, commands, unmounted absolute paths, traversal,
+and volume options fail closed. Absolute GHDL paths, `--option=/work/...`,
+`-P/work/...`, and `-I/work/...` are mapped back to their mounted host paths.
+
+The normal scripts, `make regression`, and GitHub workflow still invoke real
+Docker unless this wrapper is selected explicitly. A native Mac run is useful
+local evidence, but it does not replace the pinned Linux container result or
+the separate Quartus fit, timing, and hardware gates. It is native execution,
+not amd64 emulation, a container, or a security sandbox: the selected command
+inherits the caller's host environment, filesystem permissions, and network
+access, so Docker filesystem/network isolation is not reproduced. The
+`.github/toolchain/verify.sh` identity check remains Docker-only and is never
+routed through this wrapper.
 
 ### Pocket lifecycle and data-slot policy
 
@@ -329,9 +388,9 @@ Slot 0 uses APF parameter `0x309`: user-browsable, read-only, full-core reload,
 and persisted browsed filename. This makes a normal launch reuse the last title
 while **Core Settings > Cartridge** remains the explicit game switcher. The
 full-reload path performs normal shutdown first, allowing slot 11 to flush the
-old title before Chip32 derives and loads the new title's save. Framework 2.3
-is the minimum because its **Reset all to defaults** behavior correctly clears this
-browser history.
+old title before Chip32 derives and loads the new title's save. `core.json`
+declares Pocket firmware 2.3 as the minimum because its **Reset all to
+defaults** behavior correctly clears this browser history.
 
 Before cartridge metadata is available, a plausible slot-11 write returns `2`
 instead of guessing. Once metadata is ready, type-inconsistent, short,
@@ -439,6 +498,45 @@ never changed. The RTL loader also acknowledges old padding and recognizes a
 legacy RTC marker at byte 2,048 so an unmigrated file cannot stall startup;
 new save flushes expose only the canonical exact-size layout.
 
+### Publishing the reviewed GitHub Wiki
+
+`docs/wiki` is the reviewable Wiki source. Publication uses an explicitly
+supplied, fresh local clone; the project never discovers, clones, fetches, or
+changes a Wiki implicitly. After the source documentation and all of its
+`blob/main` targets are merged, create a normal clone with your already
+configured Git or GitHub CLI credentials:
+
+```sh
+git clone https://github.com/RegionallyFamous/swan-song.wiki.git \
+  /absolute/path/to/swan-song.wiki
+python3 scripts/wiki_sync.py \
+  --wiki-clone /absolute/path/to/swan-song.wiki
+```
+
+The default is offline and read-only. It runs `wiki_publication_check`, proves
+the clone is clean, root-level, on a branch tracking the expected `origin`, and
+contains only tracked regular Markdown pages, then prints every add, change,
+and delete. It rejects wrong remotes, known branch divergence, unexpected
+files, symlinks, nested paths, invalid UTF-8, and any source change after the
+plan. Review that complete plan before publishing:
+
+```sh
+python3 scripts/wiki_sync.py \
+  --wiki-clone /absolute/path/to/swan-song.wiki \
+  --apply \
+  --confirm-publish RegionallyFamous/swan-song.wiki
+```
+
+Only that exact `--apply` plus confirmation combination copies the planned
+pages, deletes planned retired pages, stages the exact path/status set,
+commits, and pushes the clone's current branch. `.git` is never copied or
+removed. Git credential and terminal prompts are disabled so the command fails
+closed in automation. If authentication fails after the local commit, inspect
+that clean commit and push it explicitly after fixing credentials; do not
+discard or rerun over an ahead clone. `--json` provides a machine-readable
+dry-run or apply result. Neither mode fetches, creates a clone, tags the source
+repository, or creates a release.
+
 ### Exact CI toolchain
 
 The GitHub regression workflow runs the same `make regression` entry point but
@@ -472,21 +570,32 @@ as a native macOS executable. The complete container-backed regression is
 therefore a Linux CI contract. GitHub's `ubuntu-24.04` host still supplies Bash,
 Make, Docker, Python 3, Tcl, and Git; their patch releases are platform-managed rather
 than independently image-pinned, while the regression's exact output hashes
-remain the behavioral drift gate. No successful remote run is claimed until
-this branch is pushed to a configured repository.
+remain the behavioral drift gate. No successful remote run is claimed for the
+current working tree until it is pushed; the last protected-main regression
+(`29377588945`) and Quartus run (`29378537385`) are explicitly bound to
+historical commit `f0345ee4`, not the newer local changes.
 
-Run a ROM for six frames and emit PNGs:
+Generate a clean-room window-boundary ROM, run two frames, and emit PNGs:
 
 ```sh
-./sim/verilator/run.sh \
-  --rom testroms/windowtest/windowtest.ws \
-  --frames 6 \
-  --out build/sim/windowtest
+python3 sim/verilator/generate_window_boundary_probe.py \
+  --output-dir build/sim/window-boundary/roms
+for variant in inside outside; do
+  ./sim/verilator/run.sh \
+    --rom "build/sim/window-boundary/roms/wsc_window_${variant}_probe.wsc" \
+    --frames 2 \
+    --out "build/sim/window-boundary/${variant}-frames"
+  python3 sim/verilator/verify_window_boundary_probe.py \
+    --variant "$variant" \
+    --rom "build/sim/window-boundary/roms/wsc_window_${variant}_probe.wsc" \
+    --frame "build/sim/window-boundary/${variant}-frames/frame-1.rgb"
+done
 ```
 
-Add `--trace build/sim/windowtest.vcd` for a VCD or `--bios /path/to/bw.rom`
-to test with a legally obtained firmware image. Without `--bios`, the harness
-programs a nine-byte open bootstrap suitable for the included test ROMs. The
+Add `--trace build/sim/window-boundary.vcd` for a VCD or
+`--bios /path/to/color.rom`
+to test with a legally obtained 8 KiB Color firmware image. Without `--bios`, the harness
+programs a nine-byte open bootstrap suitable for these generated ROMs. The
 harness never searches for or downloads firmware.
 
 ### Structured event traces
@@ -498,10 +607,10 @@ generic for this simulator build; the production default leaves it disabled.
 
 ```sh
 ./sim/verilator/run.sh \
-  --rom testroms/windowtest/windowtest.ws \
-  --frames 6 \
-  --event-trace build/sim/windowtest.csv \
-  --trace-events bank,vram
+  --rom build/sim/window-boundary/roms/wsc_window_inside_probe.wsc \
+  --frames 2 \
+  --event-trace build/sim/window-boundary.csv \
+  --trace-events cpu,mem,vram
 ```
 
 CPU records can be limited to a union of comma-separated inclusive 20-bit
@@ -596,21 +705,24 @@ only under `build/`. Its verifier binds the ROM, complete v5 trace, exact OAM
 snapshots, packed tile reads, ROM-to-IRAM GDMA chain, CPU descriptor/map/palette
 writes, four complete color panels, black borders, and the stable frame. The
 mutation suite explicitly rejects the previous opaque-Screen-2 result.
-It also runs `correlate_provenance.py` against an unfiltered-from-reset
-memory/display capture and requires every fetched word to be exact: no value
-mismatch, mixed-port collision, partial word, or unobserved byte is accepted.
-For CPU ROM sources, instruction ownership is only a prerequisite: the
-correlator also requires the observed `F3 A4` origin signature and an immediate
-same-instruction ROM-read/IRAM-byte-write pair with an exact destination and
-matching low byte. It does not infer prefetch from an `unattributed` row alone.
-`verify_cpu_rep_movsb.py` separately locks the bootstrap claim to the canonical
-open ROM and rejects incomplete, interleaved, discontinuous, or extra
-ROM-to-IRAM instruction chains.
+The separate project-authored window-boundary pair locks inclusive Screen 2
+left/top/right/bottom comparisons and each sprite's bit-12 inside/outside
+selection. Both generated ROMs bind 24 named boundary samples and a complete
+stable frame; their mutation suite rejects all 48 sample inversions plus ROM
+and nonsampled-frame drift. Each translated capture also requires all six VRAM
+roles, 26,296 exact display reads with zero mismatch/collision, and 8,494
+provenance-complete Screen 2 cells.
+The generated REP MOVSB verifier independently locks two 2 KiB CPU copies to
+the exact authored source and destination windows. It requires trace-observed
+`F3 A4` origins, exact immediate ROM-read/IRAM-write pairs, distinct ordered
+instruction IDs, no extra copy chains, both intact final windows, and a
+completion write after both transfers.
 The v5 path additionally runs `correlate_bg_cells.py`: it independently groups
 Screen 1/2 map and tile reads, validates each promoted atomic background cell,
 and preserves the writers observed on the raw-fetch edge rather than consulting
-IRAM at the later promotion edge. Across the open-ROM suite it requires nonzero
-coverage from both screen layers. This proves the promoted map and contributing tile row, not that any
+IRAM at the later promotion edge. Focused fixtures exercise both layers;
+translated workloads exercise Screen 1, while both window variants exercise
+Screen 2 and separately prove the final composed pixels. This proves the promoted map and contributing tile row, not that any
 specific pixel survived windows, transparency, priority, sprites, or clipping.
 The Shift-JIS workload then runs `report_glyphs.py` over the atomic CSV and
 requires its provenance ledger and four-column `unique-exact` contact sheet to
@@ -790,15 +902,130 @@ masquerade as success.
 host inputs but cannot manufacture Quartus timing or hardware evidence. It
 does not read or validate the release policy, so policy work cannot change an
 otherwise identical development ZIP or provenance sidecar. A release package
-must additionally use `--release` and `--build-evidence`:
+can only be created through the stable assembler, which internally generates
+and revalidates Release Evidence V2; the lower-level release CLI refuses direct
+use.
+
+### Signed stable-release assembly
+
+The production path is [`assemble_stable_release.py`](scripts/assemble_stable_release.py).
+It joins the existing evidence, package, and release-staging validators without
+adding a second way around any gate. It accepts two complete Quartus candidate
+bundles for the same exact commit and epoch. Each candidate audit must have a
+GitHub attestation from a distinct `quartus-fit.yml` workflow run and a distinct
+fresh job nonce. The assembler verifies both attestations, reruns both audits,
+and requires byte-identical raw RBF and `build_id.mif` files. A copied bundle,
+two directories carrying the same signed run identity, a rerun attempt, or a
+missing identity fails closed. This establishes two distinct signed workflow
+executions; it does not claim that two different physical hosts were used. The
+assembler then binds the already accepted hardware manifest/inventory and the
+complete known-title Pocket/Dock compatibility manifest, invokes Release
+Evidence V2, invokes `package_core.py` in release mode, applies the package to
+a private local staging tree with `--verify-release` semantics, and verifies
+that tree again.
+
+The default is a validated plan and creates no durable output. The checkout
+must be clean and the requested output must be outside the checkout; otherwise
+the output itself would invalidate the packager's exact-clean-commit proof.
+Stable preflight also requires every exact checklist item in
+[`RELEASE_DECISIONS.md`](RELEASE_DECISIONS.md) to be checked and rejects the
+current development/blocked-release language in the release-facing README,
+wiki, first-class, phase-status, and decision documents. Development packages
+do not use this publication-only gate.
+Run the plan first:
 
 ```sh
-./scripts/package_core.py \
-  --rbf src/fpga/output_files/ap_core.rbf \
-  --build-evidence build/release-evidence.json \
-  --release \
-  --output build/Author.Core_version_YYYY-MM-DD.zip
+FINAL_COMMIT="$(git rev-parse HEAD)"
+SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$FINAL_COMMIT")"
+
+python3 scripts/assemble_stable_release.py \
+  --artifacts-a /private/build-a/quartus-final \
+  --artifacts-b /private/build-b/quartus-final \
+  --hardware-manifest /private/swan-song-qa/evidence/manifest.json \
+  --hardware-inventory /private/swan-song-qa/inventory.json \
+  --known-title-manifest /private/swan-song-known-titles/manifest.json \
+  --output-dir /private/swan-song-release \
+  --source-commit "$FINAL_COMMIT" \
+  --source-date-epoch "$SOURCE_DATE_EPOCH" \
+  --expected-version 1.0.0 \
+  --expected-release-date YYYY-MM-DD \
+  --compressed-bitstream-reviewed
 ```
+
+The plan prints the exact generated `release-body.md` and its SHA-256 without
+creating a durable file. Review those end-user release notes, then repeat the
+exact command with both `--apply` and
+`--release-body-reviewed-sha256 HASH_FROM_PLAN`. A stale or mistyped review
+hash is rejected. The output directory must still not exist. Assembly occurs in one private sibling
+directory and is published with a native atomic no-clobber rename only after
+every validator passes. A failure removes the temporary tree and never leaves
+an older or partial output under the requested name. The assembler never
+publishes or changes repository settings. Its only network operation is
+`gh attestation verify`, which retrieves GitHub's current official
+Sigstore/TUF trust material. Verification is scoped to the repository name,
+workflow path, `main` source ref, and exact source commit; the signed
+certificate's run-invocation URI must match the run ID and attempt embedded in
+the candidate audit. The job nonce is transitive evidence because it is inside
+that signed audit. Numeric repository/owner IDs are not pinned by this gate.
+
+The final directory contains exactly seven public files:
+
+- the deterministically named APF release ZIP;
+- its deterministic `.provenance.json` sidecar;
+- a deterministic `.tar` archive of every tracked file at the exact source
+  commit (the corresponding source);
+- deterministic `signed-quartus-provenance.tar`, containing only the two
+  candidate audit JSON files and their two GitHub attestation bundles;
+- the reviewed `release-body.md`, ready to pass to GitHub CLI with
+  `gh release create --notes-file` only after publication is authorized;
+- `release-manifest.json`, binding both recomputed audits, signed workflow
+  origins, the common RBF/build ID, accepted hardware and known-title runs,
+  policy, licensing result, package, provenance, source/provenance archives,
+  release body, and the hash of the generated private Release Evidence V2
+  record; and
+- `SHA256SUMS`, covering every public payload except itself in filename order.
+
+Private firmware, BIOS, ROM, device identity, hardware and known-title captures,
+inventories, and Release Evidence V2 files remain below the temporary private tree and are
+removed from the public output before its exact inventory is checked. Retain
+the original private inputs separately as release records. The checked-in
+release policy and license manifest remain hard gates: the current intentional
+`distribution_and_licensing_authorized: false` state makes both plan and apply
+stop before assembly.
+
+The public signed-build archive is intentionally ROM-, BIOS-, save-, and
+device-identity-free. Consumers can verify both build attestations with the
+official online trust root after extracting it:
+
+```sh
+mkdir -p /tmp/swan-song-signed
+tar -xf signed-quartus-provenance.tar -C /tmp/swan-song-signed
+
+gh attestation verify \
+  /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.json \
+  --repo RegionallyFamous/swan-song \
+  --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+  --source-digest "$FINAL_COMMIT" \
+  --source-ref refs/heads/main \
+  --bundle /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.attestation.json
+
+gh attestation verify \
+  /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.json \
+  --repo RegionallyFamous/swan-song \
+  --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+  --source-digest "$FINAL_COMMIT" \
+  --source-ref refs/heads/main \
+  --bundle /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.attestation.json
+```
+
+`FINAL_COMMIT` must be the exact 40-hex release commit printed in the release
+manifest. Direct release use of `build_release_evidence.py` and
+`package_core.py --release` deliberately refuses: only the stable assembler
+can carry two signed origins through Release Evidence V2 and reverify the
+staged package. Their library validators remain useful to tests, but are not a
+second release path. Preserve the assembler's private input bundles and
+hardware inventories separately; never upload ROM, BIOS, device identity, or
+private captures.
 
 The output name must exactly match the author, shortname, version, and date in
 `core.json`. Release mode also reads the checked-in
@@ -816,10 +1043,26 @@ flip `distribution_and_licensing_authorized` without the required licensing,
 build, and hardware review; the core metadata, policy, evidence, and archive
 name must agree in one reviewed release change.
 
+Before publication, an owner should enable GitHub immutable releases, create a
+draft, attach all seven final files, and publish only after its asset inventory
+matches `SHA256SUMS`. GitHub then locks the tag/assets and generates a release
+attestation binding the tag, commit, and assets. After publication, verify the
+release and each locally downloaded asset:
+
+```sh
+gh release verify RELEASE-TAG
+gh release verify-asset RELEASE-TAG PATH-TO-DOWNLOADED-ASSET
+```
+
+Enabling immutable releases is an external repository-setting change and is
+an explicit owner action; the assembler does not make it.
+
 Licensing is an independent fail-closed gate. Every development and release
 ZIP now includes `LICENSE-MANIFEST.json`, both applicable GNU GPL texts, the
 two inherited MIT notices, and the APF/Intel notice records. The manifest
-binds those package files and the 19 inherited MiSTer test assets by SHA-256.
+binds those package files by SHA-256 and rejects any file beneath the three
+retired unlicensed MiSTer test roots. Their material coverage is now supplied
+by project-authored generated probes.
 Release mode requires `licensing_review_complete: true` with no
 `review_required` item; changing only the policy boolean therefore cannot
 publish a package. Validate the current evidence and blocker set with:
@@ -830,25 +1073,45 @@ python3 scripts/license_manifest_test.py
 ```
 
 The checked-in result intentionally remains incomplete. See
-[`LICENSING.md`](LICENSING.md) for the seven exact blocker IDs and draft
-rights-holder requests.
+[`LICENSING.md`](LICENSING.md) for the six exact blocker IDs and draft
+rights-holder requests, and [`RELEASE_DECISIONS.md`](RELEASE_DECISIONS.md) for
+the owner choices and final evidence sequence.
 
-The evidence file is strict JSON with one `release_evidence` object. Release
-mode requires magic `SWAN_SONG_RELEASE_EVIDENCE_V2`; V1 can be parsed only for
-non-release evidence validation and cannot authorize `--release`. V2 records
-the full lowercase 40-hex source commit, `source_date_epoch`, the exact Quartus
-Lite version `21.1.1 Build 850`, and raw-RBF
-`filename`/`size`/`sha256`. Its `build_id` entry names the sibling generated
-`build_id.mif` with exact size and SHA-256; the packager also decodes its `0E0`,
-`0E1`, and `0E2` words and source comments to prove they match the declared UTC
-epoch and commit prefix. Its `reports` object must contain `flow`, `fit`, and
-`sta` entries, each naming a sibling `.flow.rpt`, `.fit.rpt`, or `.sta.rpt` with
-exact size and lowercase SHA-256; every report must be nonempty and identify
-Quartus 21.1.1. V2 additionally binds `quartus-audit-candidate.json`. The
-packager recomputes that complete `SWAN_SONG_QUARTUS_AUDIT_V1` document from
-its sibling artifacts and requires exact equality, matching source/target/RBF/
-build-ID/report identities, accepted candidate gates, `release_eligible: false`,
-unclaimed compression, and false Pocket/Dock gates. Its separate final
+The evidence file is strict JSON with one `release_evidence` object. The
+assembler-internal release validator requires magic
+`SWAN_SONG_RELEASE_EVIDENCE_V2`; V1 cannot authorize a release. V2 records the
+full lowercase 40-hex source commit, `source_date_epoch`, the exact Quartus Lite
+version `21.1.1 Build 850`, and raw-RBF `filename`/`size`/`sha256`. Its
+`build_id` entry names the sibling generated `build_id.mif` with exact size and
+SHA-256; the packager also decodes its `0E0`, `0E1`, and `0E2` words and source
+comments to prove they match the declared UTC epoch and commit prefix. Its
+`reports` object must contain `flow`, `fit`, and `sta` entries, each naming a
+sibling report with exact size and lowercase SHA-256.
+
+V2's required `signed_build_origins` object binds two canonical candidate audit
+JSON files and two GitHub attestation bundles under `signed-builds/a` and
+`signed-builds/b`. Both origins must identify the same repository, workflow,
+`main` ref, source commit, epoch, raw RBF, and build ID, while carrying distinct
+positive signed workflow run IDs and different fresh 32-hex job nonces. The
+assembler recomputes both candidate audits from their complete input bundles
+before creating V2. The downstream packager recomputes the root `a` audit from
+its complete sibling reports, validates both candidate documents and canonical
+hashes, and reruns `gh attestation verify` for both bundles with GitHub's
+official online trust roots. Each signed certificate must identify the exact
+source/workflow and its run-invocation URI must match the audit's run ID and
+attempt. Both audits must retain `release_eligible: false`, leave compression
+unclaimed, and leave Pocket/Dock gates false. A copied directory, same signed
+run identity, missing bundle, or changed candidate byte fails closed.
+
+V2 also binds the exact accepted hardware-QA manifest and its private inventory
+by filename, size, and SHA-256. Packaging reruns the full verifier, requires every physical
+Pocket/Dock case and attestation to pass, and proves that the tested raw RBF,
+version, date, nine-setting catalogue, and all 13 installed Pocket-facing
+payloads are the release inputs. That catalogue covers every core JSON
+definition, icon/info, platform definition/art, installed bitstream, and
+generated Chip32 loader; packaging and release staging each reconstruct and
+compare it independently.
+Its separate final
 `gates` object must explicitly accept all of:
 
 - `flow_success`, `fit_success`, `setup_timing`, and `hold_timing`;
@@ -856,14 +1119,14 @@ unclaimed compression, and false Pocket/Dock gates. Its separate final
 - `no_critical_warnings`, `compressed_bitstream`, `pocket_hardware`, and
   `dock_hardware`.
 
-The candidate audit and final release attestation are deliberately different
-layers: a successful fit audit never claims compression or hardware, while the
-V2 release record must bind that audit and separately attest the reviewed
+The candidate audits and final release attestation are deliberately different
+layers: successful fit audits never claim compression or hardware, while the
+V2 release record must bind both and separately attest the reviewed
 compression plus physical Pocket/Dock results. The packager verifies the exact
-RBF/report/audit bytes and refuses any false or missing final gate. The final
-hardware booleans remain reviewer attestations backed by the dated QA record;
-they are not inferred from Quartus. The generated package-provenance sidecar
-embeds the evidence manifest hash, build-ID/report/audit hashes, source
+RBF/report/audit/bundle/QA bytes and refuses any false or missing final gate. Human
+observation remains an attestation rather than mechanical proof, but bare
+booleans can no longer authorize a release. The generated package-provenance
+sidecar embeds the evidence manifest hash, build-ID/report/audit/QA hashes, source
 identity, tool version, and accepted gates, making that reviewed evidence
 cryptographically bound to the distributed ZIP.
 
@@ -872,3 +1135,32 @@ separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in
 `Assets/wonderswan/common/`; they are intentionally never packaged here. Both
 BIOS files are required in the APF definition and have exact 4 KiB/8 KiB host
 size checks; the core still independently rejects an invalid transfer length.
+
+## Launch-hardening pull request handoff
+
+From the repository root on the authenticated Mac, run the read-only preflight:
+
+```sh
+python3 scripts/prepare_launch_pr.py
+```
+
+It verifies `gh` authentication, the `RegionallyFamous/swan-song` origin and
+GitHub repository, the local/remote base, and the exact launch-hardening change
+allowlist. A separate explicit preservation list protects the existing local
+hardware, macOS, build-output, dependency, and adjacent-project paths: the
+command warns about them, never stages them, and proves they remain untracked
+after the commit. It rejects every other tracked or untracked path and never
+uses `git add .`.
+
+To perform the handoff, add `--apply` and type the displayed confirmation
+exactly:
+
+```sh
+python3 scripts/prepare_launch_pr.py --apply
+```
+
+Apply mode fetches `origin/main`, proves the current `HEAD` tree is identical
+to that fetched tree before switching, creates `codex/launch-hardening`, stages
+only the allowlisted paths, verifies the staged status and whitespace, commits,
+pushes without force, and opens the pull request with `gh`. It intentionally
+stops before merge and does not create or publish a release.

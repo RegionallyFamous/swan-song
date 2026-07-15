@@ -66,9 +66,12 @@ to make installation proceed. It is a reviewed release gate, not a user option.
 
 Once an official release exists, its release notes must publish the ZIP's
 lowercase SHA-256, the adjacent provenance sidecar's lowercase SHA-256, exact
-version, and full 40-character lowercase source commit.
-Download the ZIP and its adjacent `.provenance.json` sidecar from the official
-release, then run a read-only verification first:
+version, and full 40-character lowercase source commit. The release must also
+include `signed-quartus-provenance.tar`, `release-manifest.json`, the
+corresponding source archive, reviewed release body, and `SHA256SUMS`: the exact
+seven-file output of the stable assembler. Download the ZIP and its adjacent
+`.provenance.json` sidecar from the official release, then run a read-only
+verification first:
 
 ```sh
 python3 scripts/stage_pocket_sd.py \
@@ -84,13 +87,23 @@ python3 scripts/stage_pocket_sd.py \
 Release mode accepts only the exact release-provenance schema. It binds the
 operator's expected ZIP and provenance checksums, version, and source commit to
 the ZIP, exact core ID, archive filename, complete member inventory, reversible
-raw/packaged bitstream identity, Chip32 image, V2 build evidence, accepted final
-gates, and the exact checked-in release policy. Release creation also requires
-a clean checkout whose HEAD is the evidence commit, compares every tracked
-`dist/` and Chip32 input with its Git blob, rejects untracked empty package
-directories, records that complete source-input manifest beside the RBF
-identity, and rechecks the copied package snapshot before ZIP creation. The
-policy must authorize
+raw/packaged bitstream identity, Chip32 image, V2 build evidence, two distinct
+signed workflow origins with different fresh job nonces, accepted final gates,
+and the exact checked-in release policy. Staging structurally rechecks that
+normalized signed pair against the package provenance; it does not consume the
+public attestation bundles or contact GitHub. Independently verify both bundles
+from `signed-quartus-provenance.tar` with `gh attestation verify` and the full
+commit recorded in `release-manifest.json`. That online check proves distinct
+signed workflow executions, not distinct physical hosts, and does not replace
+Pocket/Dock QA.
+
+Public release creation is available only through
+`scripts/assemble_stable_release.py`. It requires a clean checkout whose HEAD
+is the evidence commit, two complete signed candidate bundles, and byte-identical
+RBF/build-ID outputs; it compares every tracked `dist/` and Chip32 input with its
+Git blob, rejects untracked empty package directories, records that complete
+source-input manifest beside the RBF identity, and rechecks the copied package
+snapshot before ZIP creation. The policy must authorize
 identity plus distribution and licensing, and the policy record embedded in
 provenance must exactly match the freshly validated policy summary, including
 its manifest size and SHA-256. Unknown provenance fields, an unpinned or

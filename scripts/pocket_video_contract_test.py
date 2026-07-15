@@ -24,6 +24,40 @@ def compact(source: str) -> str:
 
 
 class PocketVideoContractTest(unittest.TestCase):
+    def test_direct_to_buffered_priming_contract_is_explicit(self) -> None:
+        readme = " ".join(read("README.md").casefold().split())
+        controls = " ".join(
+            read("docs/wiki/Controls-and-Settings.md").casefold().split()
+        )
+        delivery = " ".join(read("FRAME_DELIVERY.md").casefold().split())
+        protocol = " ".join(read("HARDWARE_QA_PROTOCOL.md").casefold().split())
+        qa_schema = read("scripts/pocket_hardware_qa.py")
+        swan = compact(read("src/fpga/core/wonderswan.sv"))
+
+        for public_document in (readme, controls, delivery):
+            self.assertIn("one producer-frame priming interval", public_document)
+            self.assertIn("first completed buffered frame", public_document)
+        self.assertIn("one producer-frame priming interval", protocol)
+        self.assertIn("beginning with the first completed buffered frame", protocol)
+        self.assertIn(
+            '"complete_frames_60_9_no_tearing_or_resync_after_priming"',
+            qa_schema,
+        )
+        self.assertNotIn(
+            '"complete_frames_60_9_no_tearing_or_resync"', qa_schema
+        )
+
+        # The documentation and QA exception are coupled to the intentional
+        # live/direct fallback; completed history still takes over atomically.
+        self.assertIn("allow_direct_while_priming<=1'b1;", swan)
+        self.assertIn(
+            "wireuse_buffered_history=buffervideo&&framebank_valid_count!=2'd0;",
+            swan,
+        )
+        self.assertIn(
+            "(!buffervideo||allow_direct_while_priming)?rgb0:12'd0;", swan
+        )
+
     def test_exact_scaler_slots(self) -> None:
         video = json.loads((CORE / "video.json").read_text(encoding="utf-8"))["video"]
         modes = video["scaler_modes"]
@@ -98,11 +132,18 @@ class PocketVideoContractTest(unittest.TestCase):
         self.assertIn("wire[12:0]settings_snapshot_s;", top)
         self.assertIn(".DEFAULT_SETTINGS(13'h0201)", top)
         self.assertIn(
-            ".settings_source({configured_system,use_cpu_turbo,"
+            "wire[12:0]settings_source_74a={configured_system,use_cpu_turbo,"
             "use_triple_buffer,configured_flickerblend,configured_orientation,"
             "configured_control_layout,"
-            "use_flip_horizontal,configured_color_profile,use_fastforward_sound})",
+            "use_flip_horizontal,configured_color_profile,use_fastforward_sound};",
             top,
+        )
+        self.assertIn("apf_interact_readbackinteract_settings_readback(", top)
+        self.assertEqual(
+            top.count(".settings_source(settings_source_74a)"),
+            2,
+            "the exact requested-settings bundle must feed Interact readback "
+            "and the atomic system-domain transfer",
         )
         self.assertIn(
             "assign{configured_system_s,use_cpu_turbo_s,use_triple_buffer_s,"
@@ -212,14 +253,28 @@ class PocketVideoContractTest(unittest.TestCase):
             "apf_scanout_cadencescanout_cadence(",
             swan,
         )
-        self.assertIn("parameter[8:0]LINE_PIXELS=9'd397", cadence)
+        self.assertIn("parameter[8:0]STANDARD_LINE_PIXELS=9'd397", cadence)
+        self.assertIn("parameter[8:0]SMOOTH_LINE_PIXELS=9'd391", cadence)
         self.assertIn("parameter[8:0]FRAME_LINES=9'd258", cadence)
-        self.assertIn("localparam[8:0]LINE_LAST=LINE_PIXELS-1'd1;", cadence)
+        self.assertIn("inputwiresmooth_61hz", cadence)
         self.assertIn("localparam[8:0]FRAME_LAST=FRAME_LINES-1'd1;", cadence)
-        self.assertIn("assignline_end=x>=LINE_LAST;", cadence)
+        self.assertIn(
+            "wire[8:0]line_last=smooth_61hz?SMOOTH_LINE_PIXELS-1'd1:"
+            "STANDARD_LINE_PIXELS-1'd1;",
+            cadence,
+        )
+        self.assertIn("assignline_end=x>=line_last;", cadence)
         self.assertIn(
             "assignframe_boundary=pixel_enable&&line_end&&y>=FRAME_LAST;",
             cadence,
+        )
+        self.assertIn(
+            "wirecomplete_frames_60_9_applied=flickerblend_applied==2'd3;",
+            swan,
+        )
+        self.assertIn(
+            ".smooth_61hz(complete_frames_60_9_applied)",
+            swan,
         )
         self.assertIn(".producer_frame_done(producer_frame_done)", swan)
         self.assertIn(".consumer_frame_boundary(scanout_frame_boundary)", swan)

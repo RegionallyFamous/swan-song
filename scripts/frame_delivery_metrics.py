@@ -38,6 +38,7 @@ class DeliveryMetrics:
     producer_frames_per_superperiod: int
     skip_gap_3_count: int
     skip_gap_4_count: int
+    skip_gap_5_count: int
     completion_phase_quantum_cycles: int
     delivery_phase_residues_checked: int
     complete_frame_age_envelope_min_ms: float
@@ -78,7 +79,7 @@ def derive(line_pixels: int) -> DeliveryMetrics:
                 next_skip += output_frames
             skip_gaps.append(next_skip - skip)
         gap_counts = Counter(skip_gaps)
-        if set(gap_counts) - {3, 4}:
+        if set(gap_counts) - {3, 4, 5}:
             raise ValueError("unexpected producer-skip spacing")
         sequence_signatures.add(
             (
@@ -86,11 +87,12 @@ def derive(line_pixels: int) -> DeliveryMetrics:
                 Counter(increments)[2],
                 gap_counts[3],
                 gap_counts[4],
+                gap_counts[5],
             )
         )
     if len(sequence_signatures) != 1:
         raise AssertionError("delivery cadence depends on unproven reset/event phase")
-    increment_1_count, increment_2_count, gap_3_count, gap_4_count = (
+    increment_1_count, increment_2_count, gap_3_count, gap_4_count, gap_5_count = (
         sequence_signatures.pop()
     )
     if increment_1_count + increment_2_count != output_frames:
@@ -118,6 +120,7 @@ def derive(line_pixels: int) -> DeliveryMetrics:
         producer_frames_per_superperiod=producer_frames,
         skip_gap_3_count=gap_3_count,
         skip_gap_4_count=gap_4_count,
+        skip_gap_5_count=gap_5_count,
         completion_phase_quantum_cycles=divisor,
         delivery_phase_residues_checked=divisor,
         complete_frame_age_envelope_min_ms=0.0,
@@ -137,7 +140,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
     arguments = parser.parse_args()
-    metrics = {"inherited_401": derive(401), "corrected_397": derive(397)}
+    metrics = {
+        "inherited_401": derive(401),
+        "standard_397": derive(397),
+        "smooth_391": derive(391),
+    }
     if arguments.json:
         print(json.dumps({name: asdict(value) for name, value in metrics.items()}, indent=2))
         return

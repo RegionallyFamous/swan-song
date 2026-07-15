@@ -110,6 +110,25 @@ class PocketPerGamePresetTests(unittest.TestCase):
                 canonical.interact_path.read_bytes(), legacy.interact_path.read_bytes()
             )
 
+    def test_complete_frame_60_9_mode_uses_reserved_stable_encoding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            result = generate_presets(
+                sd_root=root,
+                asset="Game.ws",
+                options=PresetOptions(
+                    triple_buffer="off",
+                    flicker="complete-60.9",
+                ),
+            )
+            interact = json.loads(result.interact_path.read_text(encoding="utf-8"))
+            variables = {
+                variable["id"]: variable
+                for variable in interact["interact"]["variables"]
+            }
+            self.assertEqual(variables[41]["defaultval"], 0)
+            self.assertEqual(variables[42]["defaultval"], 3)
+
     def test_output_is_deterministic_and_contains_no_rom_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = pathlib.Path(directory)
@@ -612,6 +631,50 @@ class PocketPerGamePresetTests(unittest.TestCase):
             interact_path.write_text(json.dumps(interact), encoding="utf-8")
 
             with self.assertRaisesRegex(PresetError, "expected option values"):
+                generate_presets(
+                    sd_root=root,
+                    asset="Game.ws",
+                    definitions=definitions,
+                )
+            self.assertFalse((root / "Presets").exists())
+
+    def test_write_only_interact_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            root = self._root(directory)
+            definitions = base / "definitions"
+            shutil.copytree(DEFAULT_DEFINITIONS, definitions)
+            interact_path = definitions / "interact.json"
+            interact = json.loads(interact_path.read_text(encoding="utf-8"))
+            for variable in interact["interact"]["variables"]:
+                if variable.get("id") == 14:
+                    variable["writeonly"] = True
+                    break
+            interact_path.write_text(json.dumps(interact), encoding="utf-8")
+
+            with self.assertRaisesRegex(PresetError, "persistent and readable"):
+                generate_presets(
+                    sd_root=root,
+                    asset="Game.ws",
+                    definitions=definitions,
+                )
+            self.assertFalse((root / "Presets").exists())
+
+    def test_non_boolean_write_only_interact_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            root = self._root(directory)
+            definitions = base / "definitions"
+            shutil.copytree(DEFAULT_DEFINITIONS, definitions)
+            interact_path = definitions / "interact.json"
+            interact = json.loads(interact_path.read_text(encoding="utf-8"))
+            for variable in interact["interact"]["variables"]:
+                if variable.get("id") == 14:
+                    variable["writeonly"] = 1
+                    break
+            interact_path.write_text(json.dumps(interact), encoding="utf-8")
+
+            with self.assertRaisesRegex(PresetError, "persistent and readable"):
                 generate_presets(
                     sd_root=root,
                     asset="Game.ws",

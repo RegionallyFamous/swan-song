@@ -77,6 +77,39 @@ SDRAM_DQ_MARKER_RE = re.compile(
 # contract separately checks the capability gate itself; this remains a fitted
 # resource gate, not an estimate derived from logical memory-bit utilization.
 MAX_CANDIDATE_RAM_BLOCKS = 289
+WORKFLOW_REPOSITORY = "RegionallyFamous/swan-song"
+WORKFLOW_PATH = ".github/workflows/quartus-fit.yml"
+WORKFLOW_JOB = "fit"
+WORKFLOW_METADATA_FIELDS = {
+    "workflow_repository",
+    "workflow_path",
+    "workflow_sha",
+    "workflow_run_id",
+    "workflow_run_attempt",
+    "workflow_job",
+    "workflow_job_nonce",
+}
+IP_LICENSE_HEADER = (
+    "vendor",
+    "ip core name",
+    "version",
+    "release date",
+    "license type",
+    "entity instance",
+    "ip include file",
+)
+EVALUATION_WARNING_IDS = (
+    12188,
+    12189,
+    12190,
+    210039,
+    210042,
+    265069,
+    265072,
+    265073,
+    265074,
+)
+TIME_LIMITED_INFO_IDS = (115017,)
 REPORTS = {
     "synthesis": (
         "output_files/ap_core.map.rpt",
@@ -406,6 +439,103 @@ def resource_summary(fit_text: str) -> Dict[str, Dict[str, Optional[int]]]:
     return result
 
 
+def ip_license_summary(synthesis_text: str) -> Dict[str, object]:
+    """Parse Quartus' native IP inventory and its evaluation-mode setting.
+
+    Intel documents the Analysis & Synthesis IP Cores Summary as the report
+    that exposes each discovered IP core's License Type.  Swan Song uses only
+    built-in RAM, PLL, and DDIO functions whose expected candidate report rows
+    say ``N/A``.  Any other license value is retained as a failed candidate gate;
+    it is never silently interpreted as a production grant.
+    """
+
+    lines = synthesis_text.splitlines()
+    settings_index = unique_title(
+        lines, ("Analysis & Synthesis Settings",), "synthesis settings"
+    )
+    settings_header, settings_rows, _ = table_after(lines, settings_index)
+    if [norm(value) for value in settings_header] != [
+        "option",
+        "setting",
+        "default value",
+    ]:
+        raise AuditError("synthesis settings: unknown table format")
+    evaluation_settings = [
+        row[1].strip()
+        for row in settings_rows
+        if len(row) == 3 and norm(row[0]) == "intel fpga ip evaluation mode"
+    ]
+    if len(evaluation_settings) != 1 or evaluation_settings[0] not in (
+        "Disable",
+        "Enable",
+    ):
+        raise AuditError(
+            "Intel FPGA IP Evaluation Mode: expected one Enable/Disable setting"
+        )
+
+    title_index = unique_title(
+        lines,
+        ("Analysis & Synthesis IP Cores Summary",),
+        "synthesis IP cores summary",
+    )
+    header, rows, _ = table_after(lines, title_index)
+    if tuple(norm(value) for value in header) != IP_LICENSE_HEADER or not rows:
+        raise AuditError("synthesis IP cores summary: unknown or empty table")
+
+    entries: List[Dict[str, str]] = []
+    for row in rows:
+        if len(row) != len(IP_LICENSE_HEADER) or any(not value.strip() for value in row):
+            raise AuditError("synthesis IP cores summary contains a ragged or empty row")
+        entries.append(
+            {
+                field.replace(" ", "_"): value.strip()
+                for field, value in zip(IP_LICENSE_HEADER, row)
+            }
+        )
+    non_n_a = [entry for entry in entries if entry["license_type"] != "N/A"]
+    return {
+        "evaluation_mode_setting": evaluation_settings[0],
+        "ip_cores": entries,
+        "non_n_a_license_count": len(non_n_a),
+        "non_n_a_license_entries": non_n_a,
+    }
+
+
+def assembler_generated_files(assembly_text: str) -> List[str]:
+    """Require the normal SOF/RBF names from the native Assembler report."""
+
+    lines = assembly_text.splitlines()
+    title_index = unique_title(
+        lines, ("Assembler Generated Files",), "assembler generated files"
+    )
+    found: List[str] = []
+    saw_header = False
+    for line in lines[title_index + 1 :]:
+        row = cells(line)
+        if row is None:
+            if found and line.strip().startswith("+"):
+                break
+            continue
+        if len(row) != 1:
+            if found:
+                raise AuditError("assembler generated files contains a ragged row")
+            continue
+        value = row[0].strip()
+        if norm(value) == "file name":
+            if saw_header or found:
+                raise AuditError("assembler generated files has a duplicate header")
+            saw_header = True
+            continue
+        if not saw_header:
+            continue
+        found.append(Path(value).name)
+    if found != ["ap_core.sof", "ap_core.rbf"]:
+        raise AuditError(
+            "assembler generated files must be exactly ap_core.sof and ap_core.rbf"
+        )
+    return found
+
+
 def table_after(lines: Sequence[str], title_index: int) -> Tuple[List[str], List[List[str]], bool]:
     header: Optional[List[str]] = None
     rows: List[List[str]] = []
@@ -714,6 +844,26 @@ def numbered_warnings(
     return inventory
 
 
+def numbered_infos(
+    texts: Dict[str, str], info_id: int
+) -> List[Dict[str, object]]:
+    """Inventory a stable Quartus info ID without guessing at its details."""
+
+    pattern = re.compile(rf"\bInfo\s*\(\s*{info_id}\s*\)\s*:", re.I)
+    inventory = []
+    for relative in sorted(texts):
+        for line_number, line in enumerate(texts[relative].splitlines(), 1):
+            if pattern.search(line):
+                inventory.append(
+                    {
+                        "artifact": relative,
+                        "line": line_number,
+                        "message": " ".join(line.split()),
+                    }
+                )
+    return inventory
+
+
 def message_warnings(
     texts: Dict[str, str], phrase: str
 ) -> List[Dict[str, object]]:
@@ -751,7 +901,30 @@ def parse_metadata(text: str) -> Dict[str, str]:
         raise AuditError("invalid source_commit metadata")
     if not result.get("source_date_epoch", "").isdigit():
         raise AuditError("invalid source_date_epoch metadata")
-    if set(result) != {"source_commit", "source_date_epoch", *expected}:
+    if result.get("workflow_repository") != WORKFLOW_REPOSITORY:
+        raise AuditError("build metadata workflow_repository mismatch")
+    if result.get("workflow_path") != WORKFLOW_PATH:
+        raise AuditError("build metadata workflow_path mismatch")
+    if result.get("workflow_sha") != result["source_commit"]:
+        raise AuditError("build metadata workflow_sha mismatch")
+    if re.fullmatch(r"[1-9][0-9]*", result.get("workflow_run_id", "")) is None:
+        raise AuditError("invalid workflow_run_id metadata")
+    if re.fullmatch(
+        r"[1-9][0-9]*", result.get("workflow_run_attempt", "")
+    ) is None:
+        raise AuditError("invalid workflow_run_attempt metadata")
+    if result.get("workflow_job") != WORKFLOW_JOB:
+        raise AuditError("build metadata workflow_job mismatch")
+    if re.fullmatch(
+        r"[0-9a-f]{32}", result.get("workflow_job_nonce", "")
+    ) is None:
+        raise AuditError("invalid workflow_job_nonce metadata")
+    if set(result) != {
+        "source_commit",
+        "source_date_epoch",
+        *WORKFLOW_METADATA_FIELDS,
+        *expected,
+    }:
         raise AuditError("unknown or missing build metadata fields")
     return result
 
@@ -815,6 +988,8 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
 
     resources = resource_summary(texts[REPORTS["fit"][0]])
     timing = timing_summary(texts[REPORTS["timing_analysis"][0]])
+    ip_licensing = ip_license_summary(texts[REPORTS["synthesis"][0]])
+    generated_files = assembler_generated_files(texts[REPORTS["assembly"][0]])
     warnings = critical_warnings(texts)
     connectivity_warnings = numbered_warnings(texts, 12241)
     pll_self_reset_warnings = numbered_warnings(texts, 15069)
@@ -822,11 +997,29 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
         texts, "RST port on the PLL is not properly connected"
     )
     constraint_replacement_warnings = numbered_warnings(texts, 332054)
+    evaluation_warnings = []
+    for warning_id in EVALUATION_WARNING_IDS:
+        evaluation_warnings.extend(numbered_warnings(texts, warning_id))
+    evaluation_warnings.sort(
+        key=lambda entry: (str(entry["artifact"]), int(entry["line"]), str(entry["message"]))
+    )
+    time_limited_infos = []
+    for info_id in TIME_LIMITED_INFO_IDS:
+        time_limited_infos.extend(numbered_infos(texts, info_id))
+    time_limited_infos.sort(
+        key=lambda entry: (str(entry["artifact"]), int(entry["line"]), str(entry["message"]))
+    )
     no_critical = not warnings
     no_connectivity_warnings = not connectivity_warnings
     pll_self_reset_configured = not pll_self_reset_warnings
     pll_reset_port_connected = not pll_reset_port_warnings
     io_delay_constraints_preserved = not constraint_replacement_warnings
+    no_evaluation_or_time_limited_ip = (
+        ip_licensing["non_n_a_license_count"] == 0
+        and not evaluation_warnings
+        and not time_limited_infos
+        and generated_files == ["ap_core.sof", "ap_core.rbf"]
+    )
     ram_block_headroom = (
         resources["ram_blocks"]["used"] <= MAX_CANDIDATE_RAM_BLOCKS
     )
@@ -867,6 +1060,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
         "hold_timing": True,
         "io_delay_constraints_preserved": io_delay_constraints_preserved,
         "no_critical_warnings": no_critical,
+        "no_evaluation_or_time_limited_ip": no_evaluation_or_time_limited_ip,
         "no_connectivity_warnings": no_connectivity_warnings,
         "connectivity_warnings_reviewed": connectivity_review_pass,
         "no_unconstrained_paths": True,
@@ -887,6 +1081,7 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
             and pll_self_reset_configured
             and pll_reset_port_connected
             and io_delay_constraints_preserved
+            and no_evaluation_or_time_limited_ip
             and ram_block_headroom,
             "release_eligible": False,
             "identity": report_identity,
@@ -896,6 +1091,16 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
             "flow": flow,
             "resources": resources,
             "timing": timing,
+            "ip_licensing": {
+                **ip_licensing,
+                "assembler_generated_files": generated_files,
+                "evaluation_warning_ids": list(EVALUATION_WARNING_IDS),
+                "evaluation_warning_count": len(evaluation_warnings),
+                "evaluation_warning_entries": evaluation_warnings,
+                "time_limited_info_ids": list(TIME_LIMITED_INFO_IDS),
+                "time_limited_info_count": len(time_limited_infos),
+                "time_limited_info_entries": time_limited_infos,
+            },
             "critical_warnings": {"count": len(warnings), "entries": warnings},
             "connectivity_warnings": {
                 "warning_id": 12241,
@@ -935,6 +1140,11 @@ def audit(artifact_directory: Path) -> Dict[str, object]:
                 "means the generated PLL does not see a valid deliberate reset.",
                 "Warning 332054 always fails because it proves one or more "
                 "SDRAM input/output delay assignments were replaced.",
+                "The IP-license gate requires every native Analysis & Synthesis "
+                "IP Cores Summary row to report License Type N/A, rejects known "
+                "OpenCore Plus/time-limited warning and info IDs, and requires ordinary "
+                "ap_core.sof plus ap_core.rbf Assembler outputs. This is build "
+                "evidence, not a legal interpretation of Intel's agreements.",
                 f"A candidate may use at most {MAX_CANDIDATE_RAM_BLOCKS} physical "
                 "M10K blocks. The source contract separately proves the disabled "
                 "Memories boundary gate; logical memory-bit percentage is not a "
@@ -982,6 +1192,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "pll_self_reset_configured",
                 "pll_reset_port_connected",
                 "io_delay_constraints_preserved",
+                "no_evaluation_or_time_limited_ip",
                 "ram_block_headroom",
             )
             if result["candidate_gates"][name] is not True

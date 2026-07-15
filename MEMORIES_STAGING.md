@@ -1,8 +1,10 @@
 # Pocket Memories staging architecture
 
-Status: **isolated control plane plus a disabled production ownership boundary
-are implemented and adversarially tested; no working Memories path, fit, or
-hardware support is claimed.** `savestate_supported` and `sleep_supported`
+Status: **isolated control plane, structural/integrity/profile/device A4
+preflight, bounded EEPROM load-settle ownership, plus a disabled production
+ownership boundary are implemented and adversarially tested; no working
+Memories path, fit, or hardware support is claimed.**
+`savestate_supported` and `sleep_supported`
 remain false. `apf_savestate_staging.sv` is intentionally absent from
 `ap_core.qsf` until its SDRAM and clock-domain adapters exist. The smaller
 `apf_sdram_channel1_mux.sv` is compiled in the live cartridge-ROM path, but its
@@ -122,9 +124,14 @@ The current `0x90300` version-1 payload is also only a transport fixture: its
 variable producer and omitted EEPROM/RTC/PPU/APU state cannot become a
 production Memory. Integration requires all of the following:
 
-1. Define and implement a new fixed-size payload-format revision with complete
-   mutable machine state, deterministic padding, title/model/BIOS/settings
-   identity, and payload integrity. Explicitly reject the version-1 experiment.
+1. Complete and freeze the v2 machine semantic ABI inside the already-fixed
+   blob allocation by defining, implementing, and exporting every mutable
+   machine register and memory listed in `SAVESTATE_V2_FORMAT.md`, including
+   the still-opaque CPU, PPU, APU, mapper, scheduler, DMA, and live-I/O
+   sections. Preserve the frozen allocation, header-field layout, deterministic padding,
+   identity, integrity, and RTC/EEPROM device rules; assign executable section
+   schemas before any v2 image is supported, and continue to reject the
+   version-1 experiment.
 2. Add a cooperative console pause boundary and consume the new SDRAM
    quiescence/completion observations in an acknowledged ownership coordinator.
    A0 must first let the inherited state engine reach `system_idle`; asserting
@@ -147,13 +154,29 @@ production Memory. Integration requires all of the following:
    synthesize the 32-byte header and fetch payload words from SDRAM only after
    `save_ready`. Read-ahead must stop before it can overlap a live channel-3
    state-engine operation.
-6. Route A4 through the staged restore gate. No current `fifo_load_empty`
-   shortcut may remain, and Reset Enter, title reload, menu interruption, PLL
-   loss, or a new transaction must cancel safely without a delayed restore.
+6. Route A4 through the isolated v2 preflight and then through future
+   per-subsystem semantic gates. The current preflight checks exact committed
+   order/length, header and payload CRC64, identity and hard settings, profile
+   zero padding, RTC/EEPROM controller schemas, bounded backend completion, and
+   immutable stage generation. It deliberately does not interpret CPU, PPU,
+   APU, mapper, scheduler, DMA, or live-I/O state yet. Every other staging
+   writer, including A0 capture, must invalidate the result. No current
+   `fifo_load_empty` shortcut may remain, and Reset Enter, title reload, menu
+   interruption, PLL loss, or a new transaction must cancel safely without a
+   delayed restore. The lossless A4 command frontend must count only durable
+   word handshakes, wait for all buffered writes to commit, emit exactly one
+   finalize event only for the complete v2 length, and latch the preflight's
+   one-cycle terminal pulse as persistent busy/done/error state until Pocket's
+   query lifecycle consumes it.
 7. Define terminal success/failure behavior. A completed restore must flush and
    deterministically re-prime Pocket frame history; a pre-mutation failure may
    release pause, while an error after live mutation begins must remain safely
    stopped until a clean title reset.
+8. Instantiate one proved load-settle guard per EEPROM and connect its separate
+   retention/fault handshake to the atomic owner. Never OR the guard into the
+   raw acknowledgement. Restore completion and release must wait for both raw
+   EEPROM acknowledgements to return after synchronous-RAM settling. RTC stays
+   on its direct, freeze-dominant raw acknowledgement path.
 
 ## Evidence still required before enabling
 

@@ -26,6 +26,7 @@ python3 "$ROOT/sim/verilator/generate_non_power_two_probe.py" \
   "$BUILD/wsc_896k_compact_probe.wsc" >/dev/null
 "$BUILD/rom_image_test" "$BUILD/wsc_896k_compact_probe.wsc"
 echo "PASS compact-ROM host mapping and negative mutations"
+python3 "$ROOT/scripts/with_native_macos_ghdl_test.py"
 python3 "$ROOT/scripts/soc_control_contract_test.py"
 python3 "$ROOT/scripts/soc_control_integration_test.py"
 python3 "$ROOT/scripts/soc_video_mode_equivalence_test.py"
@@ -35,6 +36,7 @@ python3 "$ROOT/scripts/soc_video_mode_equivalence_test.py"
 "$ROOT/sim/rtl/run_cpu_halt_savestate_tb.sh"
 "$ROOT/sim/rtl/run_savestate_disabled_reset_tb.sh"
 "$ROOT/sim/rtl/run_memories_pause_tb.sh"
+"$ROOT/sim/rtl/run_swantop_menu_pause_tb.sh"
 "$ROOT/sim/rtl/run_cpu_prefix_irq_shadow_tb.sh"
 "$ROOT/sim/rtl/run_irq_controller_tb.sh"
 "$ROOT/sim/rtl/run_gpu_timer_irq_tb.sh"
@@ -48,7 +50,9 @@ python3 "$ROOT/scripts/gpu_final144_sprite_stream_model.py"
 "$ROOT/sim/rtl/run_apf_savestate_v2_layout_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_v2_device_abi_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_v2_eeprom_walker_tb.sh"
+"$ROOT/sim/rtl/run_apf_savestate_v2_load_settle_guard_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_v2_owner_tb.sh"
+"$ROOT/sim/rtl/run_apf_savestate_v2_restore_preflight_tb.sh"
 "$ROOT/sim/rtl/run_rtc_state_tb.sh"
 "$ROOT/sim/rtl/run_eeprom_state_tb.sh"
 "$ROOT/sim/rtl/run_apf_savestate_sdram_writer_tb.sh"
@@ -70,9 +74,12 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_pll_boot_reset_tb.sh"
 "$ROOT/sim/rtl/run_apf_gamepad_filter_tb.sh"
 "$ROOT/sim/rtl/run_apf_input_blocked_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_menu_focus_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_menu_focus_pause_tb.sh"
 "$ROOT/sim/rtl/run_apf_fast_forward_control_tb.sh"
 "$ROOT/sim/rtl/run_apf_console_setup_tb.sh"
 "$ROOT/sim/rtl/run_apf_settings_cdc_tb.sh"
+"$ROOT/sim/rtl/run_apf_interact_readback_tb.sh"
 "$ROOT/sim/rtl/run_apf_control_layout_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_ram_tb.sh"
 "$ROOT/sim/rtl/run_apf_framebank_arbiter_tb.sh"
@@ -97,6 +104,7 @@ python3 "$ROOT/scripts/memories_channel1_contract_test.py"
 "$ROOT/sim/rtl/run_internal_eeprom_tb.sh"
 "$ROOT/sim/rtl/run_pocket_console_eeprom_init_tb.sh"
 "$ROOT/sim/rtl/run_console_eeprom_roundtrip_tb.sh"
+python3 "$ROOT/scripts/mapper_2003_gpo_contract_test.py"
 "$ROOT/sim/rtl/run_mapper_2003_alias_tb.sh"
 "$ROOT/sim/rtl/run_mapper_2003_flash_ce_tb.sh"
 "$ROOT/sim/rtl/run_pocket_save_init_tb.sh"
@@ -104,11 +112,15 @@ python3 "$ROOT/sim/verilator/verify_trace_test.py"
 python3 "$ROOT/sim/verilator/correlate_provenance_test.py"
 python3 "$ROOT/sim/verilator/correlate_bg_cells_test.py"
 python3 "$ROOT/sim/verilator/correlate_sprite_rows_test.py"
-python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb_test.py"
+python3 "$ROOT/sim/verilator/verify_rep_movsb_probe_test.py"
+python3 "$ROOT/sim/verilator/generate_window_boundary_probe_test.py"
+python3 "$ROOT/sim/verilator/verify_window_boundary_probe_test.py"
 python3 "$ROOT/sim/verilator/report_glyphs_test.py"
 python3 "$ROOT/sim/verilator/generate_4bpp_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_non_power_two_probe_test.py"
 python3 "$ROOT/sim/verilator/generate_provenance_probe_test.py"
+python3 "$ROOT/sim/verilator/generate_sram_persistence_probes_test.py"
+python3 "$ROOT/sim/verilator/verify_sram_persistence_save_test.py"
 python3 "$ROOT/sim/verilator/generate_color_sprite_priority_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe_test.py"
 python3 "$ROOT/sim/verilator/verify_sram_32k_probe_test.py"
@@ -134,6 +146,8 @@ python3 "$ROOT/scripts/migrate_cartridge_save_namespace_test.py"
 python3 "$ROOT/scripts/pocket_per_game_preset_test.py"
 python3 "$ROOT/scripts/swan_song_doctor_test.py"
 python3 "$ROOT/scripts/wiki_publication_check_test.py"
+python3 "$ROOT/scripts/wiki_sync_test.py"
+python3 "$ROOT/scripts/prepare_launch_pr_test.py"
 python3 "$ROOT/scripts/frame_delivery_metrics_test.py"
 python3 "$ROOT/scripts/beam_race_safety_test.py"
 python3 "$ROOT/scripts/late_frame_delivery_test.py"
@@ -154,8 +168,12 @@ python3 "$ROOT/scripts/pocket_pad_contract_test.py"
 python3 "$ROOT/scripts/pocket_console_setup_contract_test.py"
 python3 "$ROOT/scripts/pocket_input_dock_contract_test.py"
 python3 "$ROOT/scripts/pocket_menu_focus_contract_test.py"
+python3 "$ROOT/scripts/build_chip32_pending_diagnostic_test.py"
+python3 "$ROOT/scripts/prepare_hardware_qa_workspace_test.py"
 python3 "$ROOT/scripts/pocket_hardware_qa_test.py"
+python3 "$ROOT/scripts/pocket_hardware_qa_session_test.py"
 python3 "$ROOT/scripts/known_title_compatibility_test.py"
+python3 "$ROOT/scripts/prepare_known_title_qa_workspace_test.py"
 python3 "$ROOT/scripts/import_private_corpus_test.py"
 python3 "$ROOT/scripts/run_private_corpus_test.py"
 python3 "$ROOT/scripts/pocket_settings_constraint_test.py"
@@ -180,7 +198,10 @@ python3 "$ROOT/scripts/quartus_fit_audit_test.py"
 python3 "$ROOT/scripts/swan_song_lab_test.py"
 python3 "$ROOT/scripts/generate_core_icon_test.py"
 python3 "$ROOT/scripts/generate_platform_art_test.py"
+python3 "$ROOT/scripts/license_manifest_test.py"
 python3 "$ROOT/scripts/package_core_test.py"
+python3 "$ROOT/scripts/build_release_evidence_test.py"
+python3 "$ROOT/scripts/assemble_stable_release_test.py"
 python3 "$ROOT/scripts/stage_pocket_sd_test.py"
 
 require_bg_layers() {
@@ -212,47 +233,33 @@ require_bg_counts() {
 }
 
 # Always rebuild the VHDL translation and simulator. Otherwise a local source
-# edit can be checked against a stale VSwanTop binary left in build/sim.
-rm -rf "$BUILD/bootstrap"
+# edit can be checked against a stale VSwanTop binary left in build/sim. This
+# generated clean-room ROM proves two independent 2 KiB REP MOVSB transfers
+# and their exact instruction-attributed read/write histories.
+REP_MOVSB_OUT="$BUILD/rep-movsb-probe"
+rm -rf "$REP_MOVSB_OUT"
+python3 "$ROOT/sim/verilator/generate_rep_movsb_probe.py" \
+  "$REP_MOVSB_OUT/roms" >/dev/null
 "$ROOT/sim/verilator/run.sh" \
-  --rom "$ROOT/testroms/spritepriority/spritepriority.ws" \
-  --frames 6 --max-cycles 4000000 --out "$BUILD/bootstrap" \
-  --event-trace "$BUILD/bootstrap/events.csv" \
-  --trace-events cpu,vram,mem,bg_cell \
-  --trace-pc 0xf0000-0xf0fff,0xff000-0xfffff \
-  >/dev/null
+  --rom "$REP_MOVSB_OUT/roms/rep_movsb_probe.ws" \
+  --frames 1 --max-cycles 4000000 --out "$REP_MOVSB_OUT/frames" \
+  --event-trace "$REP_MOVSB_OUT/events.csv" \
+  --trace-events cpu,mem >/dev/null
 python3 "$ROOT/sim/verilator/verify_trace.py" \
-  "$BUILD/bootstrap/events.csv" \
-  --allowed cpu,vram,mem,bg_cell --require cpu,vram,mem,bg_cell \
-  --pc-range 0xf0000-0xf0fff,0xff000-0xfffff \
-  --vram-role all --require-vram-roles all \
-  --vram-address 0x0000-0xbfff \
-  --require-fetch-values --require-mem-initiators cpu \
+  "$REP_MOVSB_OUT/events.csv" \
+  --allowed cpu,mem --require cpu,mem \
+  --require-fetch-values --reject-fetch-collisions \
+  --require-mem-initiators cpu \
   --require-origin-statuses exact,unattributed
-python3 "$ROOT/sim/verilator/verify_cpu_rep_movsb.py" \
-  "$ROOT/testroms/spritepriority/spritepriority.ws" \
-  "$BUILD/bootstrap/events.csv"
-python3 "$ROOT/sim/verilator/correlate_provenance.py" \
-  "$BUILD/bootstrap/events.csv" \
-  --output "$BUILD/bootstrap/provenance.csv" \
-  --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=80452 --expect-count match=80452 \
-  --expect-count collision=0 --expect-count cpu_exact=80010 \
-  --expect-count initial_powerup=442 --expect-count gdma_rom=0 \
-  --expect-count cpu_rom_movsb=52516 \
-  --expect-count cpu_rom_movsb_bytes=4096 \
-  --expect-count cpu_rom_movsb_origins=2
-BOOTSTRAP_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
-  "$BUILD/bootstrap/events.csv" \
-  --output "$BUILD/bootstrap/bg-cells.csv" \
-  --require-complete-coverage)"
-echo "$BOOTSTRAP_BG_SUMMARY"
-require_bg_layers "$BOOTSTRAP_BG_SUMMARY" screen1 screen2
-require_bg_counts "$BOOTSTRAP_BG_SUMMARY" \
-  cells=26226 screen1=13113 screen2=13113 bpp2=26226 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
-  cpu_rom_movsb_cells=26224 cpu_rom_movsb_bytes=4096 \
-  cpu_rom_movsb_origins=2
+python3 "$ROOT/sim/verilator/verify_rep_movsb_probe.py" \
+  "$REP_MOVSB_OUT/roms/rep_movsb_probe.ws" \
+  "$REP_MOVSB_OUT/events.csv"
+
+# Carry exact cartridge SRAM across three separate translated-core processes
+# for every 128/256/512 KiB footer geometry on mono and Color hardware. The
+# open probes first initialize generation 1, then require 1->2 and 2->1
+# persistence before publishing their headless IRAM success byte.
+"$ROOT/sim/verilator/run_sram_persistence_e2e.sh"
 
 # Prove that cycle-addressed controller replay crosses the real keypad matrix.
 # The generated mono ROM selects B5's horizontal row, waits for physical X2,
@@ -439,13 +446,11 @@ fi
 test ! -e "$INPUT_OUT/run-a/events.csv.manifest.json"
 echo "PASS impossible input schedule invalidates prior trace certificate"
 
-# Generate a build-only probe that writes each cartridge bank register. The
-# open sprite-priority ROM supplies only its reset vector/header footer; see
-# generate_bank_probe.py and UPSTREAMS.md for provenance.
+# Generate a fully project-authored build-only probe that writes each
+# cartridge bank register.
 python3 "$ROOT/sim/verilator/verify_bank_probe_test.py"
 rm -rf "$BUILD/bank-probe"
 python3 "$ROOT/sim/verilator/generate_bank_probe.py" \
-  "$ROOT/testroms/spritepriority/spritepriority.ws" \
   "$BUILD/bank-probe/bank_probe.ws" >/dev/null
 "$SIM" \
   --rom "$BUILD/bank-probe/bank_probe.ws" \
@@ -485,7 +490,6 @@ echo "PASS failed capture invalidates trace completeness manifest"
 # value capture without relying on a commercial game.
 rm -rf "$BUILD/provenance-probe"
 python3 "$ROOT/sim/verilator/generate_provenance_probe.py" \
-  "$ROOT/testroms/spritepriority/spritepriority.ws" \
   "$BUILD/provenance-probe/probe.wsc" >/dev/null
 "$SIM" \
   --rom "$BUILD/provenance-probe/probe.wsc" \
@@ -1001,7 +1005,49 @@ check_case tile-screen-extended-range \
   4a79f141e6f47dd902c67a77996ca83bb1b4684eae527109321491d93365e4a5 \
   "$EXT_OUT" 1
 
-# The bootstrap run above is also the sprite-priority golden run, avoiding a
-# duplicate six-frame simulation after rebuilding the model.
-check_case spritepriority c7e9cd656f0e156aa34956492d2ed1b8a482e72d71c2d3caf73c77b3604538fd "$BUILD/bootstrap"
-run_case windowtest c51c7a7681dd3d80667bfa2c5c236932c227d49036e0ae59a9fe6e39a12cf680
+# Lock Screen 2's inclusive window edges plus sprite inside/outside selection
+# with two fully project-authored Color ROMs and independent full-frame oracles.
+WINDOW_OUT="$BUILD/window-boundary-probe"
+rm -rf "$WINDOW_OUT"
+python3 "$ROOT/sim/verilator/generate_window_boundary_probe.py" \
+  --output-dir "$WINDOW_OUT/roms" >/dev/null
+for window_variant in inside outside; do
+  "$SIM" \
+    --rom "$WINDOW_OUT/roms/wsc_window_${window_variant}_probe.wsc" \
+    --frames 2 --max-cycles 1500000 \
+    --out "$WINDOW_OUT/${window_variant}-frames" \
+    --event-trace "$WINDOW_OUT/${window_variant}.csv" \
+    --trace-events mem,vram,bg_cell >/dev/null
+  python3 "$ROOT/sim/verilator/verify_trace.py" \
+    "$WINDOW_OUT/${window_variant}.csv" \
+    --allowed mem,vram,bg_cell --require mem,vram,bg_cell \
+    --vram-role all --require-vram-roles all \
+    --require-fetch-values --reject-fetch-collisions \
+    --require-mem-initiators cpu,gdma \
+    --require-origin-statuses exact,unattributed,not_applicable
+  python3 "$ROOT/sim/verilator/correlate_provenance.py" \
+    "$WINDOW_OUT/${window_variant}.csv" \
+    --output "$WINDOW_OUT/${window_variant}-provenance.csv" \
+    --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
+    --expect-count fetches=26296 --expect-count match=26296 \
+    --expect-count collision=0 --expect-count cpu_exact=8540 \
+    --expect-count initial_powerup=640 --expect-count gdma_rom=17116 \
+    --expect-count cpu_rom_movsb=0 \
+    --expect-count cpu_rom_movsb_bytes=0 \
+    --expect-count cpu_rom_movsb_origins=0
+  WINDOW_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
+    "$WINDOW_OUT/${window_variant}.csv" \
+    --output "$WINDOW_OUT/${window_variant}-bg-cells.csv" \
+    --require-complete-coverage)"
+  echo "$WINDOW_BG_SUMMARY"
+  require_bg_layers "$WINDOW_BG_SUMMARY" screen2
+  require_bg_counts "$WINDOW_BG_SUMMARY" \
+    cells=8494 screen1=0 screen2=8494 bpp2=0 bpp4=8494 \
+    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+    cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
+    cpu_rom_movsb_origins=0
+  python3 "$ROOT/sim/verilator/verify_window_boundary_probe.py" \
+    --variant "$window_variant" \
+    --rom "$WINDOW_OUT/roms/wsc_window_${window_variant}_probe.wsc" \
+    --frame "$WINDOW_OUT/${window_variant}-frames/frame-1.rgb"
+done

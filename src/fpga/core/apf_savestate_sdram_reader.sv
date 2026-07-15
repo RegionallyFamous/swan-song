@@ -83,12 +83,16 @@ module apf_savestate_sdram_reader #(
       candidate_end_addr <= STAGE_END_BYTE &&
       candidate_end_addr <= SDRAM_BYTES;
 
-  assign quiescent = state == STATE_IDLE;
+  // A populated output cache is still owned reader state.  In particular,
+  // preflight abort/replacement must not mistake STATE_IDLE plus an
+  // unconsumed read_word_valid for a drained transaction.
+  wire backend_idle = state == STATE_IDLE;
+  assign quiescent = backend_idle && !cache_valid;
   assign busy = !quiescent;
   assign transfer_start_ready = quiescent && !abort;
   assign read_word_valid = cache_valid && transfer_active &&
                            !transfer_failed && !transfer_start && !abort;
-  assign read_request_ready = quiescent && transfer_active &&
+  assign read_request_ready = backend_idle && transfer_active &&
                               !transfer_failed && !transfer_start && !abort &&
                               (!cache_valid || read_word_ready);
   assign sdram_rnw = 1'b1;

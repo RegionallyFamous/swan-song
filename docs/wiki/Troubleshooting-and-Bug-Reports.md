@@ -19,9 +19,16 @@ the mounted card from Finder into Terminal to paste its path.
 By default the Doctor performs no content or namespace writes; filesystem reads
 may still update access-time metadata. It checks the Swan Song installation,
 required definitions, BIOS filenames and sizes, game and per-game settings
-locations, older WonderSwan data, and unsafe SD-card paths. It never uploads
-ROMs, BIOS files, or saves. It does not open or hash game or BIOS contents, but
-it locally enumerates their filenames and inspects file type and size.
+locations, player-visible icon/artwork files, older WonderSwan data, and unsafe
+SD-card paths. It never uploads ROMs, BIOS files, or saves. By default it does
+not open or hash game or BIOS contents; it locally enumerates filenames and
+inspects file type and size. Game ROMs must be 64 KiB through 16 MiB in whole
+64 KiB banks.
+
+Add `--identify-bios` only if you want the Doctor to read the two exact-size
+BIOS files and compare their local MD5 identifiers with those in the install
+guide. This does not read game contents, upload anything, or reject an
+unfamiliar same-size BIOS dump.
 
 The result begins with `READY`, `READY WITH NOTES`, or `NEEDS ATTENTION`, and
 each finding includes a suggested next step. The Doctor changes nothing unless

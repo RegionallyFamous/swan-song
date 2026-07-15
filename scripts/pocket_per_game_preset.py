@@ -40,7 +40,7 @@ CORE_ID_PATTERN = re.compile(
 SETTING_CONTRACT = {
     "cpu_turbo": (14, "check", "0x110", {0, 1}),
     "triple_buffer": (41, "check", "0x200", {0, 1}),
-    "flicker": (42, "list", "0x204", {0, 1, 2}),
+    "flicker": (42, "list", "0x204", {0, 1, 2, 3}),
     "orientation": (43, "list", "0x208", {0, 1, 2}),
     "landscape_180": (44, "check", "0x20C", {0, 1}),
     "color_profile": (45, "list", "0x210", {0, 1}),
@@ -52,7 +52,13 @@ ORIENTATION_VALUES = {"auto": 0, "horizontal": 1, "vertical": 2}
 CONTROL_LAYOUT_VALUES = {"auto": 0, "horizontal": 1, "vertical": 2}
 # "3-frame" remains an explicit compatibility alias for the old menu wording.
 # Mode 2 is a finite three-frame LCD-response model, not infinite persistence.
-FLICKER_VALUES = {"off": 0, "2-frame": 1, "persistence": 2, "3-frame": 2}
+FLICKER_VALUES = {
+    "off": 0,
+    "2-frame": 1,
+    "persistence": 2,
+    "3-frame": 2,
+    "complete-60.9": 3,
+}
 COLOR_PROFILE_VALUES = {"raw": 0, "ares": 1}
 SWITCH_VALUES = {"off": 0, "on": 1}
 
@@ -254,9 +260,12 @@ def build_interact_document(
                 f"{source} interact ID {identifier} no longer matches the "
                 f"expected {kind} at {address}"
             )
-        if variable.get("persist") is not True or variable.get("writeonly") is not True:
+        if (
+            variable.get("persist") is not True
+            or variable.get("writeonly", False) is not False
+        ):
             raise PresetError(
-                f"{source} interact ID {identifier} must remain persistent and write-only"
+                f"{source} interact ID {identifier} must remain persistent and readable"
             )
         if variable.get("defaultval") not in allowed:
             raise PresetError(
@@ -883,12 +892,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--triple-buffer", choices=SWITCH_VALUES, default="on")
     parser.add_argument(
+        "--motion-mode",
         "--lcd-response",
         "--flicker",
         dest="flicker",
         choices=FLICKER_VALUES,
         default="off",
-        help="finite LCD response model (--flicker is a compatibility alias)",
+        help=(
+            "display motion mode; complete-60.9 selects experimental tear-free "
+            "60.9 Hz output (--lcd-response/--flicker are compatibility aliases)"
+        ),
     )
     parser.add_argument("--cpu-turbo", choices=SWITCH_VALUES, default="off")
     parser.add_argument(

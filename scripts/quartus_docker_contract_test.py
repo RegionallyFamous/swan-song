@@ -148,7 +148,7 @@ esac
 
     @staticmethod
     def run_fake_failed_fit(
-        output: Path, *, reserved_collision: bool = False
+        output: Path, *, reserved_collision: bool = False, candidate: bool = True
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             fake_bin = Path(temporary)
@@ -268,8 +268,28 @@ esac
                     ),
                     "FAKE_FIT_MARKER": str(marker),
                     "FAKE_RESERVED_COLLISION": "1" if reserved_collision else "0",
+                    "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swan-song",
+                    "SWANSONG_WORKFLOW_PATH": ".github/workflows/quartus-fit.yml",
+                    "SWANSONG_WORKFLOW_SHA": "a" * 40,
+                    "SWANSONG_WORKFLOW_RUN_ID": "100",
+                    "SWANSONG_WORKFLOW_RUN_ATTEMPT": "1",
+                    "SWANSONG_WORKFLOW_JOB": "fit",
+                    "SWANSONG_BUILD_JOB_NONCE": "a" * 32,
+                    "SWANSONG_BUILD_CLASS": "candidate",
                 }
             )
+            if not candidate:
+                for name in (
+                    "SWANSONG_WORKFLOW_REPOSITORY",
+                    "SWANSONG_WORKFLOW_PATH",
+                    "SWANSONG_WORKFLOW_SHA",
+                    "SWANSONG_WORKFLOW_RUN_ID",
+                    "SWANSONG_WORKFLOW_RUN_ATTEMPT",
+                    "SWANSONG_WORKFLOW_JOB",
+                    "SWANSONG_BUILD_JOB_NONCE",
+                    "SWANSONG_BUILD_CLASS",
+                ):
+                    environment.pop(name, None)
             result = subprocess.run(
                 [str(HOST), "build", str(output)],
                 check=False,
@@ -395,9 +415,9 @@ esac
                 }
             )
             if lab_nonce is not None:
-                environment["SWAN_SONG_JOB_NONCE"] = lab_nonce
+                environment["SWANSONG_BUILD_JOB_NONCE"] = lab_nonce
             else:
-                environment.pop("SWAN_SONG_JOB_NONCE", None)
+                environment.pop("SWANSONG_BUILD_JOB_NONCE", None)
             environment.pop("DOCKER_HOST", None)
             environment.pop("DOCKER_CONTEXT", None)
             if docker_context is not None:
@@ -502,6 +522,14 @@ esac
             self.assertTrue(provenance.is_file())
             self.assertNotIn("private.example", provenance.read_text())
 
+    def test_local_development_wrapper_runs_without_github_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "artifacts"
+            output.mkdir()
+            result = self.run_fake_failed_fit(output, candidate=False)
+        self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
+        self.assertNotIn("workflow identity", result.stderr)
+
     def test_container_reserved_provenance_collision_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "artifacts"
@@ -553,6 +581,18 @@ esac
         host = HOST.read_text()
         self.assertIn('python3 "$ROOT/scripts/quartus_fit_audit.py"', host)
         self.assertIn("quartus-audit-candidate.json", host)
+
+    def test_local_build_defaults_to_development_without_github_identity(self) -> None:
+        host = HOST.read_text()
+        container = CONTAINER_BUILD.read_text()
+        workflow = WORKFLOW.read_text()
+        self.assertIn(
+            'build_class="${SWANSONG_BUILD_CLASS:-development}"', host
+        )
+        self.assertIn('if [[ "$build_class" == candidate ]]', host)
+        self.assertIn("development fit artifacts (not a signed candidate)", host)
+        self.assertIn("development build refuses GitHub workflow identity", container)
+        self.assertIn("SWANSONG_BUILD_CLASS: candidate", workflow)
 
     def test_toolchain_gate_checks_exact_version_edition_and_part(self) -> None:
         check = TOOLCHAIN_CHECK.read_text()
@@ -657,11 +697,17 @@ esac
         self.assertIn("required: true", lab_nonce_input)
         self.assertNotIn("default:", lab_nonce_input)
         self.assertIn("inputs.lab_nonce != ''", workflow)
-        self.assertIn("SWAN_SONG_JOB_NONCE: ${{ inputs.lab_nonce }}", workflow)
+        self.assertIn("SWANSONG_BUILD_JOB_NONCE: ${{ inputs.lab_nonce }}", workflow)
         self.assertIn(
-            '[[ ! "$SWAN_SONG_JOB_NONCE" =~ ^[0-9a-f]{32}$ ]]',
+            '[[ ! "$SWANSONG_BUILD_JOB_NONCE" =~ ^[0-9a-f]{32}$ ]]',
             workflow,
         )
+        for permission in (
+            "id-token: write",
+            "attestations: write",
+            "artifact-metadata: write",
+        ):
+            self.assertIn(permission, workflow)
         self.assertIn("default: candidate", workflow)
         self.assertIn("- connectivity-refresh", workflow)
         self.assertIn(
@@ -1004,6 +1050,7 @@ esac
             uses,
             [
                 "uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0",
+                "uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1",
                 "uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1",
             ],
         )
@@ -1015,9 +1062,10 @@ esac
         self.assertIn("always()", workflow)
         self.assertIn("id: collect", workflow)
         self.assertIn("steps.collect.outcome == 'success'", workflow)
-        self.assertIn("path: ${{ env.EVIDENCE_DIR }}", workflow)
-        self.assertNotIn("path: ${{ env.ARTIFACT_DIR }}", workflow)
-        self.assertIn("if-no-files-found: warn", workflow)
+        upload = workflow[workflow.index("      - name: Preserve bounded Quartus evidence") :]
+        self.assertIn("path: ${{ env.EVIDENCE_DIR }}", upload)
+        self.assertNotIn("path: ${{ env.ARTIFACT_DIR }}", upload)
+        self.assertIn("if-no-files-found: error", workflow)
         self.assertIn("retention-days: 14", workflow)
 
     def test_regression_workflow_pins_node24_checkout(self) -> None:

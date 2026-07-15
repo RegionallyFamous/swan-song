@@ -22,6 +22,72 @@ esac
 case "${ARTIFACT_GID:-}" in
   (*[!0-9]*|'') echo "ARTIFACT_GID must be a numeric host group ID" >&2; exit 80 ;;
 esac
+build_class="${SWANSONG_BUILD_CLASS:-development}"
+if [[ "$build_class" == development ]]; then
+  for name in \
+    SWANSONG_WORKFLOW_REPOSITORY SWANSONG_WORKFLOW_PATH \
+    SWANSONG_WORKFLOW_SHA SWANSONG_WORKFLOW_RUN_ID \
+    SWANSONG_WORKFLOW_RUN_ATTEMPT SWANSONG_WORKFLOW_JOB \
+    SWANSONG_BUILD_JOB_NONCE; do
+    [[ -z "${!name:-}" ]] || {
+      echo "development build refuses GitHub workflow identity: $name" >&2
+      exit 76
+    }
+  done
+elif [[ "$build_class" != candidate ]]; then
+  echo "SWANSONG_BUILD_CLASS must be development or candidate" >&2
+  exit 76
+fi
+if [[ "$build_class" == candidate ]]; then
+[[ "${SWANSONG_WORKFLOW_REPOSITORY:-}" == RegionallyFamous/swan-song ]] || {
+  echo "SWANSONG_WORKFLOW_REPOSITORY must be RegionallyFamous/swan-song" >&2
+  exit 76
+}
+[[ "${SWANSONG_WORKFLOW_PATH:-}" == .github/workflows/quartus-fit.yml ]] || {
+  echo "SWANSONG_WORKFLOW_PATH must be .github/workflows/quartus-fit.yml" >&2
+  exit 76
+}
+case "${SWANSONG_WORKFLOW_SHA:-}" in
+  (????????????????????????????????????????)
+    [[ "$SWANSONG_WORKFLOW_SHA" != *[!0-9a-f]* ]] || {
+      echo "SWANSONG_WORKFLOW_SHA must be the full lowercase source SHA" >&2
+      exit 76
+    }
+    ;;
+  (*) echo "SWANSONG_WORKFLOW_SHA must be the full lowercase source SHA" >&2; exit 76 ;;
+esac
+case "${SWANSONG_WORKFLOW_RUN_ID:-}" in
+  ([1-9]*)
+    [[ "$SWANSONG_WORKFLOW_RUN_ID" != *[!0-9]* ]] || {
+      echo "SWANSONG_WORKFLOW_RUN_ID must be a positive decimal GitHub run ID" >&2
+      exit 76
+    }
+    ;;
+  (*) echo "SWANSONG_WORKFLOW_RUN_ID must be a positive decimal GitHub run ID" >&2; exit 76 ;;
+esac
+case "${SWANSONG_WORKFLOW_RUN_ATTEMPT:-}" in
+  ([1-9]*)
+    [[ "$SWANSONG_WORKFLOW_RUN_ATTEMPT" != *[!0-9]* ]] || {
+      echo "SWANSONG_WORKFLOW_RUN_ATTEMPT must be a positive decimal attempt" >&2
+      exit 76
+    }
+    ;;
+  (*) echo "SWANSONG_WORKFLOW_RUN_ATTEMPT must be a positive decimal attempt" >&2; exit 76 ;;
+esac
+[[ "${SWANSONG_WORKFLOW_JOB:-}" == fit ]] || {
+  echo "SWANSONG_WORKFLOW_JOB must be fit" >&2
+  exit 76
+}
+case "${SWANSONG_BUILD_JOB_NONCE:-}" in
+  (????????????????????????????????)
+    [[ "$SWANSONG_BUILD_JOB_NONCE" != *[!0-9a-f]* ]] || {
+      echo "SWANSONG_BUILD_JOB_NONCE must be a fresh 32-character lowercase-hex nonce" >&2
+      exit 76
+    }
+    ;;
+  (*) echo "SWANSONG_BUILD_JOB_NONCE must be a fresh 32-character lowercase-hex nonce" >&2; exit 76 ;;
+esac
+fi
 
 work_root=""
 cleanup() {
@@ -65,6 +131,12 @@ esac
 case "$source_epoch" in
   (*[!0-9]*|'') echo "invalid Git source epoch: $source_epoch" >&2; exit 77 ;;
 esac
+if [[ "$build_class" == candidate ]]; then
+  [[ "$SWANSONG_WORKFLOW_SHA" == "$source_commit" ]] || {
+    echo "SWANSONG_WORKFLOW_SHA does not identify the mounted source commit" >&2
+    exit 76
+  }
+fi
 
 work_root="$(mktemp -d /tmp/swan-song-quartus.XXXXXX)"
 mkdir "$work_root/repo"
@@ -120,12 +192,28 @@ done
 cp src/fpga/apf/build_id.mif "$artifact_root/build_id.mif"
 /opt/intelFPGA/quartus/bin/quartus_sh --version > "$artifact_root/toolchain-version.txt"
 sha256sum "$artifact_root/output_files/ap_core.rbf" > "$artifact_root/ap_core.rbf.sha256"
-printf '%s\n' \
-  "source_commit=$source_commit" \
-  "source_date_epoch=$source_epoch" \
-  "platform=linux/amd64" \
-  "quartus=21.1.1.850 Lite" \
-  "device=5CEBA4F23C8" \
-  > "$artifact_root/build-metadata.txt"
+metadata=(
+  "source_commit=$source_commit"
+  "source_date_epoch=$source_epoch"
+)
+if [[ "$build_class" == candidate ]]; then
+  metadata+=(
+    "workflow_repository=$SWANSONG_WORKFLOW_REPOSITORY"
+    "workflow_path=$SWANSONG_WORKFLOW_PATH"
+    "workflow_sha=$SWANSONG_WORKFLOW_SHA"
+    "workflow_run_id=$SWANSONG_WORKFLOW_RUN_ID"
+    "workflow_run_attempt=$SWANSONG_WORKFLOW_RUN_ATTEMPT"
+    "workflow_job=$SWANSONG_WORKFLOW_JOB"
+    "workflow_job_nonce=$SWANSONG_BUILD_JOB_NONCE"
+  )
+else
+  metadata+=("build_class=development")
+fi
+metadata+=(
+  "platform=linux/amd64"
+  "quartus=21.1.1.850 Lite"
+  "device=5CEBA4F23C8"
+)
+printf '%s\n' "${metadata[@]}" > "$artifact_root/build-metadata.txt"
 
 echo "Quartus fit/timing artifacts copied to $artifact_root"

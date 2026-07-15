@@ -103,7 +103,7 @@ The 2026-07-14 package audit added the missing complete GPLv3 text, retained
 GPLv2 text, exact Adam Gastineau/Peter Lemon MIT notices, the complete APF
 header, and an Intel/Altera generated-material warning to every package. The
 strict `LICENSE-MANIFEST.json` binds those seven files by SHA-256 and records
-seven unresolved review IDs. Release mode now rejects an incomplete manifest
+six unresolved review IDs. Release mode now rejects an incomplete manifest
 even if the older policy authorization boolean is changed. This fixes missing
 notice mechanics; it does **not** make a license selection or authorize a
 release. The exact blockers and rights-holder request drafts are in
@@ -141,25 +141,17 @@ The checked-in hexadecimal image preserves that exact output so packaging is
 offline and host-independent; the build verifies both the assembly and decoded
 image identities before including it.
 
-The 19 checked-in files under `testroms/spritepriority`,
-`testroms/timingtest`, and `testroms/windowtest` are byte-identical to the
-same paths in pinned MiSTer commit
-`8f7a4d670b4635eda0e518e7fd9a17ef8610db79`. Robert Peip introduced the
-timing/window set in `30f74aa4c02856763721a2ed00c8feed55300893` and the
-sprite-priority set in `921240c3c4f67f545e52efe2050a288cfc2f4f2d`.
-Those files and commit messages do not carry separate license declarations;
-their only repository-level license material is MiSTer's top-level GPL v2
-text, so the manifest records `NOASSERTION` instead of inferring a grant.
-Every path, SHA-256, and introducing commit is recorded in the packaged
-`LICENSE-MANIFEST.json`. These legacy files contain no commercial game ROM
-and are not placed in the Pocket package, but they still require a grant or
-removal/replacement before a release source bundle includes them.
+The 19 formerly checked-in files under `testroms/spritepriority`,
+`testroms/timingtest`, and `testroms/windowtest` had no file-level grant.
+They were removed instead of guessing at their terms. Project-authored
+deterministic REP MOVSB, Color sprite-priority, and dual window-boundary probes
+now cover their material regression roles. The strict license validator also
+rejects any future file beneath those retired roots.
 
 The regression's bank and provenance probes are generated under `build/` and
-are never checked in. They contribute new minimal 80186 programs and copy only
-the final 16-byte reset-vector/header footer from the open `spritepriority.ws`
-carrier above; the provenance probe changes the footer's color flag so the
-color-only GDMA block can be exercised.
+are never checked in. Their minimal 80186 programs, deterministic cartridge
+payloads, 16-byte headers, and additive checksums are all project-authored;
+neither generator reads a carrier ROM.
 
 The deterministic input-replay regression likewise generates its 128 KiB mono
 cartridge and controller schedule under `build/`. Its 80186 program, identity

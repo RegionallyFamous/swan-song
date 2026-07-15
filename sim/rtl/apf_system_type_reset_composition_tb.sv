@@ -187,6 +187,7 @@ module apf_system_type_reset_composition_tb;
         .dpad_left(1'b0),
         .dpad_right(1'b0),
         .physical_input_blocked(1'b0),
+        .menu_focus_paused(1'b0),
         .configured_system(settings_destination[12:11]),
         .use_cpu_turbo(settings_destination[10]),
         .use_rewind_capture(1'b0),
