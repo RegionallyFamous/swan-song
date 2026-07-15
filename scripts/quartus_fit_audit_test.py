@@ -1043,7 +1043,7 @@ class QuartusFitAuditTest(unittest.TestCase):
         exact = payload["connectivity_warnings"]["exact_review"]
         self.assertTrue(exact["accepted"])
         self.assertEqual(exact["status"], "accepted_exact_set")
-        self.assertEqual(exact["observed"]["warning_rows"], 116)
+        self.assertEqual(exact["observed"]["warning_rows"], 121)
         self.assertEqual(exact["differences"]["unexpected"], [])
 
         self.fixture.write(

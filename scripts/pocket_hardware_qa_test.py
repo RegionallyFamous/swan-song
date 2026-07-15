@@ -128,6 +128,18 @@ def synthetic_rom(
 
 class PocketHardwareQATest(unittest.TestCase):
     def setUp(self) -> None:
+        # Most schema and mutation tests exercise evidence ordering and
+        # identity rules, not the host FFmpeg installation.  Keep those unit
+        # tests hermetic; the focused decoder test below calls the real helper
+        # with explicit subprocess results and still proves fail-closed media
+        # handling.
+        self.real_media_validator = hardware_qa._validate_decodable_media
+        self.media_validator_patch = mock.patch.object(
+            hardware_qa, "_validate_decodable_media", return_value=None
+        )
+        self.media_validator = self.media_validator_patch.start()
+        self.addCleanup(self.media_validator_patch.stop)
+
         self.temporary = tempfile.TemporaryDirectory(prefix="swan-hardware-qa-test-")
         self.root = pathlib.Path(self.temporary.name)
         self.private = self.root / "private"
@@ -480,8 +492,108 @@ class PocketHardwareQATest(unittest.TestCase):
     def test_media_validation_requires_one_decoded_frame(self) -> None:
         path = self.private / "truncated.mp4"
         path.write_bytes(VALID_MP4[: VALID_MP4.index(b"mdat") + 4])
-        with self.assertRaisesRegex(ValueError, "not decodable|no decoded"):
-            hardware_qa._validate_decodable_media(path, "video", "test video")
+        with mock.patch.object(hardware_qa.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(ValueError, "requires FFmpeg"):
+                self.real_media_validator(path, "video", "test video")
+
+        failed_decode = mock.Mock(returncode=1, stdout="", stderr="decode failed")
+        with (
+            mock.patch.object(
+                hardware_qa.shutil, "which", return_value="/synthetic/ffmpeg"
+            ),
+            mock.patch.object(
+                hardware_qa.subprocess, "run", return_value=failed_decode
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "not decodable.*decode failed"):
+                self.real_media_validator(path, "video", "test video")
+
+        zero_duration = mock.Mock(
+            returncode=0,
+            stdout="frame=1\nout_time_us=0\nprogress=end\n",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                hardware_qa.shutil, "which", return_value="/synthetic/ffmpeg"
+            ),
+            mock.patch.object(
+                hardware_qa.subprocess, "run", return_value=zero_duration
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "no decoded media duration"):
+                self.real_media_validator(path, "video", "test video")
+
+        zero_frames = mock.Mock(
+            returncode=0,
+            stdout="frame=0\nout_time_us=1000\nprogress=end\n",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                hardware_qa.shutil, "which", return_value="/synthetic/ffmpeg"
+            ),
+            mock.patch.object(
+                hardware_qa.subprocess, "run", return_value=zero_frames
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "no decoded video frame"):
+                self.real_media_validator(path, "video", "test video")
+
+        decoded_frame = mock.Mock(
+            returncode=0,
+            stdout="frame=1\nout_time_us=1000\nprogress=end\n",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                hardware_qa.shutil, "which", return_value="/synthetic/ffmpeg"
+            ),
+            mock.patch.object(
+                hardware_qa.subprocess, "run", return_value=decoded_frame
+            ) as run_decoder,
+        ):
+            self.real_media_validator(path, "video", "test video")
+        run_decoder.assert_called_once_with(
+            [
+                "/synthetic/ffmpeg",
+                "-v", "error",
+                "-xerror",
+                "-i", str(path),
+                "-map", "0:v:0",
+                "-frames:v", "1",
+                "-progress", "pipe:1",
+                "-nostats",
+                "-f", "null",
+                "-",
+            ],
+            stdout=hardware_qa.subprocess.PIPE,
+            stderr=hardware_qa.subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+
+        audio_path = self.private / "synthetic.wav"
+        audio_path.write_bytes(valid_wav())
+        decoded_audio = mock.Mock(
+            returncode=0,
+            stdout="out_time_us=1000\nprogress=end\n",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                hardware_qa.shutil, "which", return_value="/synthetic/ffmpeg"
+            ),
+            mock.patch.object(
+                hardware_qa.subprocess, "run", return_value=decoded_audio
+            ) as run_audio_decoder,
+        ):
+            self.real_media_validator(audio_path, "audio", "test audio")
+        audio_command = run_audio_decoder.call_args.args[0]
+        self.assertIn("0:a:0", audio_command)
+        self.assertIn("-frames:a", audio_command)
+        self.assertNotIn("-frames:v", audio_command)
 
     def test_production_firmware_identity_is_pinned(self) -> None:
         self.assertEqual(OFFICIAL_FIRMWARE_VERSION, "2.6.0")
@@ -504,10 +616,23 @@ class PocketHardwareQATest(unittest.TestCase):
         summary = verify_manifest(self.manifest, self.inventory)
         self.assertEqual(summary["cases"], len(CASE_SPECS))
         self.assertGreater(summary["artifacts"], len(CASE_SPECS))
+        validated_media_kinds = {
+            call.args[1] for call in self.media_validator.call_args_list
+        }
+        self.assertTrue(
+            {"audio", "photo", "pocket_screenshot", "video"}
+            <= validated_media_kinds
+        )
         self.assertEqual(
             summary["manifest_sha256"],
             hashlib.sha256(self.manifest.read_bytes()).hexdigest(),
         )
+
+    def test_manifest_propagates_media_validator_rejection(self) -> None:
+        self.write_manifest(self.accepted_fixture())
+        self.media_validator.side_effect = ValueError("synthetic decoder rejection")
+        with self.assertRaisesRegex(ValueError, "synthetic decoder rejection"):
+            verify_manifest(self.manifest, self.inventory)
 
     def test_installed_payload_manifest_is_complete_and_fails_on_drift(self) -> None:
         self.write_manifest(self.accepted_fixture())

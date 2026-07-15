@@ -70,8 +70,8 @@ class ConnectivityPolicyTest(unittest.TestCase):
         result = self.review()
         self.assertTrue(result["accepted"])
         self.assertEqual(result["status"], "accepted_exact_set")
-        self.assertEqual(result["allowlist"]["rows"], 116)
-        self.assertEqual(result["observed"]["warning_rows"], 116)
+        self.assertEqual(result["allowlist"]["rows"], 121)
+        self.assertEqual(result["observed"]["warning_rows"], 121)
         self.assertEqual(result["observed"]["warning_hierarchies"], 27)
         self.assertEqual(
             result["observed"]["summary_message"],
@@ -80,7 +80,7 @@ class ConnectivityPolicyTest(unittest.TestCase):
         )
         self.assertEqual(result["differences"]["missing"], [])
         self.assertEqual(result["differences"]["unexpected"], [])
-        self.assertEqual(len(result["source_bindings"]), 90)
+        self.assertEqual(len(result["source_bindings"]), 92)
 
     def _mutated_item(self, field: str, value: str) -> str:
         items = [dict(item) for item in self.items]
@@ -105,7 +105,7 @@ class ConnectivityPolicyTest(unittest.TestCase):
         items[-1]["port"] = "same_count_unreviewed_port"
         result = self.review(fixture_report(items))
         self.assertFalse(result["accepted"])
-        self.assertEqual(result["observed"]["warning_rows"], 116)
+        self.assertEqual(result["observed"]["warning_rows"], 121)
         self.assertEqual(result["differences"]["missing_count"], 1)
         self.assertEqual(result["differences"]["unexpected_count"], 1)
 
@@ -125,7 +125,7 @@ class ConnectivityPolicyTest(unittest.TestCase):
         }
         result = self.review(fixture_report([*self.items, defect]))
         self.assertFalse(result["accepted"])
-        self.assertEqual(result["observed"]["warning_rows"], 117)
+        self.assertEqual(result["observed"]["warning_rows"], 122)
         self.assertEqual(result["observed"]["warning_hierarchies"], 28)
         self.assertEqual(result["differences"]["unexpected_count"], 1)
         self.assertEqual(
