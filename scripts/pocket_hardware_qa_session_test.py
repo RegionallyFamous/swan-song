@@ -155,8 +155,18 @@ class HardwareQASessionTests(unittest.TestCase):
         self.start()
         cutoff = VALID_MP4.index(b"mdat") + 4
         source = self.source("truncated.mp4", VALID_MP4[:cutoff])
-        with self.assertRaisesRegex(session.SessionError, "not decodable|no decoded"):
+        self.fixture.media_validator.side_effect = ValueError(
+            "not decodable synthetic video"
+        )
+        with self.assertRaisesRegex(
+            session.SessionError, "^not decodable synthetic video$"
+        ):
             self.ingest_video(source)
+        self.fixture.media_validator.assert_called_once()
+        self.assertEqual(
+            self.fixture.media_validator.call_args.args[1:],
+            ("video", "artifact source"),
+        )
 
     def test_finish_requires_explicit_human_result_and_preserves_attestation(self) -> None:
         self.start()
