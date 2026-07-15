@@ -104,7 +104,17 @@ begin
       SSMEM_WriteData        => (others => '0'),
       SSMEM_ReadData_REG     => open,
       SSMEM_ReadData_RAM     => open,
-      SSMEM_ReadData_SRAM    => open
+      SSMEM_ReadData_SRAM    => open,
+      internal_eeprom_state_freeze => '0',
+      internal_eeprom_state_frozen => open,
+      internal_eeprom_state_load   => '0',
+      internal_eeprom_state_in     => (others => '0'),
+      internal_eeprom_state_out    => open,
+      cartridge_eeprom_state_freeze => '0',
+      cartridge_eeprom_state_frozen => open,
+      cartridge_eeprom_state_load   => '0',
+      cartridge_eeprom_state_in     => (others => '0'),
+      cartridge_eeprom_state_out    => open
     );
 
   stimulus : process

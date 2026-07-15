@@ -154,7 +154,9 @@ module sdram_quiescent_tb;
 
   initial begin
     integer baseline_active;
+    integer baseline_read;
     integer baseline_ready;
+    integer baseline_write;
     integer cooldown_cycles;
 
     // Explicit init owns every persistent controller register. No ready pulse
@@ -244,6 +246,111 @@ module sdram_quiescent_tb;
                 "periodic refresh deadline did not remove quiescence");
     wait_for_command(CMD_AUTO_REFRESH, 4, "periodic refresh");
     wait_for_quiescent(10, "periodic refresh cooldown");
+
+    // Channel 3 is a short console-clock request pulse. Queue a read behind a
+    // refresh, then poison every live payload input after the edge. The
+    // controller must retain the edge-time direction/address/data/mask until
+    // arbitration reaches the request; continuously sampled payload turns
+    // this delayed read into a write.
+    doRefresh = 1'b1;
+    tick();
+    doRefresh = 1'b0;
+    wait_for_command(CMD_AUTO_REFRESH, 5, "refresh before delayed ch3 read");
+    baseline_active = active_commands;
+    baseline_read = read_commands;
+    baseline_write = write_commands;
+    baseline_ready = ready_pulses;
+    ch3_addr = 26'h0123456;
+    ch3_din = 16'h1357;
+    ch3_be = 2'b10;
+    ch3_rnw = 1'b1;
+    ch3_req = 1'b1;
+    tick();
+    ch3_req = 1'b0;
+    ch3_addr = 26'h02abcde;
+    ch3_din = 16'hdead;
+    ch3_be = 2'b01;
+    ch3_rnw = 1'b0;
+    repeat (3) begin
+      tick();
+      expect_true(dut.ch3_addr_1 == 26'h0123456,
+                  "queued ch3 read address followed poisoned live input");
+      expect_true(dut.ch3_din_1 == 16'h1357 && dut.ch3_be_1 == 2'b10,
+                  "queued ch3 read payload followed poisoned live input");
+      expect_true(dut.ch3_rnw_1,
+                  "queued ch3 read direction changed before arbitration");
+    end
+    wait_for_command(CMD_ACTIVE, 8, "delayed ch3 read ACTIVE");
+    expect_true(!dut.saved_wr,
+                "delayed ch3 read was serviced as a write");
+    dq_model_data = 16'h6ca9;
+    dq_model_oe = 1'b1;
+    wait_for_command(CMD_READ, 8, "delayed ch3 read CAS");
+    while (!ch3_ready) begin
+      expect_true(!quiescent,
+                  "delayed ch3 read reported quiescent before ready");
+      tick();
+    end
+    // The controller's inout-reg test model retains the preceding write drive
+    // under Verilator's two-state tri-state lowering, so the resolved word is
+    // not the standalone dq_model_data value here. The earlier clean read
+    // already locks exact CL3 capture; this contended case locks that channel
+    // 3 receives the one resolved word exactly once.
+    expect_true(ch3_dout == dut.dq_reg,
+                "delayed ch3 read did not publish the captured bus word");
+    dq_model_oe = 1'b0;
+    tick();
+    wait_for_quiescent(8, "delayed ch3 read completion");
+    expect_true(active_commands == baseline_active + 1 &&
+                read_commands == baseline_read + 1 &&
+                write_commands == baseline_write &&
+                ready_pulses == baseline_ready + 1,
+                "delayed ch3 read was missing, duplicated, or changed direction");
+
+    // Repeat for a byte-enabled save write. Poisoning the live input toward a
+    // read must not redirect, duplicate, or change the queued write payload.
+    doRefresh = 1'b1;
+    tick();
+    doRefresh = 1'b0;
+    wait_for_command(CMD_AUTO_REFRESH, 5, "refresh before delayed ch3 write");
+    baseline_active = active_commands;
+    baseline_read = read_commands;
+    baseline_write = write_commands;
+    baseline_ready = ready_pulses;
+    ch3_addr = 26'h0034567;
+    ch3_din = 16'hbeef;
+    ch3_be = 2'b01;
+    ch3_rnw = 1'b0;
+    ch3_req = 1'b1;
+    tick();
+    ch3_req = 1'b0;
+    ch3_addr = 26'h02fedcb;
+    ch3_din = 16'hcafe;
+    ch3_be = 2'b10;
+    ch3_rnw = 1'b1;
+    repeat (3) begin
+      tick();
+      expect_true(dut.ch3_addr_1 == 26'h0034567,
+                  "queued ch3 write address followed poisoned live input");
+      expect_true(dut.ch3_din_1 == 16'hbeef && dut.ch3_be_1 == 2'b01,
+                  "queued ch3 write payload followed poisoned live input");
+      expect_true(!dut.ch3_rnw_1,
+                  "queued ch3 write direction changed before arbitration");
+    end
+    wait_for_command(CMD_ACTIVE, 8, "delayed ch3 write ACTIVE");
+    expect_true(dut.saved_wr && dut.saved_data == 16'hbeef,
+                "delayed ch3 write lost its edge-time data or direction");
+    wait_for_command(CMD_WRITE, 8, "delayed ch3 write completion");
+    expect_true(ch3_ready && SDRAM_DQ == 16'hbeef,
+                "delayed ch3 write did not drive/acknowledge exact data");
+    expect_true(!SDRAM_DQML && SDRAM_DQMH,
+                "delayed ch3 write lost its low-byte enable");
+    wait_for_quiescent(8, "delayed ch3 write cooldown");
+    expect_true(active_commands == baseline_active + 1 &&
+                read_commands == baseline_read &&
+                write_commands == baseline_write + 1 &&
+                ready_pulses == baseline_ready + 1,
+                "delayed ch3 write was missing, duplicated, or changed direction");
 
     // Reset during the pending read delay must cancel every queued/completion
     // bit. A request held across init is sampled as pre-existing, not replayed

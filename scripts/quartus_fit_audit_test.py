@@ -34,6 +34,18 @@ def report(summary: str, status_key: str, status: str = "Successful - fixture") 
 """
 
 
+def assembler_generated_files_report() -> str:
+    return """+ fixture +
+; Assembler Generated Files ;
++ fixture +
+; File Name ;
++ fixture +
+; /fixture/output_files/ap_core.sof ;
+; /fixture/output_files/ap_core.rbf ;
++ fixture +
+"""
+
+
 def assembler_report(
     header_version: str = VERSION.removeprefix("Version "),
     *,
@@ -43,7 +55,11 @@ def assembler_report(
     if not include_table_version:
         body = body.replace(f"; Quartus Prime Version ; {VERSION} ;\n", "")
     header = f"Quartus Prime Version {header_version}\n" if header_version else ""
-    return f"Assembler report for ap_core\n{header}\n{body}"
+    return f"""Assembler report for ap_core
+{header}
+{body}
+{assembler_generated_files_report()}
+"""
 
 
 def map_report(
@@ -71,7 +87,20 @@ Quartus Prime Version {version}
 ; Device                ; {device} ;                     ;
 ; Top-level entity name ; apf_top        ; apf_top             ;
 ; Family name           ; Cyclone V      ; Cyclone V           ;
+; Intel FPGA IP Evaluation Mode ; Enable ; Enable ;
 +-----------------------+----------------+---------------------+
+
++ fixture +
+; Analysis & Synthesis IP Cores Summary ;
++ fixture +
+; Vendor ; IP Core Name ; Version ; Release Date ; License Type ; Entity Instance ; IP Include File ;
++ fixture +
+; Altera ; RAM: 2-PORT ; 18.1 ; N/A ; N/A ; |apf_top|mf_datatable:idt ; apf/mf_datatable.v ;
+; Altera ; altera_pll ; 21.1 ; N/A ; N/A ; |apf_top|mf_pllbase:mp1 ; core/mf_pllbase.v ;
+; Altera ; ALTDDIO_BIDIR ; 18.1 ; N/A ; N/A ; |apf_top|mf_ddio_bidir_12:iscc ; apf/mf_ddio_bidir_12.v ;
+; Altera ; ALTDDIO_BIDIR ; 18.1 ; N/A ; N/A ; |apf_top|mf_ddio_bidir_12:isclk ; apf/mf_ddio_bidir_12.v ;
+; Altera ; ALTDDIO_BIDIR ; 18.1 ; N/A ; N/A ; |apf_top|mf_ddio_bidir_12:isco ; apf/mf_ddio_bidir_12.v ;
++ fixture +
 """
 
 
@@ -195,7 +224,14 @@ SWAN_SONG_MIN_PULSE_GATE_V1 corners 4 worst_checks 4 negative_checks 0
 
 
 class Fixture:
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        workflow_run_id: str = "100",
+        workflow_run_attempt: str = "1",
+        workflow_job_nonce: str = "0" * 32,
+    ):
         self.root = root
         (root / "output_files").mkdir()
         self.write("output_files/ap_core.rbf", b"fixture-rbf\x01")
@@ -225,6 +261,13 @@ class Fixture:
             (
                 "source_commit=" + "a" * 40 + "\n"
                 "source_date_epoch=1700000000\n"
+                "workflow_repository=RegionallyFamous/swan-song\n"
+                "workflow_path=.github/workflows/quartus-fit.yml\n"
+                "workflow_sha=" + "a" * 40 + "\n"
+                f"workflow_run_id={workflow_run_id}\n"
+                f"workflow_run_attempt={workflow_run_attempt}\n"
+                "workflow_job=fit\n"
+                f"workflow_job_nonce={workflow_job_nonce}\n"
                 "platform=linux/amd64\n"
                 "quartus=21.1.1.850 Lite\n"
                 "device=5CEBA4F23C8\n"
@@ -232,6 +275,10 @@ class Fixture:
         )
         self.write("build_id.mif", b"WIDTH=32; DEPTH=8; CONTENT BEGIN END;\n")
         self.write("quartus.log", b"Info: Full Compilation was successful\n")
+        self.write(
+            "quartus-audit-candidate.attestation.json",
+            b'{"synthetic":"attestation-bundle"}\n',
+        )
         packages = root / "container-packages.tsv"
         self.write("container-packages.tsv", b"bash\t5.0-6ubuntu1.2\tamd64\n")
         container_provenance.create_provenance(
@@ -278,6 +325,19 @@ class QuartusFitAuditTest(unittest.TestCase):
             {"available": 308, "used": 280},
         )
         self.assertTrue(payload["candidate_gates"]["ram_block_headroom"])
+        self.assertTrue(
+            payload["candidate_gates"]["no_evaluation_or_time_limited_ip"]
+        )
+        self.assertEqual(
+            payload["ip_licensing"]["assembler_generated_files"],
+            ["ap_core.sof", "ap_core.rbf"],
+        )
+        self.assertEqual(
+            payload["ip_licensing"]["evaluation_mode_setting"], "Enable"
+        )
+        self.assertEqual(payload["ip_licensing"]["non_n_a_license_count"], 0)
+        self.assertEqual(payload["ip_licensing"]["evaluation_warning_count"], 0)
+        self.assertEqual(payload["ip_licensing"]["time_limited_info_count"], 0)
         self.assertEqual(
             payload["timing"]["clocks"]["required"], list(audit.REQUIRED_CLOCKS)
         )
@@ -307,6 +367,124 @@ class QuartusFitAuditTest(unittest.TestCase):
         self.assertIn("container-provenance.json", payload["artifacts"])
         self.assertIn("container-packages.tsv", payload["artifacts"])
         self.assertNotIn("release_evidence", json.loads(first))
+
+    def test_ip_license_inventory_fails_closed(self) -> None:
+        map_path = self.root / "output_files/ap_core.map.rpt"
+        original = map_path.read_bytes()
+
+        map_path.write_bytes(
+            original.replace(
+                b"; Altera ; RAM: 2-PORT ; 18.1 ; N/A ; N/A ;",
+                b"; Altera ; RAM: 2-PORT ; 18.1 ; N/A ; Unlicensed ;",
+                1,
+            )
+        )
+        payload = audit.audit(self.root)["quartus_audit"]
+        self.assertFalse(
+            payload["candidate_gates"]["no_evaluation_or_time_limited_ip"]
+        )
+        self.assertFalse(payload["audit_pass"])
+        self.assertEqual(payload["ip_licensing"]["non_n_a_license_count"], 1)
+        self.assertEqual(
+            payload["ip_licensing"]["non_n_a_license_entries"][0]["license_type"],
+            "Unlicensed",
+        )
+
+        map_path.write_bytes(original.replace(b"Intel FPGA IP Evaluation Mode", b"Unknown Mode", 1))
+        with self.assertRaisesRegex(
+            audit.AuditError, "Intel FPGA IP Evaluation Mode"
+        ):
+            audit.audit(self.root)
+        map_path.write_bytes(original)
+
+    def test_duplicate_identical_evaluation_setting_is_rejected(self) -> None:
+        map_path = self.root / "output_files/ap_core.map.rpt"
+        setting = b"; Intel FPGA IP Evaluation Mode ; Enable ; Enable ;\n"
+        map_path.write_bytes(map_path.read_bytes().replace(setting, setting * 2, 1))
+        with self.assertRaisesRegex(
+            audit.AuditError, "Intel FPGA IP Evaluation Mode"
+        ):
+            audit.audit(self.root)
+
+    def test_opencore_warning_fails_candidate_gate(self) -> None:
+        log_path = self.root / "quartus.log"
+        log_path.write_text(
+            "Warning (12188): OpenCore Plus Hardware Evaluation feature is turned on\n"
+        )
+        payload = audit.audit(self.root)["quartus_audit"]
+        self.assertFalse(
+            payload["candidate_gates"]["no_evaluation_or_time_limited_ip"]
+        )
+        self.assertFalse(payload["audit_pass"])
+        self.assertEqual(payload["ip_licensing"]["evaluation_warning_count"], 1)
+        self.assertEqual(
+            payload["ip_licensing"]["evaluation_warning_entries"][0]["artifact"],
+            "quartus.log",
+        )
+
+    def test_time_limited_rbf_conversion_warning_fails_candidate_gate(self) -> None:
+        log_path = self.root / "quartus.log"
+        log_path.write_text(
+            "Warning (210042): Can't convert time-limited SOF into POF, HEX File, "
+            "TTF, or RBF\n"
+        )
+        payload = audit.audit(self.root)["quartus_audit"]
+        self.assertFalse(
+            payload["candidate_gates"]["no_evaluation_or_time_limited_ip"]
+        )
+        self.assertFalse(payload["audit_pass"])
+        self.assertEqual(payload["ip_licensing"]["evaluation_warning_count"], 1)
+        self.assertEqual(
+            payload["ip_licensing"]["evaluation_warning_entries"][0]["message"],
+            "Warning (210042): Can't convert time-limited SOF into POF, HEX File, "
+            "TTF, or RBF",
+        )
+
+    def test_time_limited_core_info_fails_candidate_gate(self) -> None:
+        log_path = self.root / "quartus.log"
+        log_path.write_text(
+            "Info (115017): Design contains a time-limited core -- only a single, "
+            "time-limited programming file can be generated\n"
+        )
+        payload = audit.audit(self.root)["quartus_audit"]
+        self.assertFalse(
+            payload["candidate_gates"]["no_evaluation_or_time_limited_ip"]
+        )
+        self.assertFalse(payload["audit_pass"])
+        self.assertEqual(payload["ip_licensing"]["time_limited_info_count"], 1)
+        self.assertEqual(
+            payload["ip_licensing"]["time_limited_info_entries"][0]["message"],
+            "Info (115017): Design contains a time-limited core -- only a single, "
+            "time-limited programming file can be generated",
+        )
+
+    def test_time_limited_assembler_output_is_rejected(self) -> None:
+        assembly_path = self.root / "output_files/ap_core.asm.rpt"
+        assembly_path.write_bytes(
+            assembly_path.read_bytes().replace(
+                b"/fixture/output_files/ap_core.sof",
+                b"/fixture/output_files/ap_core_time_limited.sof",
+                1,
+            )
+        )
+        with self.assertRaisesRegex(
+            audit.AuditError,
+            "assembler generated files must be exactly ap_core.sof and ap_core.rbf",
+        ):
+            audit.audit(self.root)
+
+    def test_extra_relative_time_limited_assembler_output_is_rejected(self) -> None:
+        assembly_path = self.root / "output_files/ap_core.asm.rpt"
+        expected = b"; /fixture/output_files/ap_core.rbf ;\n"
+        extra = expected + b"; ap_core_time_limited.sof ;\n"
+        assembly_path.write_bytes(
+            assembly_path.read_bytes().replace(expected, extra, 1)
+        )
+        with self.assertRaisesRegex(
+            audit.AuditError,
+            "assembler generated files must be exactly ap_core.sof and ap_core.rbf",
+        ):
+            audit.audit(self.root)
 
     def test_physical_ram_block_candidate_budget_is_fail_closed(self) -> None:
         fit_path = self.root / "output_files/ap_core.fit.rpt"
@@ -410,7 +588,8 @@ class QuartusFitAuditTest(unittest.TestCase):
         # The preexisting table form and a matching header-plus-table form
         # remain accepted, but the genuine plain header needs no invented row.
         for contents in (
-            report("Assembler Summary", "Assembler Status"),
+            report("Assembler Summary", "Assembler Status")
+            + assembler_generated_files_report(),
             assembler_report(include_table_version=True),
         ):
             with self.subTest(accepted_form=contents.splitlines()[0]):

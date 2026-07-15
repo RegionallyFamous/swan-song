@@ -86,12 +86,14 @@ python3 scripts/run_private_corpus.py run --dry-run
 
 The runner requires an already-built, regular, non-symlink
 `build/sim/obj_dir/VSwanTop`; it never builds or writes under the repository.
-Build the simulator separately using only the checked-in open fixture, then run
+Build the simulator separately using a generated clean-room fixture, then run
 the six-frame corpus smoke:
 
 ```sh
+python3 sim/verilator/generate_rep_movsb_probe.py \
+  /tmp/swan-song-build-check-rom
 ./sim/verilator/run.sh \
-  --rom testroms/spritepriority/spritepriority.ws \
+  --rom /tmp/swan-song-build-check-rom/rep_movsb_probe.ws \
   --frames 1 --out /tmp/swan-song-build-check
 
 python3 scripts/run_private_corpus.py run --workers 4

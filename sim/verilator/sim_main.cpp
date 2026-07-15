@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -53,6 +55,32 @@ static std::vector<uint8_t> read_file_limited(const fs::path& path,
   return result;
 }
 
+static std::vector<uint8_t> read_regular_file_limited(
+    const fs::path& path, size_t limit, const char* description) {
+  std::error_code error;
+  const fs::file_status status = fs::symlink_status(path, error);
+  if (error || fs::is_symlink(status) || !fs::is_regular_file(status)) {
+    throw std::runtime_error(std::string(description) +
+                             " must be a regular non-symlink file: " +
+                             path.string());
+  }
+  if (fs::hard_link_count(path) != 1) {
+    throw std::runtime_error(std::string(description) +
+                             " must not be hard-linked: " + path.string());
+  }
+  const uintmax_t size_before = fs::file_size(path);
+  const fs::file_time_type write_time_before = fs::last_write_time(path);
+  auto result = read_file_limited(path, limit, description);
+  if (fs::file_size(path) != size_before ||
+      fs::last_write_time(path) != write_time_before ||
+      fs::hard_link_count(path) != 1) {
+    throw std::runtime_error(std::string(description) +
+                             " changed while it was being read: " +
+                             path.string());
+  }
+  return result;
+}
+
 static unsigned parse_frame_count(const std::string& text) {
   size_t consumed = 0;
   uint64_t value = 0;
@@ -67,6 +95,68 @@ static unsigned parse_frame_count(const std::string& text) {
                              std::to_string(std::numeric_limits<unsigned>::max()));
   }
   return static_cast<unsigned>(value);
+}
+
+struct IramByteExpectation {
+  uint16_t address;
+  uint8_t value;
+};
+
+static uint64_t parse_bounded_integer(const std::string& text, uint64_t maximum,
+                                      const char* description) {
+  const bool hexadecimal =
+      text.size() > 2 && text[0] == '0' &&
+      (text[1] == 'x' || text[1] == 'X');
+  const size_t digits_begin = hexadecimal ? 2 : 0;
+  const auto valid_digit = [hexadecimal](unsigned char character) {
+    if (character >= '0' && character <= '9') return true;
+    return hexadecimal &&
+           ((character >= 'a' && character <= 'f') ||
+            (character >= 'A' && character <= 'F'));
+  };
+  if (digits_begin == text.size() ||
+      !std::all_of(text.begin() + static_cast<std::ptrdiff_t>(digits_begin),
+                   text.end(), valid_digit)) {
+    throw std::runtime_error(
+        std::string(description) + " must be decimal or 0x-prefixed hex");
+  }
+  size_t consumed = 0;
+  uint64_t value = 0;
+  try {
+    value = std::stoull(text, &consumed, hexadecimal ? 16 : 10);
+  } catch (const std::exception&) {
+    throw std::runtime_error(std::string(description) + " must be an integer");
+  }
+  if (consumed != text.size() || value > maximum) {
+    throw std::runtime_error(std::string(description) + " is out of range");
+  }
+  return value;
+}
+
+static IramByteExpectation parse_iram_byte_expectation(const std::string& text) {
+  const size_t separator = text.find('=');
+  if (separator == std::string::npos || separator == 0 ||
+      separator + 1 == text.size() || text.find('=', separator + 1) != std::string::npos) {
+    throw std::runtime_error(
+        "--expect-iram-byte must be ADDRESS=VALUE (decimal or 0x-prefixed)");
+  }
+  return {
+      static_cast<uint16_t>(parse_bounded_integer(
+          text.substr(0, separator), 0xffff, "IRAM expectation address")),
+      static_cast<uint8_t>(parse_bounded_integer(
+          text.substr(separator + 1), 0xff, "IRAM expectation value")),
+  };
+}
+
+static size_t declared_sram_bytes(uint8_t ram_type) {
+  switch (ram_type) {
+    case 0x01:
+    case 0x02: return 32u * 1024u;
+    case 0x03: return 128u * 1024u;
+    case 0x04: return 256u * 1024u;
+    case 0x05: return 512u * 1024u;
+    default: return 0;
+  }
 }
 
 static std::string format_fnv1a64(uint64_t hash) {
@@ -185,6 +275,15 @@ static fs::path weakly_canonical_or_absolute(const fs::path& path) {
   return error ? fs::absolute(path).lexically_normal() : canonical;
 }
 
+static bool paths_alias(const fs::path& left, const fs::path& right) {
+  if (left.empty() || right.empty()) return false;
+  std::error_code error;
+  const bool equivalent = fs::equivalent(left, right, error);
+  if (!error && equivalent) return true;
+  return weakly_canonical_or_absolute(left) ==
+         weakly_canonical_or_absolute(right);
+}
+
 static bool generated_frame_path_collision(const fs::path& candidate,
                                            const fs::path& out_dir,
                                            unsigned target_frames) {
@@ -226,6 +325,79 @@ static void reject_symlink_output(const fs::path& path, const char* description)
   if (!error && fs::is_symlink(status)) {
     throw std::runtime_error(std::string(description) +
                              " must not be a symlink: " + path.string());
+  }
+}
+
+static void require_fresh_output(const fs::path& path, const char* description) {
+  std::error_code error;
+  const fs::file_status status = fs::symlink_status(path, error);
+  if (error && error != std::errc::no_such_file_or_directory) {
+    throw std::runtime_error(std::string("cannot inspect ") + description +
+                             ": " + path.string() + ": " + error.message());
+  }
+  if (!error && (fs::exists(status) || fs::is_symlink(status))) {
+    throw std::runtime_error(std::string(description) +
+                             " must not already exist: " + path.string());
+  }
+}
+
+static void write_binary_atomic(const fs::path& path,
+                                const std::vector<uint8_t>& bytes,
+                                size_t count) {
+  if (count > bytes.size()) {
+    throw std::runtime_error("binary output count exceeds backing bytes");
+  }
+  if (path.has_parent_path()) fs::create_directories(path.parent_path());
+  fs::path temporary = path;
+  temporary += ".tmp";
+  require_fresh_output(path, "SRAM output");
+  require_fresh_output(temporary, "SRAM temporary output");
+  std::error_code temporary_error;
+  if (!fs::create_directory(temporary, temporary_error)) {
+    throw std::runtime_error("cannot reserve exclusive SRAM temporary " +
+                             temporary.string() + ": " +
+                             (temporary_error ? temporary_error.message()
+                                              : "already exists"));
+  }
+  const fs::path temporary_payload = temporary / "payload";
+  {
+    std::ofstream output(temporary_payload, std::ios::binary | std::ios::trunc);
+    if (!output) {
+      fs::remove_all(temporary);
+      throw std::runtime_error("cannot write " + temporary_payload.string());
+    }
+    output.write(reinterpret_cast<const char*>(bytes.data()),
+                 static_cast<std::streamsize>(count));
+    output.close();
+    if (!output) {
+      fs::remove_all(temporary);
+      throw std::runtime_error("failed to write " + temporary_payload.string());
+    }
+  }
+  // Creating the destination as a hard link is an atomic no-replace publish
+  // on both APFS and Linux filesystems. A plain rename would silently replace
+  // a file created after the freshness checks on POSIX hosts.
+  std::error_code publish_error;
+  fs::create_hard_link(temporary_payload, path, publish_error);
+  if (publish_error) {
+    fs::remove_all(temporary);
+    throw std::runtime_error("cannot publish SRAM output " + path.string() +
+                             ": " + publish_error.message());
+  }
+  // The hard link is the commit point. Never roll the public name back by
+  // pathname: it could have been replaced concurrently. Cleanup failure is
+  // non-fatal because the complete, closed payload is already published.
+  std::error_code payload_cleanup_error;
+  fs::remove(temporary_payload, payload_cleanup_error);
+  std::error_code directory_cleanup_error;
+  fs::remove(temporary, directory_cleanup_error);
+  if (payload_cleanup_error || directory_cleanup_error) {
+    std::cerr << "warning: SRAM output was published successfully but temporary "
+                 "cleanup failed: "
+              << temporary.string() << ": "
+              << (payload_cleanup_error ? payload_cleanup_error.message()
+                                        : directory_cleanup_error.message())
+              << '\n';
   }
 }
 
@@ -400,6 +572,9 @@ static void usage(const char* argv0) {
       << "  --out DIR               raw/PNG frame directory\n"
       << "  --max-cycles N          timeout in 36.864 MHz system cycles\n"
       << "  --input-script FILE     system-cycle controller state replay\n"
+      << "  --sram-in FILE          exact footer-sized cartridge SRAM input\n"
+      << "  --sram-out FILE         create a fresh exact footer-sized SRAM artifact\n"
+      << "  --expect-iram-byte A=V  stop on an exact IRAM byte write\n"
       << "  --trace FILE.vcd        whole-design VCD waveform\n\n"
       << "Structured debug trace:\n"
       << "  --event-trace FILE      write CSV, or JSONL for a .jsonl filename\n"
@@ -579,6 +754,9 @@ static int run_main(int argc, char** argv) {
   fs::path out_dir = "build/sim/frames";
   fs::path trace_path;
   fs::path input_script_path;
+  fs::path sram_in_path;
+  fs::path sram_out_path;
+  std::optional<IramByteExpectation> iram_expectation;
   swansong::trace::Config event_trace_config;
   uint64_t max_cycles = 36'864'000;
   unsigned target_frames = 1;
@@ -595,6 +773,11 @@ static int run_main(int argc, char** argv) {
     else if (arg == "--frames") target_frames = parse_frame_count(value("--frames"));
     else if (arg == "--out") out_dir = value("--out");
     else if (arg == "--input-script") input_script_path = value("--input-script");
+    else if (arg == "--sram-in") sram_in_path = value("--sram-in");
+    else if (arg == "--sram-out") sram_out_path = value("--sram-out");
+    else if (arg == "--expect-iram-byte") {
+      iram_expectation = parse_iram_byte_expectation(value("--expect-iram-byte"));
+    }
     else if (arg == "--trace") trace_path = value("--trace");
     else if (arg == "--event-trace") event_trace_config.output = value("--event-trace");
     else if (arg == "--trace-frame-artifacts") trace_frame_artifacts = true;
@@ -640,8 +823,26 @@ static int run_main(int argc, char** argv) {
     else throw std::runtime_error("unknown argument: " + arg);
   }
   if (rom_path.empty()) { usage(argv[0]); return 2; }
+  if (!sram_out_path.empty()) {
+    fs::path sram_temporary_path = sram_out_path;
+    sram_temporary_path += ".tmp";
+    // Refuse a preexisting artifact before parsing any input or running the
+    // model. Successful invocations therefore never reuse or replace an older
+    // file; callers must still honor a failed invocation's exit status.
+    require_fresh_output(sram_out_path, "SRAM output");
+    require_fresh_output(sram_temporary_path, "SRAM temporary output");
+  }
   if (trace_frame_artifacts && !event_trace_config.enabled()) {
     throw std::runtime_error("--trace-frame-artifacts requires --event-trace");
+  }
+  if (trace_frame_artifacts && iram_expectation) {
+    throw std::runtime_error(
+        "--trace-frame-artifacts cannot be used with --expect-iram-byte");
+  }
+  if (!sram_in_path.empty() && event_trace_config.enabled()) {
+    throw std::runtime_error(
+        "--sram-in cannot be used with --event-trace because trace manifest "
+        "v1 does not bind imported SRAM provenance");
   }
   if (trace_frame_artifacts) {
     reject_symlink_output(event_trace_config.output, "event trace output");
@@ -689,6 +890,42 @@ static int run_main(int argc, char** argv) {
   const auto prepared_rom = swansong::rom::prepare(rom);
   const auto& mapped_rom = prepared_rom.mapped;
   const bool color_cartridge = mapped_rom[mapped_rom.size() - 9] == 1;
+  const uint8_t ram_type = mapped_rom[mapped_rom.size() - 5];
+  const size_t sram_payload_bytes = declared_sram_bytes(ram_type);
+  if ((!sram_in_path.empty() || !sram_out_path.empty()) &&
+      sram_payload_bytes == 0) {
+    throw std::runtime_error(
+        "SRAM import/export requires footer RAM type 0x01..0x05");
+  }
+  if (!sram_out_path.empty()) {
+    if (paths_alias(sram_out_path, rom_path) ||
+        paths_alias(sram_out_path, bios_path) ||
+        paths_alias(sram_out_path, input_script_path)) {
+      throw std::runtime_error(
+          "SRAM output must not replace a ROM, BIOS, or input script");
+    }
+    const std::array<fs::path, 4> other_outputs = {
+        event_trace_config.output,
+        event_trace_config.enabled()
+            ? trace_manifest_path(event_trace_config.output)
+            : fs::path{},
+        event_trace_config.enabled()
+            ? trace_manifest_temp_path(event_trace_config.output)
+            : fs::path{},
+        trace_path,
+    };
+    for (const fs::path& output : other_outputs) {
+      if (paths_alias(sram_out_path, output)) {
+        throw std::runtime_error(
+            "SRAM output must not replace a trace output");
+      }
+    }
+    if (generated_frame_path_collision(
+            sram_out_path, out_dir, target_frames)) {
+      throw std::runtime_error(
+          "SRAM output collides with a raw frame path");
+    }
+  }
 
   std::vector<uint8_t> bios;
   if (!bios_path.empty()) {
@@ -736,6 +973,19 @@ static int run_main(int argc, char** argv) {
   // Verilator C++ boundary.  Keep the future Memories path explicitly inert
   // in the direct harness, matching core_top's production hard-disable.
   top->memories_pause_request = 0;
+  top->rtc_state_freeze = 0;
+  top->rtc_state_load = 0;
+  for (unsigned word = 0; word < 8; ++word) top->rtc_state_data_in[word] = 0;
+  top->internal_eeprom_state_freeze = 0;
+  top->internal_eeprom_state_load = 0;
+  for (unsigned word = 0; word < 4; ++word) {
+    top->internal_eeprom_state_in[word] = 0;
+  }
+  top->cartridge_eeprom_state_freeze = 0;
+  top->cartridge_eeprom_state_load = 0;
+  for (unsigned word = 0; word < 4; ++word) {
+    top->cartridge_eeprom_state_in[word] = 0;
+  }
   // The direct SwanTop harness retains the legacy deterministic cold-reset
   // seed. The Pocket wrapper drives this high and supplies both persistent
   // model banks through the dedicated second port instead.
@@ -752,7 +1002,7 @@ static int run_main(int argc, char** argv) {
   top->internal_eeprom_rnw = 1;
   top->maskAddr = static_cast<uint32_t>(mapped_rom.size() - 1);
   top->romtype = mapped_rom[mapped_rom.size() - 3];
-  top->ramtype = mapped_rom[mapped_rom.size() - 5];
+  top->ramtype = ram_type;
   top->hasRTC = mapped_rom[mapped_rom.size() - 3] == 1;
   top->isColor = color_cartridge || bios.size() == 8192;
   top->fastforward = 0;
@@ -773,9 +1023,21 @@ static int run_main(int argc, char** argv) {
   top->rewind_on = top->rewind_active = 0;
 
   std::vector<uint8_t> sram(1u << 20, 0);
+  if (!sram_in_path.empty()) {
+    const auto imported = read_regular_file_limited(
+        sram_in_path, sram_payload_bytes, "SRAM input");
+    if (imported.size() != sram_payload_bytes) {
+      throw std::runtime_error(
+          "SRAM input must be exactly " + std::to_string(sram_payload_bytes) +
+          " bytes for footer RAM type 0x" +
+          format_fnv1a64(ram_type).substr(14));
+    }
+    std::copy(imported.begin(), imported.end(), sram.begin());
+  }
   uint64_t ticks = 0;
   uint64_t trace_cycle = 0;
   bool trace_capture_active = false;
+  bool iram_expectation_met = false;
   auto eval = [&] {
     top->eval();
     const uint32_t raw_address = top->EXTRAM_addr & 0x01ff'ffffu;
@@ -808,8 +1070,20 @@ static int run_main(int argc, char** argv) {
       if (phase == 0) top->clk = 1;
       if (phase == 3) top->clk = 0;
       eval();
-      if (trace_capture_active && event_trace) {
-        if (phase == 0) trace_taps.capture(*top, *event_trace, trace_cycle);
+      if (trace_capture_active && phase == 0) {
+        if (event_trace) trace_taps.capture(*top, *event_trace, trace_cycle);
+        if (iram_expectation && top->debug_mem_valid && top->debug_mem_write &&
+            top->debug_mem_space == 1 && top->debug_mem_offset_valid) {
+          for (unsigned lane = 0; lane < 2; ++lane) {
+            if ((top->debug_mem_byte_enable & (1u << lane)) != 0 &&
+                top->debug_mem_offset + lane == iram_expectation->address &&
+                ((top->debug_mem_value >> (lane * 8)) & 0xffu) ==
+                    iram_expectation->value) {
+              iram_expectation_met = true;
+              break;
+            }
+          }
+        }
       }
     }
     if (trace_capture_active) ++trace_cycle;
@@ -841,7 +1115,9 @@ static int run_main(int argc, char** argv) {
   std::vector<FrameArtifact> frame_artifacts;
   std::optional<swansong::input::Replay> input_replay;
   if (input_script) input_replay.emplace(*input_script);
-  for (uint64_t cycle_count = 0; cycle_count < max_cycles && frames < target_frames;
+  for (uint64_t cycle_count = 0;
+       cycle_count < max_cycles &&
+       (iram_expectation ? !iram_expectation_met : frames < target_frames);
        ++cycle_count) {
     if (input_replay) {
       swansong::input::apply(input_replay->state_for_cycle(cycle_count), *top);
@@ -867,7 +1143,12 @@ static int run_main(int argc, char** argv) {
 
   if (trace) trace->close();
   top->final();
-  if (!wrote_pixel || frames < target_frames) {
+  if (iram_expectation && !iram_expectation_met) {
+    std::cerr << "simulation timed out after " << max_cycles
+              << " system cycles without the expected IRAM byte write\n";
+    return 1;
+  }
+  if (!iram_expectation && (!wrote_pixel || frames < target_frames)) {
     std::cerr << "simulation timed out after " << max_cycles
               << " system cycles; completed " << frames << " frame(s)\n";
     return 1;
@@ -883,6 +1164,10 @@ static int run_main(int argc, char** argv) {
                          input_script ? &*input_script : nullptr,
                          input_replay ? input_replay->applied_events() : 0,
                          trace_frame_artifacts ? &frame_artifacts : nullptr);
+  }
+  if (!sram_out_path.empty()) {
+    write_binary_atomic(sram_out_path, sram, sram_payload_bytes);
+    std::cout << sram_out_path.string() << '\n';
   }
   return 0;
 }

@@ -1,3 +1,6 @@
+-- Modified for Swan Song by Regionally Famous on 2026-07-14.
+-- See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 

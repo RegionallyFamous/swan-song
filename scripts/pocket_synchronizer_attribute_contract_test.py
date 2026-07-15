@@ -33,6 +33,11 @@ EXPECTED_DECLARATIONS: dict[str, tuple[str, ...]] = {
         "reg request_meta_destination = 1'b0;",
         "reg request_sync_destination = 1'b0;",
     ),
+    "src/fpga/core/apf_menu_focus_cdc.sv": (
+        "reg menu_focus_meta = 1'b0;",
+        "reg menu_focus_sync = 1'b0;",
+        "reg menu_focus_level = 1'b0;",
+    ),
     "src/fpga/core/apf_reset_sync.sv": (
         "reg [STAGES-1:0] sync_chain = {STAGES{1'b0}};",
     ),
@@ -193,9 +198,9 @@ def must_reject(
 
 def main() -> None:
     expected_site_count = sum(map(len, EXPECTED_DECLARATIONS.values()))
-    if len(EXPECTED_DECLARATIONS) != 10 or expected_site_count != 45:
+    if len(EXPECTED_DECLARATIONS) != 11 or expected_site_count != 48:
         raise AssertionError(
-            "test inventory must enumerate exactly 45 sites across ten RTL files"
+            "test inventory must enumerate exactly 48 sites across eleven RTL files"
         )
 
     sources = load_sources()

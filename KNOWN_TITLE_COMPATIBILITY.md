@@ -54,7 +54,7 @@ repeat, lifecycle, or reference comparison in the JSON catalogue.
 | Title / case | Primary-source defect | Required run and expected result | Reference / evidence |
 | --- | --- | --- | --- |
 | Chou Denki Card Battle: Youfu Makai (Rev 3) | [MiSTer #3](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/3) documents a crash after entering gameplay and pressing Left twice; a later report says the in-game Initialization option changes the result. | Run both clean/uninitialized and explicitly initialized paths. Both must survive two Left presses; Initialization cannot be a prerequisite for play. | Same-revision original cartridge, two videos per Pocket/Dock mode, run log. The issue reporter's published SHA-1 is not copied into the acceptance identity. |
-| Meta Communication | [MiSTer #4](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4) says “Meta comm - Flickering in name select,” with no route or reference. | Record the exact route, hold the name selector, and traverse every position at a controlled rate. Output must match original hardware without core-only flicker. | Same-revision original hardware; video and run log per mode. |
+| Metakomi Theraphy: Nee Kiite! | [MiSTer #4](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4) says “Meta comm - Flickering in name select,” with no route or reference. The catalogue identifies the shorthand as the original monochrome WonderSwan title. | Record the exact route, hold the name selector, and traverse every position at a controlled rate. Output must match original hardware without core-only flicker. | Same-revision original hardware; video and run log per mode. |
 | Star Hearts Taikenban / Trial | [MiSTer #4](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4) reports rain-overlay flicker. | Record the exact route to one rain scene and capture the unobstructed overlay for at least twenty seconds. It must match the same trial build on original hardware. | Trial-version cartridge reference; video and log per mode. Retail Star Hearts is not a substitute. |
 | Final Lap 2000 (WS) | [MiSTer #4](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/4) uses the shorthand “Final Lap” for track flicker; [MiSTer #30](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/30) explicitly identifies the WS title Final Lap 2000 and shows a bad England GP start line. | On one owner-identified Final Lap 2000 dump, complete a recorded circuit and capture the England GP start-line crossing. Track layers and start line must match hardware. | Same-revision cartridge reference for both scenarios; two videos and a log per mode. One SHA-256 binds the one source-identified title. |
 | One Piece: Grand Battle Swan Colosseum | [MiSTer #2](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/2) reports special-move garbage; its [follow-up](https://github.com/MiSTer-devel/WonderSwan_MiSTer/issues/2#issuecomment-877572178) adds a character-transition line glitch and unstable health bars while jumping. | Record exact fighters, stage, move, and inputs; repeat character transitions, isolated jumps, and one special move under fixed conditions. All three scenes must match hardware. | Same-revision cartridge; one video per scenario plus log, in each mode. |
@@ -92,13 +92,40 @@ the shortened values above are labels only.
    python3 scripts/known_title_compatibility.py
    ```
 
-2. Copy `known-title-compatibility.json` outside the repository or into an
-   ignored private evidence directory. Fill `run`, the owner-computed
-   commercial `owner_rom_sha256` values, exact `operator_steps`, original
-   hardware reference data, per-mode results, and the artifact index. Do not
-   put commercial ROMs, saves, or private captures in the project tree.
+2. Create an owner-only, all-pending workspace outside the repository. The
+   command is a read-only plan until `--apply` is added. It creates the exact
+   17-case/34-mode manifest, a 124-slot filename plan (20 original-hardware
+   references plus 104 Pocket/Dock artifacts), and an operator worksheet; it
+   creates no media or passing result.
 
-3. Validate an in-progress manifest. Pending modes are allowed, but completed
+   ```sh
+   python3 scripts/prepare_known_title_qa_workspace.py prepare \
+     --output "$HOME/Swan Song Known Title QA" \
+     --run-id swan-song-known-title-01 \
+     --operator "Regionally Famous" \
+     --core-commit "$(git rev-parse HEAD)" \
+     --raw-rbf-sha256 "$(shasum -a 256 build/output_files/ap_core.rbf | cut -d ' ' -f 1)" \
+     --pocket-hardware-revision "recorded Pocket revision" \
+     --dock-hardware-revision "recorded Dock revision" \
+     --apply
+   ```
+
+3. Fill the private manifest's owner-computed commercial
+   `owner_rom_sha256` values, exact `operator_steps`, original hardware
+   reference data, per-mode results, and the artifact index. Do not put
+   commercial ROMs, saves, or private captures in the project tree.
+
+4. Refresh the ownership-aware worksheet after recording evidence. Suggested
+   rows show `Recorded: yes` only when the registered artifact is attached to
+   that exact case/reference or device mode.
+
+   ```sh
+   python3 scripts/prepare_known_title_qa_workspace.py worksheet \
+     --manifest "$HOME/Swan Song Known Title QA/manifest.json" \
+     --output "$HOME/Swan Song Known Title QA/operator-worksheet.md"
+   ```
+
+5. Validate an in-progress manifest. Pending modes are allowed, but completed
    modes must already meet all identity, procedure, and artifact rules:
 
    ```sh
@@ -106,7 +133,7 @@ the shortened values above are labels only.
      --manifest private-known-title-run/manifest.json
    ```
 
-4. Require every Pocket and Dock run to be complete, including failing runs:
+6. Require every Pocket and Dock run to be complete, including failing runs:
 
    ```sh
    python3 scripts/known_title_compatibility.py \
@@ -114,7 +141,7 @@ the shortened values above are labels only.
      --require-complete
    ```
 
-5. Use the release gate only when every mode is an evidenced pass:
+7. Use the release gate only when every mode is an evidenced pass:
 
    ```sh
    python3 scripts/known_title_compatibility.py \

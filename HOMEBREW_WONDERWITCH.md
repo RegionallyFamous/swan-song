@@ -148,7 +148,7 @@ The mapper audit is intentionally narrower than an emulator feature list:
 | Bandai 2003 D1/D3/D5 high bank bytes | Register semantics implemented for canonical selector `01h`; storage above 16 MiB is not | Exhaustive black-box byte writes, mapper/reset gating, upper-bit masking, and unchanged save-image replay; wider addressing requires a coordinated SDRAM/APF layout change |
 | Bandai 2003 CE self-flash window | Volatile routing implemented for canonical selector `01h` | Black-box reset/readback, mapper rejection, ROM/SRAM masks, even/odd byte lanes, ordinary ROM write protection, and `cart_flash` trace labeling |
 | MBM29DL400 command state and persistence | Not implemented | Unlock/program/erase semantics plus a title-bound APF backing file are required before a writable WonderWitch cartridge claim |
-| Bandai 2003 GPO | Not implemented | No current Pocket-facing cartridge peripheral use case |
+| Bandai 2003 GPO | Four-bit `CCh` direction and `CDh` data register semantics implemented for canonical selector `01h` | Exhaustive black-box masking, mapper/reset isolation, and register-image replay; no Pocket-side cartridge peripheral is attached, so this is not an external-pin/device claim |
 | KARNAK / PocketChallenge v2 timer, ADPCM, IRQ, boot mode | Not implemented | Separate machine/peripheral target, not a `.pc2` filename alias |
 
 This ordering follows the current public hardware documentation: the common

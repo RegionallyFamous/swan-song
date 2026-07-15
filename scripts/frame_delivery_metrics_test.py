@@ -16,6 +16,7 @@ class FrameDeliveryMetricsTest(unittest.TestCase):
         self.assertEqual(metrics.producer_drops_per_superperiod, 3_503)
         self.assertEqual(metrics.skip_gap_3_count, 444)
         self.assertEqual(metrics.skip_gap_4_count, 3_059)
+        self.assertEqual(metrics.skip_gap_5_count, 0)
         self.assertEqual(metrics.completion_phase_quantum_cycles, 36)
         self.assertEqual(metrics.delivery_phase_residues_checked, 36)
         self.assertAlmostEqual(
@@ -54,6 +55,34 @@ class FrameDeliveryMetricsTest(unittest.TestCase):
         self.assertEqual(
             corrected.complete_frame_age_phase_mean_max_ms,
             inherited.complete_frame_age_phase_mean_max_ms,
+        )
+
+    def test_optional_smooth_mode_reduces_drops_and_spreads_skips(self) -> None:
+        standard = derive(397)
+        smooth = derive(391)
+        self.assertEqual(smooth.frame_system_cycles, 605_268)
+        self.assertAlmostEqual(smooth.refresh_hz, 60.90525188841968)
+        self.assertAlmostEqual(smooth.output_period_ms, 16.4189453125)
+        self.assertEqual(smooth.output_frames_per_superperiod, 13_568)
+        self.assertEqual(smooth.producer_frames_per_superperiod, 16_813)
+        self.assertEqual(smooth.producer_drops_per_superperiod, 3_245)
+        self.assertEqual(smooth.skip_gap_3_count, 0)
+        self.assertEqual(smooth.skip_gap_4_count, 2_657)
+        self.assertEqual(smooth.skip_gap_5_count, 588)
+        self.assertAlmostEqual(smooth.producer_drop_rate_hz, 14.566446224787873)
+        self.assertAlmostEqual(
+            standard.producer_drop_rate_hz - smooth.producer_drop_rate_hz,
+            0.920482396298533,
+        )
+        self.assertLess(
+            smooth.producer_drop_rate_hz,
+            standard.producer_drop_rate_hz,
+        )
+        # Higher delivery cadence changes motion sampling, not the age of the
+        # newest complete native frame or any unmodeled Pocket panel latency.
+        self.assertEqual(
+            smooth.complete_frame_age_envelope_max_ms,
+            standard.complete_frame_age_envelope_max_ms,
         )
 
     def test_rejects_raster_narrower_than_active_video(self) -> None:

@@ -18,6 +18,17 @@ requires:
 - successful synthesis, flow, fit, assembly, and a final zero-error Timing
   Analyzer completion message;
 - a nonempty, regular, nonsymlink RBF whose SHA-256 matches the sidecar;
+- the native Analysis & Synthesis IP Cores Summary in the expected candidate
+  shape, with every IP `License Type` exactly `N/A`; no evaluation/time-limit
+  warnings 12188, 12189, 12190, 210039, 210042, 265069, 265072, 265073, or
+  265074 and no time-limited-core info 115017 anywhere in the bounded artifact
+  set; and an exact Assembler Generated Files inventory of `ap_core.sof` plus
+  `ap_core.rbf`, never a `_time_limited.sof`. Intel documents both the
+  [IP-summary license field](https://www.intel.com/content/www/us/en/programmable/quartushelp/current/report/rpt/rpt_file_analysis_summary.htm)
+  and that [evaluation-mode IP produces only a time-limited programming file](https://www.intel.com/content/www/us/en/programmable/quartushelp/18.0/reference/glossary/def_open_core_plus.htm).
+  The parser is fail-closed and synthetic-format tested, but the next retained
+  genuine 21.1.1 candidate report must confirm this exact row shape before the
+  new gate is treated as final-format evidence;
 - logic, register, memory-bit, physical RAM-block, and PLL use (including
   capacities where Quartus reports a finite device capacity); a candidate may
   use at most 289 of the fitted device's 308 M10Ks. The clean
@@ -98,6 +109,19 @@ bind this file, but the packager recomputes it from the complete artifact set
 and separately requires the final compression and Pocket/Dock review gates;
 embedding a passing candidate audit does not make the audit release-eligible.
 
+For a candidate workflow run, GitHub also signs that exact candidate audit and
+the artifact bundle preserves the resulting
+`quartus-audit-candidate.attestation.json`. Stable assembly uses `gh
+attestation verify` with GitHub's current official online Sigstore/TUF trust
+material and restricts the certificate to repository
+`RegionallyFamous/swan-song`, workflow `.github/workflows/quartus-fit.yml`,
+`main`, and the exact source commit. Its signed run-invocation URI must match
+the run ID and attempt recorded inside the audited build metadata. Two release
+candidates must have different signed run IDs and different fresh job nonces,
+while reproducing byte-identical RBF and build ID files. This proves distinct
+signed workflow executions, not distinct physical runner hosts; the same
+self-hosted runner may service both executions.
+
 The trusted VM wrapper additionally generates `container-provenance.json` and
 `container-packages.tsv` in a host-only temporary directory before the fit. It
 forces reviewed entrypoints for every image command, gives the fit container an
@@ -169,6 +193,8 @@ Assembler Summary as the sources of their status and target identity fields:
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/16.0/report/rpt/rpt_file_analysis_summary.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/15.1/report/rpt/rpt_file_fitter_summary.htm>
 - <https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/report/rpt/rpt_file_assembler_summary.htm>
+- <https://www.intel.com/content/www/us/en/programmable/quartushelp/current/report/rpt/rpt_file_analysis_summary.htm>
+- <https://www.intel.com/content/www/us/en/programmable/quartushelp/18.0/reference/glossary/def_open_core_plus.htm>
 
 TimeQuest defines slack as the margin against a timing requirement and states
 that unconstrained setup, hold, recovery, and removal paths cannot have slack

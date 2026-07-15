@@ -17,6 +17,7 @@ module apf_console_setup #(
     input  wire clk_destination,
     input  wire reset_n,
     input  wire trigger,
+    input  wire menu_focus_source,
 
     output wire reset_active_destination,
     output wire start_active_destination
@@ -45,7 +46,11 @@ module apf_console_setup #(
     end else if (trigger) begin
       reset_counter_source <= RESET_CYCLES[COUNTER_WIDTH-1:0];
       start_counter_source <= START_CYCLES[COUNTER_WIDTH-1:0];
-    end else begin
+    end else if (!menu_focus_source) begin
+      // Console Setup is selected from the PocketOS menu. Hold the complete
+      // reset+Start gesture while 00B0 says the console is paused, then begin
+      // both bounded intervals only after gameplay focus returns. This avoids
+      // expiring forced Start while the player is still leaving the menu.
       if (reset_active_source) reset_counter_source <= reset_counter_source - 1'b1;
       if (start_active_source) start_counter_source <= start_counter_source - 1'b1;
     end

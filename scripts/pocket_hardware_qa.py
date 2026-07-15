@@ -14,7 +14,9 @@ import hashlib
 import json
 import pathlib
 import re
+import shutil
 import struct
+import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -25,8 +27,8 @@ except ModuleNotFoundError:  # Imported as scripts.pocket_hardware_qa.
     from scripts.reverse_rbf import REVERSE
 
 
-INVENTORY_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V1"
-MANIFEST_MAGIC = "SWAN_SONG_HARDWARE_QA_EVIDENCE_V1"
+INVENTORY_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V2"
+MANIFEST_MAGIC = "SWAN_SONG_HARDWARE_QA_EVIDENCE_V2"
 OFFICIAL_FIRMWARE_VERSION = "2.6.0"
 OFFICIAL_FIRMWARE_MD5 = "d5be2c99e436081266810594117db496"
 COMPACT_896K_PROBE_SHA256 = (
@@ -41,6 +43,60 @@ MD5_RE = re.compile(r"[0-9a-f]{32}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 UTC_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
+CORE_PACKAGE_DIRECTORY = pathlib.PurePosixPath(
+    "Cores/RegionallyFamous.SwanSong"
+)
+# Exact installed files that can change Pocket runtime or library behavior.
+# The bitstream and Chip32 filenames are read from core.json and added by
+# installed_payload_names().  Legal text, private assets, QA evidence, and the
+# raw (non-installed) RBF intentionally remain outside this public binding.
+INSTALLED_STATIC_PAYLOAD_NAMES = (
+    "Cores/RegionallyFamous.SwanSong/audio.json",
+    "Cores/RegionallyFamous.SwanSong/core.json",
+    "Cores/RegionallyFamous.SwanSong/data.json",
+    "Cores/RegionallyFamous.SwanSong/icon.bin",
+    "Cores/RegionallyFamous.SwanSong/info.txt",
+    "Cores/RegionallyFamous.SwanSong/input.json",
+    "Cores/RegionallyFamous.SwanSong/interact.json",
+    "Cores/RegionallyFamous.SwanSong/variants.json",
+    "Cores/RegionallyFamous.SwanSong/video.json",
+    "Platforms/_images/wonderswan.bin",
+    "Platforms/wonderswan.json",
+)
+
+
+def _package_filename(value: Any, where: str) -> str:
+    filename = _text(value, where, 63)
+    path = pathlib.PurePosixPath(filename)
+    if (
+        "\\" in filename
+        or path.is_absolute()
+        or len(path.parts) != 1
+        or path.parts[0] in {".", ".."}
+    ):
+        raise ValueError(f"{where} must be a safe leaf filename")
+    return filename
+
+
+def installed_payload_names(
+    bitstream_filename: Any, chip32_filename: Any
+) -> tuple[str, ...]:
+    """Return the canonical complete Pocket-facing installed payload set."""
+
+    dynamic = (
+        (
+            CORE_PACKAGE_DIRECTORY
+            / _package_filename(bitstream_filename, "installed bitstream filename")
+        ).as_posix(),
+        (
+            CORE_PACKAGE_DIRECTORY
+            / _package_filename(chip32_filename, "installed Chip32 filename")
+        ).as_posix(),
+    )
+    names = (*INSTALLED_STATIC_PAYLOAD_NAMES, *dynamic)
+    if len(names) != len(set(name.casefold() for name in names)):
+        raise ValueError("installed payload filenames must be distinct")
+    return tuple(sorted(names))
 
 
 @dataclass(frozen=True)
@@ -65,6 +121,77 @@ VIDEO = ArtifactNeed(("video",), 1)
 AUDIO = ArtifactNeed(("audio",), 1)
 SAVE3 = ArtifactNeed(("save",), 3)
 
+SAVE_TYPE_PAYLOAD_BYTES = {
+    0x00: 0,
+    0x01: 32_768,
+    0x02: 32_768,
+    0x03: 131_072,
+    0x04: 262_144,
+    0x05: 524_288,
+    0x10: 128,
+    0x20: 2_048,
+    0x50: 1_024,
+}
+SAVE_TYPE_MEDIA = {
+    0x00: "none",
+    0x01: "sram",
+    0x02: "sram",
+    0x03: "sram",
+    0x04: "sram",
+    0x05: "sram",
+    0x10: "eeprom",
+    0x20: "eeprom",
+    0x50: "eeprom",
+}
+CARTRIDGE_SAVE_SNAPSHOT_STAGES = ("initialized", "quit-relaunch", "power-cycle")
+PERSISTENT_SETTING_NAMES = (
+    "System Type (reset)",
+    "CPU Turbo",
+    "Triple Buffer",
+    "Motion / LCD Response",
+    "Display Orientation",
+    "Landscape 180°",
+    "Color Profile",
+    "Control Layout",
+    "Audio in Fast Forward",
+)
+
+# APF can override the packaged input/interact definitions from a per-asset
+# Presets namespace and can preload persisted interact values from Settings.
+# These exact labels make the mutable SD-card baseline reviewable without
+# adding runtime-generated files to the immutable installed-payload catalogue.
+APF_CORE_NAMESPACE = "RegionallyFamous.SwanSong"
+FRESH_SD_APF_BASELINE_LOG_LABEL = "fresh-sd APF namespace baseline"
+FRESH_SD_BOUND_INPUT_LABEL = "fresh-sd bound input menu"
+FRESH_SD_BOUND_INTERACT_LABEL = "fresh-sd bound interact defaults"
+FRESH_SD_DISTRIBUTION_LIFECYCLE_LOG_LABEL = (
+    "side-by-side update uninstall audit"
+)
+SETTINGS_APF_PATH_AUDIT_LOG_LABEL = "settings APF persistence path audit"
+CHIP32_POLL_GUARD_LOG_LABEL = "Chip32 stuck-pending poll-guard calibration"
+AUTO_OFF_TYPE03_PROBE_SHA256 = (
+    "1c04f468ac445616e9613b08dd874aadc83bc214f9b192f777e845019b4c4ccb"
+)
+AUTO_OFF_SAVE_BYTES = 131_072
+AUTO_OFF_SAVE_SNAPSHOT_SHA256 = (
+    (
+        "auto-off type-03 generation-1 status-11 baseline",
+        "6e28073ba6d548e82170923a7c42e505d566358111cfd42e4848cc3fc1b7e9c4",
+    ),
+    (
+        "auto-off type-03 generation-2 status-22 flushed",
+        "c8b0ef643dbcb0ab8acfa642aa0d203f778bf6a73e3dadd8cc47ecf01e7a9a6b",
+    ),
+    (
+        "auto-off type-03 generation-1 status-21 relaunch",
+        "0f216531d087d0f491ca9460552e55ec2eebb8eb5d78f92676e0902422cbfe9a",
+    ),
+)
+AUTO_OFF_VIDEO_LABEL = (
+    "PocketOS 2.6 Auto Off uninterrupted dirty-save shutdown"
+)
+AUTO_OFF_LOG_LABEL = "PocketOS 2.6 Auto Off dirty-save audit"
+
 CONSOLE_EEPROM_SNAPSHOT_STAGES = (
     "factory-created",
     "setup-edited",
@@ -79,10 +206,24 @@ CONSOLE_EEPROM_SNAPSHOT_SIZES = {"mono": 128, "color": 2048}
 
 CASE_SPECS = (
     CaseSpec("fresh_sd_startup", "pocket", (
-        "fresh_sd_used", "platform_entry_visible", "platform_art_and_info_correct",
+        "fresh_sd_used", "presets_namespace_absent_prelaunch",
+        "settings_namespace_absent_prelaunch", "bound_input_menu_observed",
+        "bound_interact_defaults_observed", "no_presets_added_during_run",
+        "agg23_core_present_before_swan_song_install",
+        "side_by_side_core_entries_visible",
+        "agg23_core_and_saves_unchanged_after_install",
+        "swan_song_update_replaced_only_swan_song_payloads",
+        "swan_song_namespaces_preserved_across_update",
+        "swan_song_uninstall_removed_only_swan_song_core",
+        "shared_platform_and_agg23_core_remained_operational",
+        "reviewed_swan_song_package_reinstalled_after_uninstall",
+        "platform_entry_visible", "platform_art_and_info_correct",
         "core_icon_positive_negative_correct", "bios_prompts_correct", "game_booted",
         "startup_log_captured",
-    ), (ArtifactNeed(("pocket_screenshot", "photo"), 2), LOG)),
+    ), (
+        ArtifactNeed(("pocket_screenshot", "photo", "video"), 7),
+        ArtifactNeed(("log",), 2),
+    )),
     CaseSpec("recent_last_title_relaunch", "pocket", (
         "startup_action_openfpga", "recent_entry_created", "quit_returned_to_openfpga",
         "recent_reopened_core", "last_title_reused",
@@ -95,20 +236,31 @@ CASE_SPECS = (
         "bw_missing_rejected", "color_missing_rejected", "no_game_execution",
         "recovery_after_restoring_bios",
     ), (VISUAL, LOG)),
+    CaseSpec("wrong_size_bios_negative", "pocket", (
+        "bw_4095_rejected", "bw_4097_rejected", "color_8191_rejected",
+        "color_8193_rejected", "no_game_execution", "exact_sizes_recover",
+    ), (ArtifactNeed(("pocket_screenshot", "photo", "video"), 2), LOG)),
     CaseSpec("invalid_rom_negative", "pocket", (
         "too_small_rejected", "misaligned_non_power_of_two_rejected",
         "invalid_compact_footer_rejected", "invalid_compact_error_visible",
         "oversized_rejected",
-        "no_invalid_game_execution", "valid_rom_recovers",
+        "no_invalid_game_execution",
+        "calibration_chip32_identity_and_source_delta_recorded",
+        "stuck_pending_status_fault_injected",
+        "visible_poll_guard_timeout_observed",
+        "poll_guard_preceded_firmware_cycle_limit",
+        "reviewed_package_restored_after_calibration",
+        "valid_rom_recovers",
     ), (VISUAL, LOG)),
     CaseSpec("compact_rom_896k", "pocket", (
         "size_917504_accepted", "footer_checksum_accepted",
         "booted_from_top_aligned_reset_vector", "mapper_mask_is_1mib",
         "erased_prefix_reads_ff", "ordinary_power_of_two_title_still_boots",
     ), (VISUAL, LOG), "compact_896k"),
-    CaseSpec("memories_sleep_disabled_negative", "pocket", (
-        "memory_action_unavailable_or_rejected", "sleep_not_advertised",
-        "quick_load_does_not_mutate_game", "game_recovers",
+    CaseSpec("memories_disabled_negative", "pocket", (
+        "memory_action_unavailable_or_rejected",
+        "quick_load_action_unavailable_or_rejected",
+        "game_state_unchanged", "game_recovers",
     ), (VISUAL, LOG)),
     CaseSpec("pocket_horizontal_input", "pocket", (
         "dpad_x1_x4", "a", "b", "y1_y4", "start", "simultaneous_directions_safe",
@@ -127,6 +279,44 @@ CASE_SPECS = (
         "lcd_response_persistence", "display_mode_20", "display_mode_30",
         "display_mode_40", "native_screenshot_224x144", "color_restored_after_grayscale",
     ), (ArtifactNeed(("pocket_screenshot",), 3), LOG), "both_orientations"),
+    CaseSpec("video_buffer_modes", "both", (
+        "direct_mode_triple_buffer_off", "direct_mode_operational",
+        "direct_mode_orientation_frame_atomic", "triple_buffer_mode_on",
+        "triple_buffer_complete_frames", "direct_to_triple_transition_clean",
+        "triple_to_direct_transition_clean", "lcd_response_forces_buffered_path",
+        "lcd_response_off_restores_direct_path",
+        "complete_frames_60_9_forces_buffered_path",
+        "complete_frames_60_9_statistics_recorded_pocket_and_dock",
+        "complete_frames_60_9_rotations_0_270_180",
+        "complete_frames_60_9_display_modes_20_30_40",
+        "standard_to_60_9_transition_clean",
+        "complete_frames_60_9_to_standard_transition_clean",
+        "complete_frames_60_9_no_tearing_or_resync_after_priming",
+        "pocket_and_dock_observed",
+    ), (ArtifactNeed(("video",), 2), LOG), "both_orientations", "pocket_and_dock"),
+    CaseSpec("settings_options_and_persistence", "both", (
+        "system_type_auto_mono", "system_type_auto_color",
+        "system_type_forced_mono_after_reset",
+        "system_type_forced_color_after_reset",
+        "system_type_runtime_change_waits_for_reset",
+        "cpu_turbo_off_baseline", "cpu_turbo_on_rate_observed",
+        "cpu_turbo_audio_video_stable", "system_type_persisted",
+        "cpu_turbo_persisted", "triple_buffer_persisted",
+        "motion_lcd_response_persisted", "display_orientation_persisted",
+        "landscape_180_persisted", "color_profile_persisted",
+        "control_layout_persisted", "fastforward_audio_persisted",
+        "ordinary_reset_preserved_all_settings",
+        "quit_relaunch_preserved_all_settings",
+        "title_switch_preserved_all_settings",
+        "dock_undock_preserved_all_settings",
+        "power_cycle_preserved_all_settings",
+        "global_interact_persist_created_by_run",
+        "no_per_asset_interact_settings_used",
+        "settings_path_transitions_and_hashes_recorded",
+        "reset_all_defaults_restored_all_settings",
+        "actions_remained_momentary",
+    ), (ArtifactNeed(("pocket_screenshot", "photo", "video"), 4), LOG),
+        "mono_color", "pocket_and_dock"),
     CaseSpec("dock_wired_input", "dock", (
         "digital_matrix_complete", "dpad_explicit", "start", "fastforward",
         "no_stuck_input", "p1_only", "controls_behavior_recorded",
@@ -151,10 +341,31 @@ CASE_SPECS = (
         "absent_save_initialized", "write_persisted_after_quit", "relaunch_loaded",
         "power_cycle_loaded", "save_hashes_recorded", "shutdown_flush_complete",
     ), (SAVE3, LOG), "sram", "pocket_and_dock"),
+    CaseSpec("auto_off_dirty_save_flush", "pocket", (
+        "auto_off_enabled_and_interval_recorded",
+        "auto_dim_disabled_and_recorded",
+        "pocket_undocked",
+        "baseline_created_by_normal_quit",
+        "no_input_menu_or_power_button_during_idle",
+        "automatic_off_observed_after_configured_interval",
+        "automatic_off_flushed_exact_generation_2",
+        "relaunch_loaded_generation_2",
+        "exact_path_sizes_hashes_and_timeline_recorded",
+    ), (SAVE3, VIDEO, LOG), "auto_off_type03_probe", "pocket"),
     CaseSpec("eeprom_lifecycle", "both", (
         "absent_save_initialized", "write_persisted_after_quit", "relaunch_loaded",
         "power_cycle_loaded", "save_hashes_recorded", "shutdown_flush_complete",
     ), (SAVE3, LOG), "eeprom", "pocket_and_dock"),
+    CaseSpec("all_save_types_lifecycle", "both", (
+        "type00_none_no_save_created", "type01_sram_32768",
+        "type02_sram_32768", "type03_sram_131072",
+        "type04_sram_262144", "type05_sram_524288",
+        "type10_eeprom_128", "type20_eeprom_2048",
+        "type50_eeprom_1024", "rtc_trailer_exactly_12_when_present",
+        "initialized_sizes_recorded", "writes_persisted_after_quit_relaunch_all",
+        "power_cycle_loaded_all", "shutdown_flush_complete_all",
+        "save_hashes_recorded_all",
+    ), (ArtifactNeed(("save",), 24), LOG), "all_save_types", "pocket_and_dock"),
     CaseSpec("console_eeprom_lifecycle", "both", (
         "fixed_paths_mono_128_color_2048", "absent_before_first_launch_both",
         "factory_files_created_both", "original_mono_bios_setup_edit",
@@ -200,31 +411,66 @@ CASE_SPECS = (
     ), (VIDEO, AUDIO, ArtifactNeed(("save",), 2), LOG), "rtc", "pocket_and_dock"),
     CaseSpec("long_run_stability", "both", (
         "duration_at_least_120_minutes", "no_crash", "no_video_resync",
+        "auto_dim_disabled_and_recorded", "auto_off_disabled_and_recorded",
+        "complete_frames_60_9_active_for_full_soak",
+        "complete_frames_60_9_pocket_and_dock_soak_segments_recorded",
+        "statistics_recorded_before_and_after_soak",
         "no_audio_drift", "no_stuck_input", "save_after_run_valid",
     ), (VIDEO, AUDIO, ArtifactNeed(("save",), 1), LOG), "rtc", "pocket_and_dock"),
+    CaseSpec("unused_hardware_interfaces", "pocket", (
+        "cartridge_power_state_matches_framework_minus_one",
+        "cartridge_bank3_bank2_bank1_input_high_impedance",
+        "cartridge_bank0_nibble_high_output",
+        "cartridge_pin30_host_control_not_driven",
+        "cartridge_pin31_input_not_driven", "link_port_not_advertised",
+        "link_so_si_sck_sd_input_high_impedance", "ir_transmitter_off",
+        "ir_receiver_disable_asserted",
+        "boot_gameplay_shutdown_no_unexpected_interface_activity",
+        "electrical_measurement_method_recorded",
+    ), (ArtifactNeed(("photo", "video"), 2), LOG)),
 )
 
 CASE_BY_ID = {spec.case_id: spec for spec in CASE_SPECS}
 ARTIFACT_KINDS = {"pocket_screenshot", "photo", "video", "audio", "save", "log"}
+ARTIFACT_TEMPLATE_SUFFIXES = {
+    "pocket_screenshot": ".png",
+    "photo": ".png",
+    "video": ".mp4",
+    "audio": ".wav",
+    "save": ".sav",
+    "log": ".txt",
+}
 
 
-def _validate_rom_contract(rom: bytes, where: str) -> None:
+def _validate_rom_contract(rom: bytes, where: str) -> tuple[int, bool]:
     size = len(rom)
     if size < 64 * 1024 or size > 16 * 1024 * 1024:
         raise ValueError(f"{where} ROM size is outside 64 KiB..16 MiB")
-    if size & (size - 1) == 0:
-        return
-    if size % (64 * 1024):
+    power_of_two = size & (size - 1) == 0
+    if not power_of_two and size % (64 * 1024):
         raise ValueError(f"{where} non-power-of-two ROM size must be 64 KiB-aligned")
-
-    aperture = 1 << (size - 1).bit_length()
     footer = rom[-16:]
     if footer[0] != 0xEA:
-        raise ValueError(f"{where} compact ROM footer entry must begin with 0xEA")
+        raise ValueError(f"{where} ROM footer entry must begin with 0xEA")
     if footer[5] & 0x0F:
-        raise ValueError(f"{where} compact ROM footer maintenance low bits must be zero")
+        raise ValueError(f"{where} ROM footer maintenance low bits must be zero")
     if footer[7] & 0xFE:
-        raise ValueError(f"{where} compact ROM footer color field is invalid")
+        raise ValueError(f"{where} ROM footer color field is invalid")
+    if footer[11] not in SAVE_TYPE_PAYLOAD_BYTES:
+        raise ValueError(f"{where} ROM footer save type is unsupported")
+    if footer[12] & 0x04 == 0:
+        raise ValueError(f"{where} ROM footer must select the 16-bit ROM bus")
+    if footer[13] > 1:
+        raise ValueError(f"{where} ROM footer RTC field is invalid")
+    stored = int.from_bytes(footer[14:16], "little")
+    computed = sum(memoryview(rom)[:-2]) & 0xFFFF
+    if stored != computed:
+        raise ValueError(f"{where} ROM footer checksum mismatch")
+
+    if power_of_two:
+        return footer[11], footer[13] == 1
+
+    aperture = 1 << (size - 1).bit_length()
     declared_sizes = {
         0x00: 128 * 1024, 0x01: 256 * 1024, 0x02: 512 * 1024,
         0x03: 1024 * 1024, 0x04: 2 * 1024 * 1024,
@@ -234,16 +480,7 @@ def _validate_rom_contract(rom: bytes, where: str) -> None:
     }
     if declared_sizes.get(footer[10]) not in {size, aperture}:
         raise ValueError(f"{where} compact ROM footer size does not match file or aperture")
-    if footer[11] not in {0, 1, 2, 3, 4, 5, 0x10, 0x20, 0x50}:
-        raise ValueError(f"{where} compact ROM footer save type is unsupported")
-    if footer[12] & 0x04 == 0:
-        raise ValueError(f"{where} compact ROM footer must select the 16-bit ROM bus")
-    if footer[13] > 1:
-        raise ValueError(f"{where} compact ROM footer mapper is unsupported")
-    stored = int.from_bytes(footer[14:16], "little")
-    computed = sum(memoryview(rom)[:-2]) & 0xFFFF
-    if stored != computed:
-        raise ValueError(f"{where} compact ROM footer checksum mismatch")
+    return footer[11], footer[13] == 1
 
 
 def _object(value: Any, where: str) -> dict[str, Any]:
@@ -305,9 +542,29 @@ def _integer(value: Any, where: str) -> int:
 def _load_json_bytes(path: pathlib.Path, where: str) -> tuple[dict[str, Any], bytes]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"{where} must be a regular non-symlink file: {path}")
+
+    def object_without_duplicate_members(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{where} has duplicate object member {key!r}")
+            result[key] = value
+        return result
+
     try:
         data = path.read_bytes()
-        return _object(json.loads(data.decode("utf-8")), where), data
+        return _object(
+            json.loads(
+                data.decode("utf-8"),
+                object_pairs_hook=object_without_duplicate_members,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"{where} contains non-standard number {value}")
+                ),
+            ),
+            where,
+        ), data
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid {where}: {error}") from error
 
@@ -326,6 +583,41 @@ def _inventory_file(base: pathlib.Path, value: Any, where: str) -> pathlib.Path:
     return path.resolve()
 
 
+def _inventory_directory(base: pathlib.Path, value: Any, where: str) -> pathlib.Path:
+    name = _text(value, where, 4096)
+    path = pathlib.Path(name)
+    if not path.is_absolute():
+        path = base / path
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError(f"{where} must name a regular non-symlink directory: {path}")
+    return path.resolve()
+
+
+def _installed_payload_file(
+    root: pathlib.Path, relative_name: str
+) -> pathlib.Path:
+    relative = pathlib.PurePosixPath(relative_name)
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError(
+                f"installed payload must not traverse a symlink: {relative_name}"
+            )
+    if not cursor.is_file():
+        raise ValueError(f"installed payload is missing: {relative_name}")
+    if cursor.stat().st_nlink != 1:
+        raise ValueError(f"installed payload must not be a hard link: {relative_name}")
+    resolved = cursor.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise ValueError(
+            f"installed payload escapes installed_dist_path: {relative_name}"
+        ) from error
+    return resolved
+
+
 def _identity(path: pathlib.Path, data: bytes | None = None) -> dict[str, Any]:
     if data is None:
         data = path.read_bytes()
@@ -336,16 +628,25 @@ def _identity(path: pathlib.Path, data: bytes | None = None) -> dict[str, Any]:
     }
 
 
+def _entry_identity(path: pathlib.Path) -> dict[str, Any]:
+    data = path.read_bytes()
+    return {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
 def _unique(values: list[str], where: str) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{where} must be unique")
 
 
-def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_environment(
+    inventory_path: pathlib.Path,
+    *,
+    include_inventory_sha256: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]] | tuple[dict[str, Any], dict[str, Any], str]:
     """Validate private inventory files and return public, hashed identities."""
 
     inventory_path = inventory_path.absolute()
-    document, _inventory_bytes = _load_json_bytes(inventory_path, "hardware QA inventory")
+    document, inventory_bytes = _load_json_bytes(inventory_path, "hardware QA inventory")
     _keys(document, "inventory", {"hardware_qa_inventory"})
     body = _object(document["hardware_qa_inventory"], "inventory.hardware_qa_inventory")
     _keys(body, "inventory.hardware_qa_inventory", {
@@ -413,8 +714,17 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
     dock = device(body["dock"], "inventory dock", True)
 
     core = _object(body["core"], "inventory core")
-    _keys(core, "inventory core", {"core_json_path", "raw_rbf_path", "installed_bitstream_path"})
+    _keys(core, "inventory core", {
+        "core_json_path", "interact_json_path", "raw_rbf_path",
+        "installed_bitstream_path", "installed_dist_path",
+    })
+    installed_root = _inventory_directory(
+        base, core["installed_dist_path"], "inventory installed_dist_path"
+    )
     core_json_path = _inventory_file(base, core["core_json_path"], "inventory core_json_path")
+    interact_json_path = _inventory_file(
+        base, core["interact_json_path"], "inventory interact_json_path"
+    )
     raw_rbf_path = _inventory_file(base, core["raw_rbf_path"], "inventory raw_rbf_path")
     installed_path = _inventory_file(base, core["installed_bitstream_path"], "inventory installed_bitstream_path")
     core_document, core_json_bytes = _load_json_bytes(core_json_path, "inventory core.json")
@@ -425,12 +735,59 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         core_version = metadata["version"]
         release_date = metadata["date_release"]
         installed_name = definition["cores"][0]["filename"]
+        chip32_name = definition["framework"]["chip32_vm"]
     except (KeyError, IndexError, TypeError) as error:
         raise ValueError("inventory core.json lacks required core identity") from error
     if core_id != "RegionallyFamous.SwanSong":
         raise ValueError("hardware QA core ID must be RegionallyFamous.SwanSong")
     if installed_path.name != installed_name:
         raise ValueError("installed bitstream filename does not match core.json")
+    payload_names = installed_payload_names(installed_name, chip32_name)
+    payload_paths = {
+        name: _installed_payload_file(installed_root, name)
+        for name in payload_names
+    }
+    expected_core_json_path = payload_paths[
+        (CORE_PACKAGE_DIRECTORY / "core.json").as_posix()
+    ]
+    expected_interact_json_path = payload_paths[
+        (CORE_PACKAGE_DIRECTORY / "interact.json").as_posix()
+    ]
+    expected_installed_path = payload_paths[
+        (CORE_PACKAGE_DIRECTORY / installed_name).as_posix()
+    ]
+    if core_json_path != expected_core_json_path:
+        raise ValueError(
+            "inventory core_json_path must identify installed_dist_path core.json"
+        )
+    if interact_json_path != expected_interact_json_path:
+        raise ValueError(
+            "inventory interact_json_path must identify installed_dist_path interact.json"
+        )
+    if installed_path != expected_installed_path:
+        raise ValueError(
+            "inventory installed_bitstream_path must identify the installed tree bitstream"
+        )
+    interact_document, interact_json_bytes = _load_json_bytes(
+        interact_json_path, "inventory interact.json"
+    )
+    try:
+        interact = _object(interact_document["interact"], "inventory interact.json interact")
+        variables = _array(interact["variables"], "inventory interact.json variables")
+    except KeyError as error:
+        raise ValueError("inventory interact.json lacks required interact variables") from error
+    persistent_settings = []
+    for index, value in enumerate(variables):
+        variable = _object(value, f"inventory interact.json variables[{index}]")
+        if variable.get("persist") is True:
+            persistent_settings.append(
+                _text(variable.get("name"), f"inventory interact.json variables[{index}] name", 80)
+            )
+    if tuple(persistent_settings) != PERSISTENT_SETTING_NAMES:
+        raise ValueError(
+            "inventory interact.json persistent settings do not match the complete "
+            "reviewed nine-setting catalogue"
+        )
     raw_bytes = raw_rbf_path.read_bytes()
     installed_bytes = installed_path.read_bytes()
     if len(raw_bytes) < MIN_BITSTREAM_BYTES:
@@ -447,8 +804,14 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         "version": _text(core_version, "core version", 31),
         "date_release": _text(release_date, "core release date", 10),
         "core_json": _identity(core_json_path, core_json_bytes),
+        "interact_json": _identity(interact_json_path, interact_json_bytes),
+        "persistent_settings": list(PERSISTENT_SETTING_NAMES),
         "raw_rbf": _identity(raw_rbf_path, raw_bytes),
         "installed_bitstream": _identity(installed_path, installed_bytes),
+        "installed_payloads": {
+            name: _entry_identity(path)
+            for name, path in sorted(payload_paths.items())
+        },
     }
 
     bios_items = _array(body["bios"], "inventory bios")
@@ -493,14 +856,27 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         if path.suffix.casefold() != f".{system}":
             raise ValueError(f"{where} filename extension does not match system")
         rom_bytes = path.read_bytes()
-        _validate_rom_contract(rom_bytes, where)
+        save_type, footer_rtc = _validate_rom_contract(rom_bytes, where)
+        expected_save_media = SAVE_TYPE_MEDIA[save_type]
+        if save_media != expected_save_media:
+            raise ValueError(
+                f"{where} save_media {save_media!r} does not match footer "
+                f"type 0x{save_type:02x} ({expected_save_media})"
+            )
+        if item["rtc"] is not footer_rtc:
+            raise ValueError(
+                f"{where} rtc {item['rtc']!r} does not match ROM footer RTC "
+                f"field {footer_rtc!r}"
+            )
         rom_public.append({
             "id": rom_id,
             "title": _text(item["title"], f"{where} title", 120),
             "system": system,
             "native_orientation": orientation,
             "save_media": save_media,
-            "rtc": item["rtc"],
+            "save_type": save_type,
+            "save_payload_bytes": SAVE_TYPE_PAYLOAD_BYTES[save_type],
+            "rtc": footer_rtc,
             "image": _identity(path, rom_bytes),
         })
     _unique([item["id"] for item in rom_public], "inventory ROM IDs")
@@ -514,6 +890,14 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         raise ValueError("inventory ROMs must include a vertical or switching title")
     if not {"sram", "eeprom"}.issubset({item["save_media"] for item in rom_public}):
         raise ValueError("inventory ROMs must cover SRAM and EEPROM")
+    missing_save_types = set(SAVE_TYPE_PAYLOAD_BYTES) - {
+        item["save_type"] for item in rom_public
+    }
+    if missing_save_types:
+        formatted = ", ".join(f"0x{value:02x}" for value in sorted(missing_save_types))
+        raise ValueError(
+            "inventory ROMs must cover every supported save type; missing " + formatted
+        )
     if not any(item["rtc"] for item in rom_public) or not any(not item["rtc"] for item in rom_public):
         raise ValueError("inventory ROMs must cover RTC and non-RTC titles")
     rom_public.sort(key=lambda item: item["id"])
@@ -570,6 +954,8 @@ def build_environment(inventory_path: pathlib.Path) -> tuple[dict[str, Any], dic
         "controllers": controller_public,
     }
     metadata = {"run_id": run_id, "created_at": created_at, "operator": public_operator}
+    if include_inventory_sha256:
+        return metadata, environment, hashlib.sha256(inventory_bytes).hexdigest()
     return metadata, environment
 
 
@@ -609,6 +995,57 @@ def generate_manifest(inventory_path: pathlib.Path, output_path: pathlib.Path) -
         },
     }}
     output_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _validate_decodable_media(path: pathlib.Path, kind: str, where: str) -> None:
+    """Require FFmpeg to decode at least one declared media frame."""
+
+    if kind not in {"pocket_screenshot", "photo", "video", "audio"}:
+        return
+    executable = shutil.which("ffmpeg")
+    if executable is None:
+        raise ValueError(
+            f"{where} requires FFmpeg to validate media evidence"
+        )
+    stream_type = "a" if kind == "audio" else "v"
+    frame_option = "-frames:a" if kind == "audio" else "-frames:v"
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "-v", "error",
+                "-xerror",
+                "-i", str(path),
+                "-map", f"0:{stream_type}:0",
+                frame_option, "1",
+                "-progress", "pipe:1",
+                "-nostats",
+                "-f", "null",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f"{where} media decode exceeded 30 seconds") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or "no decodable declared stream frame"
+        raise ValueError(f"{where} is not decodable media: {detail}")
+    progress: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            progress[key] = value
+    produced = progress.get("out_time_us", "0")
+    if not produced.isdigit() or int(produced) <= 0:
+        raise ValueError(f"{where} produced no decoded media duration")
+    if kind != "audio":
+        frames = progress.get("frame", "0")
+        if not frames.isdigit() or int(frames) < 1:
+            raise ValueError(f"{where} produced no decoded video frame")
 
 
 def _manifest_artifact(root: pathlib.Path, value: Any, index: int) -> tuple[dict[str, Any], pathlib.Path]:
@@ -674,6 +1111,7 @@ def _manifest_artifact(root: pathlib.Path, value: Any, index: int) -> tuple[dict
             data.decode("utf-8")
         except UnicodeError as error:
             raise ValueError(f"{where} log must be UTF-8") from error
+    _validate_decodable_media(path, kind, where)
     return ({
         "id": artifact_id, "kind": kind, "path": path_text, "label": label,
         "captured_at": captured_at, "size": size, "sha256": digest,
@@ -689,6 +1127,16 @@ def _meets_rom_requirement(requirement: str, selected: list[dict[str, Any]]) -> 
             and selected[0]["image"]["size"] == 917_504
             and selected[0]["image"]["sha256"] == COMPACT_896K_PROBE_SHA256
         )
+    if requirement == "auto_off_type03_probe":
+        return (
+            len(selected) == 1
+            and selected[0]["image"]["size"] == 2 * 1024 * 1024
+            and selected[0]["image"]["sha256"] == AUTO_OFF_TYPE03_PROBE_SHA256
+            and selected[0]["system"] == "ws"
+            and selected[0]["save_type"] == 0x03
+            and selected[0]["save_media"] == "sram"
+            and selected[0]["rtc"] is False
+        )
     if requirement == "horizontal":
         return len(selected) == 1 and selected[0]["native_orientation"] == "horizontal"
     if requirement == "vertical":
@@ -703,6 +1151,12 @@ def _meets_rom_requirement(requirement: str, selected: list[dict[str, Any]]) -> 
         return len(selected) == 2 and {item["save_media"] for item in selected} == {"sram", "eeprom"}
     if requirement == "mono_color":
         return len(selected) == 2 and {item["system"] for item in selected} == {"ws", "wsc"}
+    if requirement == "all_save_types":
+        return (
+            len(selected) == len(SAVE_TYPE_PAYLOAD_BYTES)
+            and {item["save_type"] for item in selected}
+            == set(SAVE_TYPE_PAYLOAD_BYTES)
+        )
     if requirement == "two":
         return len(selected) == 2
     raise AssertionError(requirement)
@@ -739,6 +1193,140 @@ def _validate_console_eeprom_snapshots(
                 raise ValueError(
                     f"{where} {model} {stage} snapshot does not match the setup-edited image"
                 )
+
+
+def _validate_cartridge_save_snapshots(
+    selected_artifacts: list[dict[str, Any]],
+    selected_roms: list[dict[str, Any]],
+    where: str,
+) -> None:
+    """Bind every nonzero footer type to exact-size lifecycle snapshots."""
+
+    saves = [item for item in selected_artifacts if item["kind"] == "save"]
+    expected_labels: set[str] = set()
+    by_type = {item["save_type"]: item for item in selected_roms}
+    if set(by_type) != set(SAVE_TYPE_PAYLOAD_BYTES):
+        raise ValueError(f"{where} does not select every supported save type exactly once")
+
+    for save_type, payload_bytes in SAVE_TYPE_PAYLOAD_BYTES.items():
+        if save_type == 0:
+            continue
+        rom = by_type[save_type]
+        expected_size = payload_bytes + (12 if rom["rtc"] else 0)
+        snapshots: dict[str, dict[str, Any]] = {}
+        for stage in CARTRIDGE_SAVE_SNAPSHOT_STAGES:
+            label = f"cartridge-save type-{save_type:02x} {stage}"
+            expected_labels.add(label)
+            matches = [item for item in saves if item["label"] == label]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"{where} needs exactly one save artifact labeled {label!r}"
+                )
+            snapshot = matches[0]
+            if snapshot["size"] != expected_size:
+                raise ValueError(
+                    f"{where} {label!r} must be exactly {expected_size} bytes"
+                )
+            snapshots[stage] = snapshot
+
+        if snapshots["initialized"]["sha256"] == snapshots["quit-relaunch"]["sha256"]:
+            raise ValueError(
+                f"{where} type-0x{save_type:02x} write did not change initialized save"
+            )
+        if snapshots["power-cycle"]["sha256"] != snapshots["quit-relaunch"]["sha256"]:
+            raise ValueError(
+                f"{where} type-0x{save_type:02x} power-cycle save does not match "
+                "quit/relaunch"
+            )
+
+    actual_labels = {item["label"] for item in saves}
+    if actual_labels != expected_labels or len(saves) != len(expected_labels):
+        raise ValueError(
+            f"{where} must contain only the exact save-type lifecycle snapshots"
+        )
+
+
+def _validate_auto_off_dirty_save_snapshots(
+    selected_artifacts: list[dict[str, Any]], where: str
+) -> None:
+    """Require the exact open-probe sequence across PocketOS Auto Off."""
+
+    saves = [item for item in selected_artifacts if item["kind"] == "save"]
+    expected = dict(AUTO_OFF_SAVE_SNAPSHOT_SHA256)
+    if len(saves) != len(expected) or {item["label"] for item in saves} != set(expected):
+        raise ValueError(
+            f"{where} must contain only the three exact Auto Off save snapshots"
+        )
+    for snapshot in saves:
+        label = snapshot["label"]
+        if snapshot["size"] != AUTO_OFF_SAVE_BYTES:
+            raise ValueError(
+                f"{where} {label!r} must be exactly {AUTO_OFF_SAVE_BYTES} bytes"
+            )
+        if snapshot["sha256"] != expected[label]:
+            raise ValueError(
+                f"{where} {label!r} does not match the exact generated-probe image"
+            )
+    _require_labeled_artifact(
+        selected_artifacts,
+        label=AUTO_OFF_VIDEO_LABEL,
+        kinds={"video"},
+        where=where,
+    )
+    _require_labeled_artifact(
+        selected_artifacts,
+        label=AUTO_OFF_LOG_LABEL,
+        kinds={"log"},
+        where=where,
+    )
+
+
+def _require_labeled_artifact(
+    selected: list[dict[str, Any]],
+    *,
+    label: str,
+    kinds: set[str],
+    where: str,
+) -> None:
+    """Require one independently hashed artifact for an exact worksheet item."""
+
+    matches = [item for item in selected if item["label"] == label]
+    if len(matches) != 1 or matches[0]["kind"] not in kinds:
+        expected = "/".join(sorted(kinds))
+        raise ValueError(
+            f"{where} needs exactly one {expected} artifact labeled {label!r}"
+        )
+
+
+def _validate_fresh_sd_apf_baseline(
+    selected: list[dict[str, Any]], where: str
+) -> None:
+    """Bind the prelaunch APF namespace audit and packaged-menu observations."""
+
+    _require_labeled_artifact(
+        selected,
+        label=FRESH_SD_APF_BASELINE_LOG_LABEL,
+        kinds={"log"},
+        where=where,
+    )
+    _require_labeled_artifact(
+        selected,
+        label=FRESH_SD_DISTRIBUTION_LIFECYCLE_LOG_LABEL,
+        kinds={"log"},
+        where=where,
+    )
+    _require_labeled_artifact(
+        selected,
+        label=FRESH_SD_BOUND_INPUT_LABEL,
+        kinds={"photo", "video"},
+        where=where,
+    )
+    _require_labeled_artifact(
+        selected,
+        label=FRESH_SD_BOUND_INTERACT_LABEL,
+        kinds={"photo", "video"},
+        where=where,
+    )
 
 
 def _meets_controller_requirement(requirement: str, selected: list[dict[str, Any]]) -> bool:
@@ -778,7 +1366,9 @@ def verify_manifest(manifest_path: pathlib.Path, inventory_path: pathlib.Path, *
     })
     if body["magic"] != MANIFEST_MAGIC:
         raise ValueError(f"manifest magic must be {MANIFEST_MAGIC}")
-    expected_metadata, expected_environment = build_environment(inventory_path)
+    expected_metadata, expected_environment, inventory_sha256 = build_environment(
+        inventory_path, include_inventory_sha256=True
+    )
     for key in ("run_id", "created_at", "operator"):
         if body[key] != expected_metadata[key]:
             raise ValueError(f"manifest {key} does not match private inventory")
@@ -860,8 +1450,30 @@ def verify_manifest(manifest_path: pathlib.Path, inventory_path: pathlib.Path, *
             count = sum(item["kind"] in need.kinds for item in selected_artifacts)
             if count < need.minimum:
                 raise ValueError(f"{where} needs {need.minimum} artifact(s) of {','.join(need.kinds)}")
+        if case_id == "fresh_sd_startup":
+            _validate_fresh_sd_apf_baseline(selected_artifacts, where)
+        if case_id == "settings_options_and_persistence":
+            _require_labeled_artifact(
+                selected_artifacts,
+                label=SETTINGS_APF_PATH_AUDIT_LOG_LABEL,
+                kinds={"log"},
+                where=where,
+            )
+        if case_id == "invalid_rom_negative":
+            _require_labeled_artifact(
+                selected_artifacts,
+                label=CHIP32_POLL_GUARD_LOG_LABEL,
+                kinds={"log"},
+                where=where,
+            )
         if case_id == "console_eeprom_lifecycle":
             _validate_console_eeprom_snapshots(selected_artifacts, where)
+        if case_id == "auto_off_dirty_save_flush":
+            _validate_auto_off_dirty_save_snapshots(selected_artifacts, where)
+        if case_id == "all_save_types_lifecycle":
+            _validate_cartridge_save_snapshots(
+                selected_artifacts, selected_roms, where
+            )
         for artifact in selected_artifacts:
             if not started <= artifact["captured_at"] <= completed:
                 raise ValueError(f"{where} references evidence captured outside its test interval")
@@ -904,7 +1516,337 @@ def verify_manifest(manifest_path: pathlib.Path, inventory_path: pathlib.Path, *
         "cases": len(CASE_SPECS),
         "artifacts": len(artifacts),
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "inventory_sha256": inventory_sha256,
+        "magic": body["magic"],
+        "firmware_version": expected_environment["firmware"]["version"],
+        "core": expected_environment["core"],
+        "pocket": expected_environment["pocket"],
+        "dock": expected_environment["dock"],
     }
+
+
+def _suggest_rom_ids(
+    requirement: str, roms: list[dict[str, Any]]
+) -> list[str]:
+    """Return one deterministic selection accepted by the strict predicate."""
+
+    ordered = sorted(roms, key=lambda item: item["id"])
+
+    def first(predicate: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+        return next(item for item in ordered if predicate(item))
+
+    if requirement == "any":
+        selected = ordered[:1]
+    elif requirement == "compact_896k":
+        selected = [first(lambda item: (
+            item["image"]["size"] == 917_504
+            and item["image"]["sha256"] == COMPACT_896K_PROBE_SHA256
+        ))]
+    elif requirement == "auto_off_type03_probe":
+        selected = [first(lambda item: (
+            item["image"]["size"] == 2 * 1024 * 1024
+            and item["image"]["sha256"] == AUTO_OFF_TYPE03_PROBE_SHA256
+            and item["system"] == "ws"
+            and item["save_type"] == 0x03
+            and item["save_media"] == "sram"
+            and item["rtc"] is False
+        ))]
+    elif requirement == "horizontal":
+        selected = [first(lambda item: item["native_orientation"] == "horizontal")]
+    elif requirement == "vertical":
+        selected = [first(lambda item: item["native_orientation"] in {"vertical", "switching"})]
+    elif requirement == "both_orientations":
+        selected = [
+            first(lambda item: item["native_orientation"] == "horizontal"),
+            first(lambda item: item["native_orientation"] in {"vertical", "switching"}),
+        ]
+    elif requirement in {"sram", "eeprom"}:
+        selected = [first(lambda item: item["save_media"] == requirement)]
+    elif requirement == "rtc":
+        selected = [first(lambda item: item["rtc"] is True)]
+    elif requirement == "save_pair":
+        selected = [
+            first(lambda item: item["save_media"] == "sram"),
+            first(lambda item: item["save_media"] == "eeprom"),
+        ]
+    elif requirement == "mono_color":
+        selected = [
+            first(lambda item: item["system"] == "ws"),
+            first(lambda item: item["system"] == "wsc"),
+        ]
+    elif requirement == "all_save_types":
+        selected = [
+            first(lambda item, save_type=save_type: item["save_type"] == save_type)
+            for save_type in SAVE_TYPE_PAYLOAD_BYTES
+        ]
+    elif requirement == "two":
+        selected = ordered[:2]
+    else:
+        raise AssertionError(requirement)
+    selected = sorted(selected, key=lambda item: item["id"])
+    if not _meets_rom_requirement(requirement, selected):
+        raise ValueError(f"inventory cannot supply worksheet ROM requirement {requirement}")
+    return [item["id"] for item in selected]
+
+
+def _suggest_controller_ids(
+    requirement: str, controllers: list[dict[str, Any]]
+) -> list[str]:
+    """Return one deterministic selection accepted by the strict predicate."""
+
+    ordered = sorted(controllers, key=lambda item: item["id"])
+
+    def first(predicate: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+        return next(item for item in ordered if predicate(item))
+
+    pocket = lambda item: item["scope"] == "pocket"
+    wired = lambda item: (
+        item["scope"] == "dock"
+        and item["device_type"] == "gamepad"
+        and item["transport"] == "usb"
+    )
+    wireless = lambda item: (
+        item["scope"] == "dock"
+        and item["device_type"] == "gamepad"
+        and item["transport"] in {"bluetooth", "2.4g"}
+    )
+    if requirement == "pocket":
+        selected = [first(pocket)]
+    elif requirement == "dock_wired_gamepad":
+        selected = [first(wired)]
+    elif requirement == "dock_wireless_gamepad":
+        selected = [first(wireless)]
+    elif requirement == "dock_gamepads":
+        selected = [first(wired), first(wireless)]
+    elif requirement == "pocket_and_dock":
+        selected = [first(pocket), first(wired)]
+    elif requirement == "unsupported_devices":
+        selected = [
+            first(wired),
+            first(wireless),
+            first(lambda item: item["device_type"] == "keyboard"),
+            first(lambda item: item["device_type"] == "mouse"),
+        ]
+    else:
+        raise AssertionError(requirement)
+    selected = sorted(selected, key=lambda item: item["id"])
+    if not _meets_controller_requirement(requirement, selected):
+        raise ValueError(
+            f"inventory cannot supply worksheet controller requirement {requirement}"
+        )
+    return [item["id"] for item in selected]
+
+
+def _required_labeled_artifacts(spec: CaseSpec) -> list[tuple[str, str]]:
+    """Return verifier-mandated kind/label pairs for a case."""
+
+    if spec.case_id == "fresh_sd_startup":
+        return [
+            ("log", FRESH_SD_APF_BASELINE_LOG_LABEL),
+            ("log", FRESH_SD_DISTRIBUTION_LIFECYCLE_LOG_LABEL),
+            ("photo", FRESH_SD_BOUND_INPUT_LABEL),
+            ("photo", FRESH_SD_BOUND_INTERACT_LABEL),
+        ]
+    if spec.case_id == "invalid_rom_negative":
+        return [("log", CHIP32_POLL_GUARD_LOG_LABEL)]
+    if spec.case_id == "settings_options_and_persistence":
+        return [("log", SETTINGS_APF_PATH_AUDIT_LOG_LABEL)]
+    if spec.case_id == "auto_off_dirty_save_flush":
+        return [
+            *(
+                ("save", label)
+                for label, _digest in AUTO_OFF_SAVE_SNAPSHOT_SHA256
+            ),
+            ("video", AUTO_OFF_VIDEO_LABEL),
+            ("log", AUTO_OFF_LOG_LABEL),
+        ]
+    if spec.case_id == "console_eeprom_lifecycle":
+        return [
+            ("save", f"console-eeprom {model} {stage}")
+            for model in CONSOLE_EEPROM_SNAPSHOT_SIZES
+            for stage in CONSOLE_EEPROM_SNAPSHOT_STAGES
+        ]
+    if spec.case_id == "all_save_types_lifecycle":
+        return [
+            ("save", f"cartridge-save type-{save_type:02x} {stage}")
+            for save_type in SAVE_TYPE_PAYLOAD_BYTES
+            if save_type != 0
+            for stage in CARTRIDGE_SAVE_SNAPSHOT_STAGES
+        ]
+    return []
+
+
+def _artifact_plan(spec: CaseSpec) -> list[dict[str, str | bool]]:
+    """Build a deterministic, minimum-count artifact filename plan."""
+
+    slots = [
+        {"kind": kind, "label": label, "exact_label": True}
+        for kind, label in _required_labeled_artifacts(spec)
+    ]
+    for need in spec.needs:
+        present = sum(item["kind"] in need.kinds for item in slots)
+        for _unused in range(max(0, need.minimum - present)):
+            slots.append({"kind": need.kinds[0], "label": "", "exact_label": False})
+
+    counters: dict[str, int] = {}
+    result: list[dict[str, str | bool]] = []
+    for slot in slots:
+        kind = str(slot["kind"])
+        counters[kind] = counters.get(kind, 0) + 1
+        artifact_id = f"{spec.case_id}-{kind}-{counters[kind]:02d}"
+        _id(artifact_id, "worksheet artifact ID")
+        label = str(slot["label"]) or (
+            f"{spec.case_id} {kind} observation {counters[kind]:02d}"
+        )
+        path = pathlib.PurePosixPath("files", spec.case_id) / (
+            artifact_id + ARTIFACT_TEMPLATE_SUFFIXES[kind]
+        )
+        result.append({
+            "id": artifact_id,
+            "kind": kind,
+            "label": label,
+            "exact_label": bool(slot["exact_label"]),
+            "path": path.as_posix(),
+        })
+    return result
+
+
+def render_operator_worksheet(
+    inventory_path: pathlib.Path, manifest_path: pathlib.Path
+) -> str:
+    """Render a read-only Markdown field worksheet from a validated manifest."""
+
+    summary = verify_manifest(manifest_path, inventory_path, require_pass=False)
+    document = _load_json(manifest_path.absolute(), "hardware QA manifest")
+    body = _object(document["hardware_qa"], "manifest hardware_qa")
+    cases = {
+        item["id"]: item
+        for item in _array(body["cases"], "manifest cases")
+    }
+    artifacts = {
+        item["id"]: item
+        for item in _array(body["artifacts"], "manifest artifacts")
+    }
+    environment = _object(body["environment"], "manifest environment")
+    roms = _array(environment["roms"], "manifest environment roms")
+    controllers = _array(
+        environment["controllers"], "manifest environment controllers"
+    )
+    statuses = {name: 0 for name in ("pass", "fail", "pending")}
+    for case in cases.values():
+        statuses[case["status"]] += 1
+
+    lines = [
+        "# Pocket/Dock physical QA operator worksheet",
+        "",
+        "> Read-only report generated from the strict inventory and manifest. "
+        "Checking boxes here does not update evidence. Record only physical "
+        "observations in `manifest.json`; this helper never changes cases or attestation.",
+        "",
+        f"- Run ID: `{summary['run_id']}`",
+        f"- Firmware: `{summary['firmware_version']}`",
+        f"- Manifest: `{manifest_path.absolute()}`",
+        f"- Evidence root: `{manifest_path.absolute().parent}`",
+        f"- Manifest SHA-256: `{summary['manifest_sha256']}`",
+        f"- Progress: **{statuses['pass']} pass / {statuses['fail']} fail / "
+        f"{statuses['pending']} pending** ({len(CASE_SPECS)} required)",
+        "",
+        "Suggested IDs and paths below are deterministic and satisfy the strict "
+        "selection/count predicates. Labels marked **exact** are verifier-mandated. "
+        "Captured times, sizes, hashes, observations, and final review remain human input.",
+        "",
+    ]
+
+    for index, spec in enumerate(CASE_SPECS, start=1):
+        case = cases[spec.case_id]
+        selected_artifacts = [artifacts[item] for item in case["artifact_ids"]]
+        true_checks = sum(case["checks"].values())
+        need_text = "; ".join(
+            f"{need.minimum} x {'/'.join(need.kinds)}" for need in spec.needs
+        )
+        rom_ids = _suggest_rom_ids(spec.rom_requirement, roms)
+        controller_ids = _suggest_controller_ids(
+            spec.controller_requirement, controllers
+        )
+        lines.extend([
+            f"## {index:02d}. `{spec.case_id}` — {case['status'].upper()}",
+            "",
+            f"- Device mode: `{spec.device_mode}`",
+            f"- Suggested exact ROM IDs: `{', '.join(rom_ids)}` "
+            f"(requirement `{spec.rom_requirement}`)",
+            f"- Suggested exact controller IDs: `{', '.join(controller_ids)}` "
+            f"(requirement `{spec.controller_requirement}`)",
+            f"- Evidence minimum: {need_text}",
+            f"- Recorded now: {true_checks}/{len(spec.checks)} checks; "
+            f"{len(selected_artifacts)} artifacts",
+            "",
+            "### Physical checks",
+            "",
+        ])
+        lines.extend(
+            f"- [{'x' if case['checks'][name] else ' '}] `{name}`"
+            for name in spec.checks
+        )
+        lines.extend([
+            "",
+            "### Deterministic minimum artifact plan",
+            "",
+            "| Suggested artifact ID | Kind | Label | Manifest-relative path |",
+            "|---|---|---|---|",
+        ])
+        for artifact in _artifact_plan(spec):
+            exact = " **(exact)**" if artifact["exact_label"] else ""
+            lines.append(
+                f"| `{artifact['id']}` | `{artifact['kind']}` | "
+                f"`{artifact['label']}`{exact} | `{artifact['path']}` |"
+            )
+        if selected_artifacts:
+            lines.extend([
+                "",
+                "Recorded artifact IDs: "
+                + ", ".join(f"`{item['id']}`" for item in selected_artifacts),
+            ])
+        lines.append("")
+
+    attestation = _object(body["attestation"], "manifest attestation")
+    lines.extend([
+        "## Final human attestation",
+        "",
+        "> Complete these fields in the manifest only after all physical evidence "
+        "has been independently reviewed.",
+        "",
+        f"- [{'x' if attestation['physical_hardware_observed'] else ' '}] "
+        "`physical_hardware_observed`",
+        f"- [{'x' if attestation['results_not_inferred_from_simulation'] else ' '}] "
+        "`results_not_inferred_from_simulation`",
+        f"- [{'x' if attestation['evidence_reviewed'] else ' '}] `evidence_reviewed`",
+        f"- Reviewer: `{attestation['reviewer'] or 'not set'}`",
+        f"- Reviewed at: `{attestation['reviewed_at'] or 'not set'}`",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def write_operator_worksheet(
+    inventory_path: pathlib.Path,
+    manifest_path: pathlib.Path,
+    output_path: pathlib.Path,
+) -> None:
+    """Refresh a local report without allowing either source file to be clobbered."""
+
+    output_path = output_path.absolute()
+    source_paths = {inventory_path.absolute().resolve(), manifest_path.absolute().resolve()}
+    if output_path.resolve() in source_paths:
+        raise ValueError("operator worksheet output must not replace inventory or manifest")
+    if output_path.is_symlink() or (output_path.exists() and not output_path.is_file()):
+        raise ValueError(f"operator worksheet output must be a regular file: {output_path}")
+    if not output_path.parent.is_dir():
+        raise ValueError(
+            f"operator worksheet parent does not exist: {output_path.parent}"
+        )
+    output_path.write_text(
+        render_operator_worksheet(inventory_path, manifest_path), encoding="utf-8"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -916,13 +1858,24 @@ def main(argv: list[str] | None = None) -> int:
     verify = subparsers.add_parser("verify", help="validate complete schema, hashes, and human attestation")
     verify.add_argument("--inventory", required=True, type=pathlib.Path)
     verify.add_argument("--manifest", required=True, type=pathlib.Path)
+    worksheet = subparsers.add_parser(
+        "worksheet",
+        help="render a read-only operator checklist and artifact filename plan",
+    )
+    worksheet.add_argument("--inventory", required=True, type=pathlib.Path)
+    worksheet.add_argument("--manifest", required=True, type=pathlib.Path)
+    worksheet.add_argument(
+        "--output",
+        type=pathlib.Path,
+        help="refresh this Markdown report instead of writing it to stdout",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
             generate_manifest(args.inventory, args.output)
             print(f"WROTE pending hardware QA manifest: {args.output}")
             print("NOT ACCEPTED: every physical case and attestation remains pending")
-        else:
+        elif args.command == "verify":
             summary = verify_manifest(args.manifest, args.inventory)
             print(
                 "VALID evidence schema, hashes, and human attestation "
@@ -930,6 +1883,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"artifacts={summary['artifacts']} sha256={summary['manifest_sha256']}"
             )
             print("NOT MECHANICAL PROOF: a reviewer remains responsible for physical truth")
+        elif args.output is None:
+            print(render_operator_worksheet(args.inventory, args.manifest), end="")
+        else:
+            write_operator_worksheet(args.inventory, args.manifest, args.output)
+            print(f"WROTE read-only hardware QA operator worksheet: {args.output}")
+            print("NO RESULTS CHANGED: manifest cases and attestation remain human input")
     except ValueError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

@@ -53,6 +53,45 @@ Capture completed GDMA transfers from the linear ROM window into IRAM:
   --trace-mem-space cart_rom_linear,iram
 ```
 
+## Cross-process cartridge SRAM
+
+The direct translated-core harness can import and atomically export the exact
+cartridge SRAM capacity declared by footer types `0x01` through `0x05`:
+
+```sh
+build/sim/obj_dir/VSwanTop \
+  --rom build/open-probes/sram_type03_persistence.ws \
+  --bios build/open-probes/sram_persistence_boot_mono.bin \
+  --max-cycles 20000 \
+  --expect-iram-byte 0x0400=0x11 \
+  --sram-out build/open-probes/type03.sav
+
+build/sim/obj_dir/VSwanTop \
+  --rom build/open-probes/sram_type03_persistence.ws \
+  --bios build/open-probes/sram_persistence_boot_mono.bin \
+  --max-cycles 20000 \
+  --expect-iram-byte 0x0400=0x22 \
+  --sram-in build/open-probes/type03.sav \
+  --sram-out build/open-probes/type03.sav
+```
+
+`--sram-in` requires one exact 32/128/256/512 KiB regular, single-link file;
+short, oversized, symlinked, hard-linked, or footer-incompatible inputs fail.
+`--sram-out` is published only after the requested frame or exact IRAM write
+and any controller replay have completed successfully. Import and output may
+name the same save because the input is fully read before atomic replacement.
+An output may not alias ROM, BIOS, controller script, trace, trace manifest,
+VCD, or generated frame paths.
+
+Trace manifest v1 does not bind imported SRAM identity, so `--sram-in` and
+`--event-trace` are deliberately incompatible. The normal regression uses the
+repository-authored probe bundle and `run_sram_persistence_e2e.sh` to run three
+separate processes for all six mono/Color type-`03`/`04`/`05` combinations.
+It requires the exact `0x11`, `0x22`, then `0x21` status sequence and verifies
+every byte of each resulting save. This proves the translated V30MZ,
+memorymux, and mapper path; it does not replace the Pocket/APF loader/unloader,
+SDRAM-wrapper, quit/relaunch, or power-cycle hardware cases.
+
 ## Deterministic controller replay
 
 `--input-script FILE` replays complete WonderSwan controller states at exact
@@ -342,13 +381,13 @@ being reused. This evidence does not claim that `unattributed` by itself proves
 prefetch, and it does not
 generalize the evidence to `MOVSW` or other copy loops.
 
-The bootstrap regression additionally runs `verify_cpu_rep_movsb.py`. That
-fixture-specific verifier binds the canonical open ROM and complete v5
-manifest, then requires the two complete instruction chains to alternate exact
-ROM reads and IRAM byte writes without interleaved memory traffic. It checks
-every address, mapped offset, lane, low-byte value, and canonical ROM byte and
-rejects additional exact CPU instruction chains that both read ROM and write
-IRAM.
+The regression instead generates a self-contained project-authored REP MOVSB
+ROM and runs `verify_rep_movsb_probe.py`. Its versioned marker binds two
+independent 2 KiB source/destination contracts and payload SHA-256 values. The
+verifier requires the complete v5 manifest, trace-observed opcode origins,
+strict alternating exact ROM reads and IRAM byte writes without interleaved
+memory traffic, every address/offset/lane/value, distinct ordered instruction
+IDs, intact destination windows, a final completion word, and the terminal PC.
 
 The integrated top currently instantiates the DMA engine with its hardware
 path enabled, so `sdma` events are runtime-reachable in the translated model.
@@ -692,9 +731,13 @@ readback state with `C0`-`C3` and produce the expected linear-ROM, SRAM, ROM0,
 and ROM1 resolved offsets. It exhaustively writes all byte values to high-bank
 ports `D1`, `D3`, and `D5`, requires the documented `000000bb` readback, checks
 mapper gating/reset, and replays those bytes through the unchanged 256-port
-save-state image. Mapper `0x00` and an unknown `0x03` cannot use the extended
-ports. The test deliberately establishes no authority for ROM above 16 MiB,
-GPO, complete self-flash command behavior, or KARNAK peripherals.
+save-state image. The same bench exhaustively verifies the four-bit `CC`/`CD`
+GPO direction/data latches, including upper-bit masking, independence, reset,
+mapper rejection, and register-image replay. No Pocket-side cartridge device
+is attached to those latches. Mapper `0x00` and an unknown `0x03` cannot use
+the extended ports. The test deliberately establishes no authority for ROM
+above 16 MiB, physical GPO behavior, complete self-flash command behavior, or
+KARNAK peripherals.
 
 Those probes lock the translated RTL resolver and observer, not physical
 hardware behavior. Current RTL returns zero for absent SRAM and `0x9090` for
@@ -705,27 +748,23 @@ result is claimed as hardware-correct. The SRAM probe uses `ramtype=0x03`
 the corrected, research-consistent 32 KiB `0x01`/`0x02` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
-The six-frame display-provenance regression requires 80,452/80,452
-non-collision physical display reads to match the complete-from-reset IRAM
-scoreboard: 80,010 are tied to exact CPU writer instructions and 442 reads to
-the defined power-up value. Any value mismatch fails regression.
-Within that bootstrap trace, the conservative CPU classifier observes exactly
-two 2,048-byte chains: ROM `0x00252..0x00a51` to IRAM `0x2800..0x2fff` at
-origin `0xf00a4`, and ROM `0x00a52..0x01251` to IRAM `0x2000..0x27ff` at
-origin `0xf0100`. The resulting totals are 4,096 accepted source bytes, two
-origins, 52,516 `cpu_rom_movsb` display words, and 26,224
-`cpu_rom_movsb` atomic cells whose contributing tile-row bytes are
-MOVSB-sourced (their map bytes remain separately classified). The
-extended-range and Shift-JIS fixtures each
-report zero CPU-ROM-MOVSB bytes, origins, display words, and atomic cells; the
-classification is therefore not applied merely because CPU ROM traffic is
-unattributed.
-The atomic-cell gate validates 26,226 bootstrap cells across both screen layers;
-the extended-range Color fixture adds 5,177 Screen 1 cells and the Shift-JIS
-fixture adds 8,308. Of the latter, 96 records are the two complete promotions
-of all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,494
+Display provenance is now locked by four independent workload families. The
+extended-range fixture requires 16,281/16,281 exact reads, the Shift-JIS
+fixture 25,610/25,610, and each generated planar/packed 4bpp capture
+26,168/26,168. Each inside/outside window capture adds 26,296/26,296 Screen 2
+reads. Every run has zero value mismatch and collision and records the
+expected exact CPU, initialized, and GDMA-ROM sources. All report zero
+CPU-ROM-MOVSB display classifications; the separate generated REP probe proves
+its two 2 KiB CPU copies directly instead of coupling CPU-copy correctness to
+a display workload.
+The atomic-cell gate validates 5,177 extended-range Screen 1 cells and 8,308
+Shift-JIS cells. Of the latter, 96 records are the two complete promotions of
+all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,494
 Screen 1 cells; 64 are the two complete promotions of the four diagnostic
 placements, with both raw words and all four GDMA/ROM byte provenances exact.
+Each window capture adds 8,494 provenance-complete Screen 2 cells and separately
+locks the final Screen 2 and sprite-window pixels. Focused correlator fixtures
+also cover simultaneous Screen 1/2 promotion.
 The focused unit test locks 2bpp/4bpp
 selection, simultaneous layers, collisions, superseded prefetches, and
 writer-snapshot timing.

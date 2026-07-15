@@ -65,12 +65,14 @@ each completed history sample before temporal processing and is enabled only
 for color-system output, matching ares' non-ASWAN branch. Mono WonderSwan
 grayscale stays on the raw, full-range path.
 
-`LCD Response` has three values:
+`Motion / LCD Response` has four values:
 
 - `Off`: the newest sample only.
 - `2-Frame Blend`: the existing rounded average of newest and previous
   completed frames.
 - `Persistence`: `floor((2N + P + O) / 4)` per transformed eight-bit channel.
+- `Complete Frames 60.9Hz`: the newest sample only, with the optional output
+  cadence documented in `FRAME_DELIVERY.md`. It is not an LCD-response model.
 
 The last formula is a **project-designed finite approximation**, not literal
 ares output and not measured panel physics. Expanding ares' recursive 50%
@@ -79,9 +81,10 @@ histories and collapses the unrepresented older tail onto `O`, yielding
 `1/2, 1/4, 1/4`. This preserves constant colors and adds a causal-looking trail
 without adding another framebuffer or an arbitrary strength menu.
 
-Both nonzero response choices require completed-frame history. They therefore
-enable buffering and intentionally include older image content; any statement
-about end-to-end display or input latency must include that buffering policy.
+Both temporal-response choices require completed-frame history. They therefore
+enable buffering and intentionally include older image content. The 60.9 Hz
+choice also forces completed-frame buffering but does not blend old pixels. Any
+statement about end-to-end display or input latency must include that buffering policy.
 The color matrix and arithmetic themselves are combinational, and every menu
 change is applied only at a scanout frame boundary to avoid a partial-frame
 profile seam.
@@ -95,7 +98,7 @@ profile seam.
 - every one of the 4,096 RGB444 colors against the pinned ares matrix;
 - every RGB444 color through every temporal encoding with adversarial,
   cross-channel history samples;
-- raw and corrected primaries, black/white endpoints, reserved-mode fail-safe,
+- raw and corrected primaries, black/white endpoints, 60.9 Hz newest-sample behavior,
   constant-color invariance, and the documented persistence step.
 
 The settings CDC, source mutation contract, APF definition tests, and package

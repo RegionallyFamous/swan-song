@@ -11,9 +11,12 @@ experience.
 
 > **Swan Song is still in development. There is not yet a verified public
 > release.** The project has extensive automated testing, but the current build
-> still needs final licensing review, a verified FPGA build, and repeatable
-> testing on real Pocket and Dock hardware. Please do not treat a development
-> build as a finished release.
+> still needs final licensing review and repeatable testing on real Pocket and
+> Dock hardware. The historical protected-main `f0345ee4` FPGA candidate and
+> an independent rebuild match byte-for-byte, but newer source changes require
+> a fresh full regression, Quartus build, and independent reproduction. None of
+> that substitutes for physical product testing or distribution authorization.
+> Please do not treat a development build as a finished release.
 
 ## Why Swan Song exists
 
@@ -55,7 +58,7 @@ The current development work is focused on:
 - fast forward, including an option to keep audio playing;
 - persistent per-game saves and separate console settings for the original and
   Color systems;
-- presentation options for orientation, smoother motion, LCD response, and
+- presentation options for orientation, motion delivery, LCD response, and
   color;
 - a CPU Turbo option for games that benefit from extra headroom;
 - friendly handling of missing or invalid files instead of unexplained hangs;
@@ -72,10 +75,19 @@ the picture; **Display Orientation** controls the screen presentation. The
 [Controls and Settings guide](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
 explains the choices.
 
+An optional **Complete Frames 60.9Hz** motion mode reduces modeled frame skips
+while keeping tear-free complete frames in steady state. After switching from
+direct to buffered output, the live/direct picture remains visible for one
+producer-frame priming interval; the complete-frame guarantee begins with the
+first completed buffered frame. Standard 59.985 Hz output remains the default
+because the optional rate sits close to openFPGA's approximate 61 Hz ceiling
+and still needs physical Pocket and Dock acceptance.
+
 Swan Song launches through **openFPGA**, not Pocket's first-party Library.
-Setting **Startup Action > openFPGA** and using openFPGA's **Recent** list makes
-return visits quick. See [Compatibility and Current
-Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
+**Startup Action > openFPGA** shortens the route back, and Pocket firmware 2.6.0
+adds a host-owned **Recent** activity category. Its exact Swan Song entry and
+relaunch behavior still need physical Pocket validation. See [Compatibility and
+Current Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
 for the current Pocket integration boundaries.
 
 ### Known limits
@@ -86,7 +98,7 @@ for the current Pocket integration boundaries.
   supported.
 - PocketChallenge v2, link-cable play, and multiplayer controllers are not
   currently supported.
-- Pocket and Dock behavior still needs release-candidate testing on physical
+- Pocket and Dock behavior still needs hardware-QA testing on physical
   hardware.
 
 ## Installing Swan Song
@@ -111,6 +123,12 @@ live in `/Assets/wonderswan/common/`. A normal player will **not** need Quartus,
 Docker, a virtual machine, or a cloud server. Those are development tools, not
 installation requirements.
 
+The `framework.version_required` value in `core.json` makes Analogue OS 2.3 the
+minimum firmware that may load Swan Song. That loader minimum is not yet a
+promise that every 2.3-era host behavior is supported: launch qualification
+targets and recommends Analogue OS 2.6.0, and the verified release notes will
+state the final evidence-backed support floor.
+
 On macOS, take care when copying the release folders: Finder can replace a
 same-named folder instead of merging it. The release guide will include a safe
 Mac installation path. Swan Song's read-only-first staging tool already has an
@@ -129,6 +147,7 @@ issue report, or a public testing service.
 Use the live player guides for:
 
 - [installing Swan Song](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song)
+- [updating, rolling back, uninstalling, and keeping another WonderSwan core](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song#update-swan-song)
 - [starting and playing games](https://github.com/RegionallyFamous/swan-song/wiki/Playing-Games)
 - [controls and settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
 - [saves and migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration)
@@ -137,6 +156,8 @@ Use the live player guides for:
 
 Technical contributors can start at the [Developer
 Hub](https://github.com/RegionallyFamous/swan-song/wiki/Developer-Hub).
+Release owners and reviewers should use the checked-in
+[release decision record](RELEASE_DECISIONS.md).
 
 ### Something not working?
 
@@ -149,10 +170,12 @@ python3 scripts/swan_song_doctor.py --sd-root "/Volumes/POCKET"
 
 Replace `/Volumes/POCKET` with the card's actual path. By default Swan Song
 Doctor performs no content or namespace writes (filesystem reads may update
-access times). It checks the installation, BIOS filenames and sizes, game and
-per-game settings locations, older WonderSwan data, and unsafe SD-card paths.
-It never uploads ROMs, BIOS files, or saves. See the player-friendly
-[troubleshooting guide](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
+access times). It checks the complete player-visible installation, BIOS
+filenames and sizes, valid whole-bank game sizes and per-game settings
+locations, older WonderSwan data, and unsafe SD-card paths. It never uploads
+ROMs, BIOS files, or saves. BIOS identification is available only when you
+explicitly add `--identify-bios`; game contents are never read. See the
+player-friendly [troubleshooting guide](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
 or the [complete Doctor reference](SWAN_SONG_DOCTOR.md) for help reading the
 result and for carefully previewing optional repairs.
 

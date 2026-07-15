@@ -1,3 +1,6 @@
+-- Modified for Swan Song by Regionally Famous on 2026-07-14.
+-- See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
@@ -93,7 +96,23 @@ entity memorymux is
       SSMEM_WriteData      : in  std_logic_vector(15 downto 0);
       SSMEM_ReadData_REG   : out std_logic_vector(15 downto 0);
       SSMEM_ReadData_RAM   : out std_logic_vector(15 downto 0);
-      SSMEM_ReadData_SRAM  : out std_logic_vector(15 downto 0)
+      SSMEM_ReadData_SRAM  : out std_logic_vector(15 downto 0);
+
+      -- Native Memories v2 EEPROM device boundaries.  These are routed to
+      -- the production wrapper without adapting or reordering their fixed
+      -- 128-bit images.  The sole production tie-off lives in core_top until
+      -- the complete atomic owner and restore protocol are integrated.
+      internal_eeprom_state_freeze : in  std_logic := '0';
+      internal_eeprom_state_frozen : out std_logic := '0';
+      internal_eeprom_state_load   : in  std_logic := '0';
+      internal_eeprom_state_in     : in  std_logic_vector(127 downto 0) := (others => '0');
+      internal_eeprom_state_out    : out std_logic_vector(127 downto 0) := (others => '0');
+
+      cartridge_eeprom_state_freeze : in  std_logic := '0';
+      cartridge_eeprom_state_frozen : out std_logic := '0';
+      cartridge_eeprom_state_load   : in  std_logic := '0';
+      cartridge_eeprom_state_in     : in  std_logic_vector(127 downto 0) := (others => '0');
+      cartridge_eeprom_state_out    : out std_logic_vector(127 downto 0) := (others => '0')
    );
 end entity;
 
@@ -109,9 +128,11 @@ architecture arch of memorymux is
    signal BANK_ROM1_HI     : std_logic_vector(1 downto 0) := (others => '1');
    signal mapper_2003_selected : std_logic;
    signal mapper_RegBus_Adr : std_logic_vector(BUS_busadr-1 downto 0);
+   signal gpo_direction    : std_logic_vector(3 downto 0) := (others => '0');
+   signal gpo_data         : std_logic_vector(3 downto 0) := (others => '0');
    signal flash_enable     : std_logic := '0';
    
-   type t_reg_wired_or is array(0 to 8) of std_logic_vector(7 downto 0);
+   type t_reg_wired_or is array(0 to 10) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
   
    -- masks from header
@@ -217,6 +238,33 @@ begin
                       "000000" & BANK_ROM0_HI when mapper_2003_selected = '1' and RegBus_Adr = x"D3" else
                       "000000" & BANK_ROM1_HI when mapper_2003_selected = '1' and RegBus_Adr = x"D5" else
                       x"00";
+
+   -- Bandai 2003 exposes four general-purpose cartridge pins at CCh/CDh.
+   -- Preserve the software-visible direction and data latches even though
+   -- Swan Song intentionally does not attach a Pocket-side peripheral to the
+   -- pins.  The public chip documentation defines only bits 3:0; upper bits
+   -- therefore read zero and are never retained.  Like the other 2003-only
+   -- registers, deselection clears the latches so metadata from one title
+   -- cannot leak into the next.  Normal register-image replay writes CCh/CDh
+   -- after RegBus_rst and thus restores this state without a format change.
+   process (clk)
+   begin
+      if rising_edge(clk) then
+         if (RegBus_rst = '1' or mapper_2003_selected = '0') then
+            gpo_direction <= (others => '0');
+            gpo_data <= (others => '0');
+         elsif (RegBus_wren = '1') then
+            case RegBus_Adr is
+               when x"CC" => gpo_direction <= RegBus_Din(3 downto 0);
+               when x"CD" => gpo_data <= RegBus_Din(3 downto 0);
+               when others => null;
+            end case;
+         end if;
+      end if;
+   end process;
+
+   reg_wired_or(9) <= x"0" & gpo_direction when mapper_2003_selected = '1' and RegBus_Adr = x"CC" else x"00";
+   reg_wired_or(10) <= x"0" & gpo_data when mapper_2003_selected = '1' and RegBus_Adr = x"CD" else x"00";
 
    -- Bandai 2003 self-flash control, port CEh. Only bit 0 exists: zero keeps
    -- the 10000h-1FFFFh window on SRAM, while one exposes the ROM/flash path.
@@ -631,11 +679,11 @@ begin
       SSBus_rst      => SSBus_rst, 
       SSBus_Dout     => ss_wired_or(0),
 
-      state_freeze   => '0',
-      frozen_ack     => open,
-      state_load     => '0',
-      state_in       => (others => '0'),
-      state_out      => open
+      state_freeze   => internal_eeprom_state_freeze,
+      frozen_ack     => internal_eeprom_state_frozen,
+      state_load     => internal_eeprom_state_load,
+      state_in       => internal_eeprom_state_in,
+      state_out      => internal_eeprom_state_out
    );
    
    ieeprom_ext : entity work.eeprom
@@ -682,11 +730,11 @@ begin
       SSBus_rst      => SSBus_rst, 
       SSBus_Dout     => ss_wired_or(1),
 
-      state_freeze   => '0',
-      frozen_ack     => open,
-      state_load     => '0',
-      state_in       => (others => '0'),
-      state_out      => open
+      state_freeze   => cartridge_eeprom_state_freeze,
+      frozen_ack     => cartridge_eeprom_state_frozen,
+      state_load     => cartridge_eeprom_state_load,
+      state_in       => cartridge_eeprom_state_in,
+      state_out      => cartridge_eeprom_state_out
    );
    
 

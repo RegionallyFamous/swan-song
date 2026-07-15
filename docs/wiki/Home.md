@@ -4,9 +4,11 @@ Swan Song is a WonderSwan and WonderSwan Color core being built especially for
 the Analogue Pocket by **Regionally Famous**.
 
 > **Development status:** Swan Song does not have a verified public release
-> yet. The current code has extensive automated test coverage, but its FPGA
-> build, timing, and complete Pocket and Dock experience still need final
-> hardware verification. The [Releases
+> yet. Historical protected-main candidate `f0345ee4` and an independent
+> rebuild match byte-for-byte and pass the strict four-corner timing audit;
+> newer source changes still require a fresh regression and FPGA build. The
+> complete Pocket and Dock experience and distribution clearance also need
+> final verification. The [Releases
 > page](https://github.com/RegionallyFamous/swan-song/releases) is the only
 > place that will identify an installable public release.
 

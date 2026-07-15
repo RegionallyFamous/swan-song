@@ -170,8 +170,29 @@ def _utc(value: Any, where: str) -> str:
 def _load(path: pathlib.Path, where: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"{where} must be a regular non-symlink file: {path}")
+
+    def object_without_duplicate_members(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{where} has duplicate object member {key!r}")
+            result[key] = value
+        return result
+
+    def reject_nonstandard_number(value: str) -> None:
+        raise ValueError(f"{where} contains non-standard number {value}")
+
     try:
-        return _object(json.loads(path.read_text(encoding="utf-8")), where)
+        return _object(
+            json.loads(
+                path.read_text(encoding="utf-8"),
+                object_pairs_hook=object_without_duplicate_members,
+                parse_constant=reject_nonstandard_number,
+            ),
+            where,
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid {where}: {error}") from error
 
@@ -308,9 +329,15 @@ def _validate_pending_fields(item: dict[str, Any], where: str) -> None:
             raise ValueError(f"{where}.modes.{name} must be pending in the checked-in template")
 
 
-def validate_catalogue(path: pathlib.Path) -> dict[str, int]:
+def validate_catalogue(
+    path: pathlib.Path,
+    *,
+    _document: dict[str, Any] | None = None,
+    _root: pathlib.Path | None = None,
+) -> dict[str, int]:
     """Validate the immutable pending catalogue and all open fixture hashes."""
-    body = _body(_load(path, "catalogue"), "catalogue")
+    document = _load(path, "catalogue") if _document is None else _document
+    body = _body(document, "catalogue")
     run = _object(body["run"], "catalogue.run")
     _keys(run, "catalogue.run", RUN_FIELDS)
     if any(value is not None for value in run.values()):
@@ -327,7 +354,7 @@ def validate_catalogue(path: pathlib.Path) -> dict[str, int]:
 
     cases = _array(body["cases"], "catalogue.cases")
     ids: list[str] = []
-    root = path.resolve().parent
+    root = path.resolve().parent if _root is None else _root
     for index, raw in enumerate(cases):
         where = f"catalogue.cases[{index}]"
         item = _object(raw, where)
@@ -462,15 +489,36 @@ def verify_manifest(
     *,
     require_complete: bool = False,
     require_pass: bool = False,
+    _catalogue_document: dict[str, Any] | None = None,
+    _manifest_document: dict[str, Any] | None = None,
+    _catalogue_root: pathlib.Path | None = None,
+    _manifest_root: pathlib.Path | None = None,
+    _catalogue_bytes: bytes | None = None,
+    _manifest_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """Verify a private evidence manifest against the checked-in catalogue."""
-    validate_catalogue(catalogue_path)
-    catalogue = _body(_load(catalogue_path, "catalogue"), "catalogue")
-    manifest = _body(_load(manifest_path, "manifest"), "manifest")
+    validate_catalogue(
+        catalogue_path,
+        _document=_catalogue_document,
+        _root=_catalogue_root,
+    )
+    catalogue_document = (
+        _load(catalogue_path, "catalogue")
+        if _catalogue_document is None
+        else _catalogue_document
+    )
+    manifest_document = (
+        _load(manifest_path, "manifest")
+        if _manifest_document is None
+        else _manifest_document
+    )
+    catalogue = _body(catalogue_document, "catalogue")
+    manifest = _body(manifest_document, "manifest")
     _validate_run(manifest)
     run_created_at = manifest["run"]["created_at"]
     artifacts, artifact_digest = _validate_artifacts(
-        manifest["artifacts"], manifest_path.resolve().parent
+        manifest["artifacts"],
+        manifest_path.resolve().parent if _manifest_root is None else _manifest_root,
     )
 
     catalogue_cases = _array(catalogue["cases"], "catalogue.cases")
@@ -481,7 +529,7 @@ def verify_manifest(
     used_artifacts: dict[str, str] = {}
     commercial_hashes: dict[str, str] = {}
     status_counts = {"pass": 0, "fail": 0, "pending": 0}
-    root = catalogue_path.resolve().parent
+    root = catalogue_path.resolve().parent if _catalogue_root is None else _catalogue_root
     for index, (canonical_raw, observed_raw) in enumerate(zip(catalogue_cases, manifest_cases)):
         canonical = _object(canonical_raw, f"catalogue.cases[{index}]")
         observed = _object(observed_raw, f"manifest.cases[{index}]")
@@ -652,11 +700,22 @@ def verify_manifest(
             _utc(attestation["reviewed_at"], "manifest.attestation.reviewed_at")
 
     return {
+        "magic": MAGIC,
+        "catalogue_revision": CATALOGUE_REVISION,
+        "catalogue_sha256": hashlib.sha256(
+            catalogue_path.read_bytes() if _catalogue_bytes is None else _catalogue_bytes
+        ).hexdigest(),
+        "required_firmware_version": REQUIRED_FIRMWARE,
         "cases": len(manifest_cases),
+        "commercial_cases": len(REQUIRED_COMMERCIAL_IDS),
+        "open_sanity_cases": len(REQUIRED_OPEN_IDS),
         "artifacts": len(artifacts),
         "status": status_counts,
         "artifact_index_sha256": artifact_digest,
-        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "manifest_sha256": hashlib.sha256(
+            manifest_path.read_bytes() if _manifest_bytes is None else _manifest_bytes
+        ).hexdigest(),
+        "run": dict(manifest["run"]),
     }
 
 

@@ -1,10 +1,13 @@
 `default_nettype none
 
-// Fixed binary ABI for the future production WonderSwan Memories v2 image.
+// Fixed blob allocation and header-field contract for the future production
+// WonderSwan Memories v2 image. Most machine-section byte schemas remain
+// intentionally undefined and must not silently reuse schema 1.
 //
 // This package is deliberately not in ap_core.qsf and does not enable the
-// Pocket save-state flags.  It freezes sizes, offsets, identities, and padding
-// rules for the v2 implementation without changing the isolated v1 transport.
+// Pocket save-state flags.  It defines the fixed allocation sizes, offsets,
+// header field positions, and padding rules for the v2 implementation without changing the
+// isolated v1 transport.
 // Structured scalar bytes are big-endian at the APF bridge: the byte at the
 // lowest blob offset occupies bits [31:24] of a normalized 32-bit word.  Raw
 // emulated memories are byte arrays in ascending emulated-address order.

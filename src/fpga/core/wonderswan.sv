@@ -1,3 +1,31 @@
+// Modified for Swan Song by Regionally Famous on 2026-07-14.
+// See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
+//============================================================================
+// WonderSwan
+// Copyright (c) 2021 Robert Peip
+//
+// MiSTer Framework
+// Copyright (C) 2021 Sorgelig
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation; either version 2 of the License, or (at your option)
+// any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+// more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+// Pocket adaptation derived from agg23/openfpga-wonderswan. Swan Song changes
+// are maintained by Regionally Famous; see UPSTREAMS.md and LICENSING.md.
+//============================================================================
+
 module wonderswan (
     input wire clk_sys_36_864,
     input wire clk_mem_110_592,
@@ -49,6 +77,7 @@ module wonderswan (
     input wire dpad_left,
     input wire dpad_right,
     input wire physical_input_blocked,
+    input wire menu_focus_paused,
 
     // Settings
     input wire [1:0] configured_system,
@@ -110,6 +139,26 @@ module wonderswan (
     // and validators are integrated.
     input  wire memories_pause_request,
     output wire memories_pause_ack,
+
+    // Native Memories v2 device boundaries.  No serializer/owner is attached
+    // here: core_top is the sole production tie-off while support is disabled.
+    input  wire         rtc_state_freeze,
+    output wire         rtc_state_frozen,
+    input  wire         rtc_state_load,
+    input  wire [255:0] rtc_state_data_in,
+    output wire [255:0] rtc_state_data_out,
+
+    input  wire         internal_eeprom_state_freeze,
+    output wire         internal_eeprom_state_frozen,
+    input  wire         internal_eeprom_state_load,
+    input  wire [127:0] internal_eeprom_state_in,
+    output wire [127:0] internal_eeprom_state_out,
+
+    input  wire         cartridge_eeprom_state_freeze,
+    output wire         cartridge_eeprom_state_frozen,
+    input  wire         cartridge_eeprom_state_load,
+    input  wire [127:0] cartridge_eeprom_state_in,
+    output wire [127:0] cartridge_eeprom_state_out,
 
     // SDRAM
     output wire [12:0] dram_a,
@@ -495,10 +544,10 @@ module wonderswan (
     end
   end
 
-  reg paused;
-  always_ff @(posedge clk_sys_36_864) begin
-    paused <= syncpaused;
-  end
+  // This level has already crossed through the dedicated 00B0 synchronizer.
+  // It must never be derived from physical_input_blocked: that ownership guard
+  // deliberately remains asserted after menu exit until a neutral PAD sample.
+  wire paused = menu_focus_paused;
 
   reg bios_wrbw;
   reg bios_wrcolor;
@@ -578,6 +627,24 @@ module wonderswan (
       .preserve_internal_eeprom(1'b1),
       .memories_pause_request(memories_pause_request),
       .memories_pause_ack(memories_pause_ack),
+
+      .rtc_state_freeze(rtc_state_freeze),
+      .rtc_state_frozen(rtc_state_frozen),
+      .rtc_state_load(rtc_state_load),
+      .rtc_state_data_in(rtc_state_data_in),
+      .rtc_state_data_out(rtc_state_data_out),
+
+      .internal_eeprom_state_freeze(internal_eeprom_state_freeze),
+      .internal_eeprom_state_frozen(internal_eeprom_state_frozen),
+      .internal_eeprom_state_load(internal_eeprom_state_load),
+      .internal_eeprom_state_in(internal_eeprom_state_in),
+      .internal_eeprom_state_out(internal_eeprom_state_out),
+
+      .cartridge_eeprom_state_freeze(cartridge_eeprom_state_freeze),
+      .cartridge_eeprom_state_frozen(cartridge_eeprom_state_frozen),
+      .cartridge_eeprom_state_load(cartridge_eeprom_state_load),
+      .cartridge_eeprom_state_in(cartridge_eeprom_state_in),
+      .cartridge_eeprom_state_out(cartridge_eeprom_state_out),
 
       // rom
       .EXTRAM_doRefresh(EXTRAM_doRefresh),
@@ -694,6 +761,10 @@ module wonderswan (
   reg allow_direct_while_priming = 1'b0;
   wire buffervideo =
       use_triple_buffer_applied | (flickerblend_applied != 2'd0);
+  // Motion / LCD Response value 3 uses the existing newest-complete-frame
+  // path at a slightly faster APF cadence. It is intentionally independent
+  // from the temporal filter arithmetic and still forces tear-free buffering.
+  wire complete_frames_60_9_applied = flickerblend_applied == 2'd3;
 
   reg hs, vs, hbl, vbl, ce_pix;
   reg [7:0] r, g, b;
@@ -717,12 +788,14 @@ module wonderswan (
   wire framebank_defer_candidate;
   wire framebank_protect_pending;
 
-  // 397 * 258 pixels at 6.144 MHz is 59.984769 Hz.  The dedicated cadence
-  // block keeps the APF raster exact and independently simulation-testable.
+  // Standard output is 397 * 258 at 59.984769 Hz. Optional complete-frame
+  // output is 391 * 258 at 60.905252 Hz. The selected mode is already latched
+  // at the outgoing frame boundary above, so line geometry is frame-atomic.
   apf_scanout_cadence scanout_cadence (
       .clk(clk_sys_36_864),
       .reset(reset),
       .pixel_enable(ce_pix),
+      .smooth_61hz(complete_frames_60_9_applied),
       .x(x),
       .y(y),
       .line_end(scanout_line_end),
@@ -775,8 +848,6 @@ module wonderswan (
   // scanout.  Each bank is split into native 10-bit and 2-bit M10K aspects by
   // apf_framebank_ram, reducing block fragmentation without changing the five
   // logical ownership roles. Disabling buffering returns to direct bank zero.
-  wire syncpaused = 1'b0;
-
   reg [14:0] px_addr = 15'd0;
   wire [11:0] rgb0;
   wire [11:0] rgb1;
@@ -991,8 +1062,8 @@ module wonderswan (
   wire ff_on;
 
   // Host/external reset, a new cartridge, or loss of physical-input ownership
-  // clears the complete gesture history.  PocketOS focus does not pause the
-  // emulated console; it only removes physical controls and Fast Forward.
+  // clears the complete gesture history. The separate menu-focus path pauses
+  // the console and can resume before this neutral-rearm guard releases input.
   apf_fast_forward_control fast_forward_control (
       .clk(clk_sys_36_864),
       .reset_n(reset_n_sys),

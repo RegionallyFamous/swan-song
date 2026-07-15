@@ -24,6 +24,9 @@ on:
 permissions:
   contents: read
   actions: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 env:
   VERILATOR_IMAGE: verilator/verilator@sha256:c531ae1e5da8e7293a2bd6793060c2bf484dac358746e69bcc3e689ec265b299
@@ -64,14 +67,20 @@ jobs:
     timeout-minutes: 180
     env:
       CXX: ${{ github.workspace }}/.github/toolchain/cxx
+      SWANSONG_WORKFLOW_REPOSITORY: ${{ github.repository }}
+      SWANSONG_WORKFLOW_PATH: .github/workflows/quartus-fit.yml
+      SWANSONG_WORKFLOW_SHA: ${{ github.sha }}
+      SWANSONG_WORKFLOW_RUN_ID: ${{ github.run_id }}
+      SWANSONG_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      SWANSONG_WORKFLOW_JOB: ${{ github.job }}
+      SWANSONG_BUILD_JOB_NONCE: ${{ inputs.lab_nonce }}
+      SWANSONG_BUILD_CLASS: candidate
     steps:
       - name: Require capable x86_64 guest and local Docker daemon
         shell: bash
-        env:
-          SWAN_SONG_JOB_NONCE: ${{ inputs.lab_nonce }}
         run: |
           set -euo pipefail
-          if [[ ! "$SWAN_SONG_JOB_NONCE" =~ ^[0-9a-f]{32}$ ]]; then
+          if [[ ! "$SWANSONG_BUILD_JOB_NONCE" =~ ^[0-9a-f]{32}$ ]]; then
             echo "lab_nonce must be exactly 32 lowercase hexadecimal characters" >&2
             exit 1
           fi
@@ -190,6 +199,40 @@ jobs:
         id: fit
         continue-on-error: ${{ inputs.profile == 'connectivity-refresh' }}
         run: ./scripts/quartus_docker.sh build "$ARTIFACT_DIR"
+      - name: Attest exact candidate audit
+        id: attest_candidate
+        if: >-
+          ${{
+            inputs.profile == 'candidate' &&
+            steps.fit.outcome == 'success' &&
+            env.ARTIFACT_DIR != ''
+          }}
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ env.ARTIFACT_DIR }}/quartus-audit-candidate.json
+      - name: Preserve candidate attestation bundle
+        id: preserve_attestation
+        if: >-
+          ${{
+            inputs.profile == 'candidate' &&
+            steps.attest_candidate.outcome == 'success' &&
+            env.ARTIFACT_DIR != ''
+          }}
+        shell: bash
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.attest_candidate.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          readonly destination="$ARTIFACT_DIR/quartus-audit-candidate.attestation.json"
+          if [[ ! -f "$ATTESTATION_BUNDLE" || -L "$ATTESTATION_BUNDLE" || ! -s "$ATTESTATION_BUNDLE" ]]; then
+            echo "candidate attestation action did not produce a plain nonempty bundle" >&2
+            exit 1
+          fi
+          if [[ -e "$destination" || -L "$destination" ]]; then
+            echo "candidate build unexpectedly created the reserved attestation path" >&2
+            exit 1
+          fi
+          install -m 0644 "$ATTESTATION_BUNDLE" "$destination"
       - name: Collect bounded Quartus evidence
         id: collect
         if: ${{ always() && env.ARTIFACT_DIR != '' && env.EVIDENCE_DIR != '' }}
@@ -272,12 +315,13 @@ jobs:
             always() &&
             steps.collect.outcome == 'success' &&
             env.EVIDENCE_DIR != '' &&
-            (inputs.profile == 'candidate' ||
+            ((inputs.profile == 'candidate' &&
+              steps.preserve_attestation.outcome == 'success') ||
               steps.refresh_bundle.outcome == 'success')
           }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quartus-${{ inputs.profile == 'candidate' && 'fit' || 'connectivity-refresh' }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ env.EVIDENCE_DIR }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14

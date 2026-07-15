@@ -17,10 +17,12 @@ Swan Song asks Pocket to remember the last selected cartridge. Use **Core
 Settings > Cartridge** to change games. Selecting a new title performs a full
 restart so the outgoing save can be flushed before the next game begins.
 
-For a shorter power-on route, choose **Settings > Pocket > Startup Action >
-openFPGA**. Current Pocket firmware also has a host-owned openFPGA **Recent**
-category. Public APF documentation does not let a core pin or pre-seed that
-list, and final relaunch behavior is still a physical-hardware test item.
+For a shorter power-on route, choose **Startup Action > openFPGA**. PocketOS
+2.6.0 also has a host-owned openFPGA **Recent** category. Public APF
+documentation does not let a core pin or pre-seed that list, and final relaunch
+behavior is still a physical-hardware test item. The exact Settings menu path
+is deliberately not prescribed because Analogue reorganized those menus in
+2.6.0 and does not document the complete path.
 
 Swan Song cannot add itself or individual ROMs to Analogue's first-party
 Library. That is a PocketOS boundary, not missing core artwork. The detailed

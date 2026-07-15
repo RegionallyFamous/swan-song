@@ -118,8 +118,7 @@ module apf_settings_boot_barrier_tb;
                 32'h0000_0110: use_cpu_turbo <= bridge_wr_data[0];
                 32'h0000_0200: use_triple_buffer <= bridge_wr_data[0];
                 32'h0000_0204:
-                    configured_flickerblend <= bridge_wr_data[1:0] > 2'd2 ?
-                                               2'd0 : bridge_wr_data[1:0];
+                    configured_flickerblend <= bridge_wr_data[1:0];
                 32'h0000_0208:
                     configured_orientation <= bridge_wr_data[1:0] > 2'd2 ?
                                               2'd0 : bridge_wr_data[1:0];
@@ -376,13 +375,13 @@ module apf_settings_boot_barrier_tb;
         host_write(32'h0000_0204, 32'd1);
         start_host_command(16'h0011);
         host_write(32'h0000_0208, 32'd1);
-        host_write(32'h0000_0204, 32'd2);
+        host_write(32'h0000_0204, 32'd3);
         host_write(32'h0000_0208, 32'd2);
         host_write(32'h0000_0300, 32'd0);
         expect_reset_exit_busy();
         wait_host_done();
         if (!reset_n || settings_destination !== settings_source ||
-            settings_destination[8:7] !== 2'd2 ||
+            settings_destination[8:7] !== 2'd3 ||
             settings_destination[6:5] !== 2'd2 ||
             settings_destination[0] !== 1'b0)
             $fatal(1, "coalesced post-command settings did not win");

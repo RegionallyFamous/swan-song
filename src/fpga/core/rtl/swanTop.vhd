@@ -1,3 +1,6 @@
+-- Modified for Swan Song by Regionally Famous on 2026-07-14.
+-- See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
@@ -95,6 +98,27 @@ entity SwanTop is
       RTC_saveLoaded             : in  std_logic;                     -- must be 0 when loading new game, should go and stay 1 when RTC was loaded and values are valid
       RTC_timestampOut           : out std_logic_vector(31 downto 0); -- timestamp to be saved
       RTC_savedtimeOut           : out std_logic_vector(41 downto 0); -- time structure to be saved
+
+      -- Native Memories v2 device images.  SwanTop only preserves the
+      -- device-boundary protocols and exact bit ordering; the production
+      -- wrapper keeps every control inactive until an atomic owner exists.
+      rtc_state_freeze           : in  std_logic := '0';
+      rtc_state_frozen           : out std_logic := '0';
+      rtc_state_load             : in  std_logic := '0';
+      rtc_state_data_in          : in  std_logic_vector(255 downto 0) := (others => '0');
+      rtc_state_data_out         : out std_logic_vector(255 downto 0) := (others => '0');
+
+      internal_eeprom_state_freeze : in  std_logic := '0';
+      internal_eeprom_state_frozen : out std_logic := '0';
+      internal_eeprom_state_load   : in  std_logic := '0';
+      internal_eeprom_state_in     : in  std_logic_vector(127 downto 0) := (others => '0');
+      internal_eeprom_state_out    : out std_logic_vector(127 downto 0) := (others => '0');
+
+      cartridge_eeprom_state_freeze : in  std_logic := '0';
+      cartridge_eeprom_state_frozen : out std_logic := '0';
+      cartridge_eeprom_state_load   : in  std_logic := '0';
+      cartridge_eeprom_state_in     : in  std_logic_vector(127 downto 0) := (others => '0');
+      cartridge_eeprom_state_out    : out std_logic_vector(127 downto 0) := (others => '0');
    
       -- savestates
       increaseSSHeaderCount      : in  std_logic;
@@ -117,6 +141,11 @@ entity SwanTop is
 
       -- Simulation observability. With is_simu = '0' these are constants and
       -- are pruned when the unconnected SwanTop outputs are synthesized.
+      debug_console_ce           : out std_logic := '0';
+      debug_cpu_ce               : out std_logic := '0';
+      debug_memory_ce            : out std_logic := '0';
+      debug_refresh              : out std_logic := '0';
+      debug_resume_wait          : out std_logic_vector(1 downto 0) := (others => '0');
       debug_cpu_done             : out std_logic := '0';
       debug_cpu_cs               : out std_logic_vector(15 downto 0) := (others => '0');
       debug_cpu_ip               : out std_logic_vector(15 downto 0) := (others => '0');
@@ -845,7 +874,19 @@ begin
       SSMEM_WrEn           => SSMEM_WrEn,        
       SSMEM_WriteData      => SSMEM_WriteData,   
       SSMEM_ReadData_RAM   => SSMEM_ReadData_RAM,
-      SSMEM_ReadData_SRAM  => SSMEM_ReadData_SRAM
+      SSMEM_ReadData_SRAM  => SSMEM_ReadData_SRAM,
+
+      internal_eeprom_state_freeze => internal_eeprom_state_freeze,
+      internal_eeprom_state_frozen => internal_eeprom_state_frozen,
+      internal_eeprom_state_load   => internal_eeprom_state_load,
+      internal_eeprom_state_in     => internal_eeprom_state_in,
+      internal_eeprom_state_out    => internal_eeprom_state_out,
+
+      cartridge_eeprom_state_freeze => cartridge_eeprom_state_freeze,
+      cartridge_eeprom_state_frozen => cartridge_eeprom_state_frozen,
+      cartridge_eeprom_state_load   => cartridge_eeprom_state_load,
+      cartridge_eeprom_state_in     => cartridge_eeprom_state_in,
+      cartridge_eeprom_state_out    => cartridge_eeprom_state_out
    );
    
    -- cpu
@@ -1156,13 +1197,11 @@ begin
                            
       sleep_savestate      => sleep_savestate,
 
-      -- The v2 RTC device boundary is implemented and independently tested,
-      -- but remains disconnected until the atomic v2 owner is integrated.
-      state_freeze         => '0',
-      state_frozen         => open,
-      state_load           => '0',
-      state_data_in        => (others => '0'),
-      state_data_out       => open,
+      state_freeze         => rtc_state_freeze,
+      state_frozen         => rtc_state_frozen,
+      state_load           => rtc_state_load,
+      state_data_in        => rtc_state_data_in,
+      state_data_out       => rtc_state_data_out,
                            
       RegBus_Din           => RegBus_Din,
       RegBus_Adr           => RegBus_Adr, 
@@ -1294,6 +1333,11 @@ begin
    -- optimized away with its unused source logic in production builds.
    gdebug : if is_simu = '1' generate
    begin
+      debug_console_ce    <= ce;
+      debug_cpu_ce        <= ce_cpu;
+      debug_memory_ce     <= ce_4x;
+      debug_refresh       <= EXTRAM_doRefresh;
+      debug_resume_wait   <= std_logic_vector(to_unsigned(startwait, 2));
       debug_cpu_done       <= cpu_done;
       debug_cpu_cs         <= std_logic_vector(cpu_export.reg_cs);
       debug_cpu_ip         <= std_logic_vector(cpu_export.reg_ip);
@@ -1347,6 +1391,11 @@ begin
 
    gdebug_off : if is_simu /= '1' generate
    begin
+      debug_console_ce    <= '0';
+      debug_cpu_ce        <= '0';
+      debug_memory_ce     <= '0';
+      debug_refresh       <= '0';
+      debug_resume_wait   <= (others => '0');
       debug_cpu_done       <= '0';
       debug_cpu_cs         <= (others => '0');
       debug_cpu_ip         <= (others => '0');

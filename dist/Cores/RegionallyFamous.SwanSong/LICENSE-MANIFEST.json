@@ -29,7 +29,7 @@
       },
       {
         "filename": "THIRD-PARTY-NOTICES.txt",
-        "sha256": "88269304a5d45779a1e08adf2916aea6e0d93772a0f583a4e900087d524d37f2"
+        "sha256": "38993dc10e8e6ebef7d962457c051c69c6100b8542769ce19725ab5f6ff70dc6"
       }
     ],
     "components": [
@@ -84,10 +84,12 @@
         ],
         "evidence": [
           "MiSTer WonderSwan.sv retains the GPL-2.0-or-later program notice",
-          "Pocket initial commit 8aee749 imported the RTL from MiSTer ccd8c2a"
+          "Pocket initial commit 8aee749 imported the RTL from MiSTer ccd8c2a",
+          "Swan Song restores the complete upstream WonderSwan/MiSTer GPL-2.0-or-later program notice in src/fpga/core/wonderswan.sv",
+          "The audited set of all 18 files in this scope that differ from the pinned upstream commit carries an exact dated 2026-07-14 Swan Song modification notice enforced by scripts/license_manifest.py"
         ],
         "review_status": "review_required",
-        "blocker": "Restore the omitted program notice in the Pocket-derived top level and record the final combined-work review."
+        "blocker": "Record the final combined-work license and notice review now that the omitted program notice is restored."
       },
       {
         "id": "sorgelig-memory-controllers",
@@ -109,7 +111,8 @@
           "THIRD-PARTY-NOTICES.txt"
         ],
         "evidence": [
-          "Both current files retain Sorgelig copyright and GPL-3.0-or-later headers"
+          "Both current files retain Sorgelig copyright and GPL-3.0-or-later headers",
+          "The modified src/fpga/core/rtl/sdram.sv carries a dated 2026-07-14 Swan Song modification notice enforced by scripts/license_manifest.py"
         ],
         "review_status": "documented",
         "blocker": null
@@ -255,10 +258,13 @@
           "THIRD-PARTY-NOTICES.txt"
         ],
         "evidence": [
-          "Generated/reference files retain Intel or Altera notices referring to applicable agreements"
+          "Generated/reference files retain Intel or Altera notices referring to applicable agreements",
+          "The protected-main Quartus Lite 21.1.1 candidate Assembler report lists ordinary ap_core.sof and ap_core.rbf outputs, not a time-limited filename",
+          "The protected-main Analysis & Synthesis IP Cores Summary lists all five RAM, PLL, and DDIO rows with License Type N/A and no known OpenCore Plus/time-limited warning IDs appear",
+          "scripts/quartus_fit_audit.py now fail-closes those native IP license rows, generated filenames, and evaluation warning IDs"
         ],
         "review_status": "review_required",
-        "blocker": "Review exact Quartus Prime Lite 21.1.1 terms and prove the final RBF has no evaluation or time-limited IP."
+        "blocker": "Review the exact Quartus Prime Lite 21.1.1 agreements; the build audit now separately proves the candidate has no reported licensed/evaluation/time-limited IP."
       },
       {
         "id": "regionally-famous-original-work",
@@ -281,33 +287,6 @@
         ],
         "review_status": "review_required",
         "blocker": "The owner must declare terms for original contributions and a reviewer must approve the combined-work notice plan."
-      },
-      {
-        "id": "legacy-mister-test-assets",
-        "scope": [
-          "testroms/spritepriority/**",
-          "testroms/timingtest/**",
-          "testroms/windowtest/**"
-        ],
-        "origin": {
-          "repository": "https://github.com/MiSTer-devel/WonderSwan_MiSTer",
-          "commit": "8f7a4d670b4635eda0e518e7fd9a17ef8610db79",
-          "paths": [
-            "testroms/spritepriority/**",
-            "testroms/timingtest/**",
-            "testroms/windowtest/**"
-          ]
-        },
-        "license_expression": "NOASSERTION",
-        "notice_files": [
-          "THIRD-PARTY-NOTICES.txt"
-        ],
-        "evidence": [
-          "All 19 current files are byte-identical to the pinned MiSTer tree",
-          "The adding commits and files contain no separate license statement"
-        ],
-        "review_status": "review_required",
-        "blocker": "Obtain a grant from the rights holder or remove/replace these assets before distributing a release source bundle that contains them."
       },
       {
         "id": "swan-song-explicit-gpl2-simulation",
@@ -388,107 +367,10 @@
         "analogue-apf",
         "corresponding-source-delivery",
         "intel-altera-generated-material",
-        "legacy-mister-test-assets",
         "regionally-famous-original-work",
         "wonderswan-program"
       ]
     },
-    "legacy_test_assets": [
-      {
-        "path": "testroms/spritepriority/WonderSwan.inc",
-        "sha256": "29530c937410bb2d7de0c08a41ba6a89ac18ffdb0f01a8f9f909df57709b9321",
-        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
-      },
-      {
-        "path": "testroms/spritepriority/ascii.gfx",
-        "sha256": "1c46e31ebed1d2da208bcddce74a123c38a9411358a786461db0f40a281b47ed",
-        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
-      },
-      {
-        "path": "testroms/spritepriority/build.bat",
-        "sha256": "6d74491e79bc3d60bff99216f27b67981e3eca98c6a170cfeed6fdc2914407d0",
-        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
-      },
-      {
-        "path": "testroms/spritepriority/spritepriority.asm",
-        "sha256": "35327f35a958a9109bc74f7b4b794a0124a1507882e586a0494b24facce005aa",
-        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
-      },
-      {
-        "path": "testroms/spritepriority/spritepriority.ws",
-        "sha256": "a222ed50ae977bcd1ac9bbf66c35b57e589e49b7594a21d07a5eddf899335173",
-        "introduced_commit": "921240c3c4f67f545e52efe2050a288cfc2f4f2d"
-      },
-      {
-        "path": "testroms/timingtest/WonderSwan.inc",
-        "sha256": "b169f66dcc30be40da6cabb978c257a207b34563f8c3a74c6cd8225658d13851",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/ascii.gfx",
-        "sha256": "800e2d6ba4a915dc3cf6cd719f442ab1ad86789413b3af55bb840b1c812f0f3e",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/build.bat",
-        "sha256": "0a93349eee0359338e1f256a45a927215d3bb672a51eb471b6a19568835d80e3",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/testcalls.asm",
-        "sha256": "21909e7e7a78d684e63ca3c185996dab9ba9100b9e89c067f6d12e664e212670",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/tests_op.asm",
-        "sha256": "4178711b981714bb54f8909f059d4a95a2c068b8eec63518bf2046cf56cca4c6",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/tests_special.asm",
-        "sha256": "a333fc49a773a8395a392313c1aa049be82e370d9aad193f906dfe1a1b7b27ca",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/texts.asm",
-        "sha256": "8a8406d4d30abf7293ce67a11e2181a25c9942dc910675e4a6565c730fb3b7ed",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/timingtest.asm",
-        "sha256": "07eaddf5f5d2bc35fb59d0505c22ad0bc6db0aeb2da24f0e764aefb42ff58cda",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/timingtest/timingtest.ws",
-        "sha256": "0302350adbfdb1d758ca653fe63392b26f8fd56f3f565b994a71a285f11270a3",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/windowtest/WonderSwan.inc",
-        "sha256": "29530c937410bb2d7de0c08a41ba6a89ac18ffdb0f01a8f9f909df57709b9321",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/windowtest/ascii.gfx",
-        "sha256": "1c46e31ebed1d2da208bcddce74a123c38a9411358a786461db0f40a281b47ed",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/windowtest/build.bat",
-        "sha256": "8dbcf70009d5961168069cc51899b47474eb5b0f06189279ff969e6b543a01a5",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/windowtest/windowtest.asm",
-        "sha256": "c9f9943c8154dd7f6d2da90e3a701bc6ead932cfb33eb68dd6dd2b19eb7285d0",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      },
-      {
-        "path": "testroms/windowtest/windowtest.ws",
-        "sha256": "3a01f965bc89e3554a3aa4f1cc370d1158f5aeefc219095a04d1598bb189cb68",
-        "introduced_commit": "30f74aa4c02856763721a2ed00c8feed55300893"
-      }
-    ]
+    "legacy_test_assets": []
   }
 }

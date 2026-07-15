@@ -1,6 +1,6 @@
 {
   "hardware_qa_inventory": {
-    "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V1",
+    "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V2",
     "run_id": "replace-with-private-run-id",
     "created_at": "2026-07-13T12:00:00Z",
     "operator": {
@@ -24,7 +24,9 @@
       "device_id_path": "private/dock-device-id.txt"
     },
     "core": {
+      "installed_dist_path": "sd",
       "core_json_path": "sd/Cores/RegionallyFamous.SwanSong/core.json",
+      "interact_json_path": "sd/Cores/RegionallyFamous.SwanSong/interact.json",
       "raw_rbf_path": "build/output_files/ap_core.rbf",
       "installed_bitstream_path": "sd/Cores/RegionallyFamous.SwanSong/wonderswan.rev"
     },
@@ -33,9 +35,15 @@
       {"id": "color", "path": "private/color.rom"}
     ],
     "roms": [
-      {"id": "horizontal-sram", "title": "Replace", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
-      {"id": "vertical-eeprom-rtc", "title": "Replace", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true},
-      {"id": "compact-896k", "title": "Repository-generated 896 KiB compact probe", "path": "private/compact-896k.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false}
+      {"id": "horizontal-sram", "title": "Replace: footer save type 0x01", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "vertical-eeprom-rtc", "title": "Replace: footer save type 0x20 with RTC", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true},
+      {"id": "compact-896k", "title": "Repository-generated 896 KiB compact probe (footer save type 0x00)", "path": "private/compact-896k.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "sram-type02", "title": "Replace: footer save type 0x02", "path": "private/sram-type02.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "sram-type03", "title": "Repository-generated 128 KiB SRAM persistence probe (footer save type 0x03)", "path": "private/sram-persistence-probes/sram_type03_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "sram-type04", "title": "Repository-generated 256 KiB SRAM persistence probe (footer save type 0x04)", "path": "private/sram-persistence-probes/sram_type04_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "sram-type05", "title": "Repository-generated 512 KiB SRAM persistence probe (footer save type 0x05)", "path": "private/sram-persistence-probes/sram_type05_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "eeprom-type10", "title": "Replace: footer save type 0x10", "path": "private/eeprom-type10.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": false},
+      {"id": "eeprom-type50", "title": "Replace: footer save type 0x50", "path": "private/eeprom-type50.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": false}
     ],
     "controllers": [
       {"id": "pocket-built-in", "scope": "pocket", "device_type": "gamepad", "transport": "built_in", "model": "Pocket built-in controls", "firmware_version": "2.6.0", "mapping_mode": "APF type 1"},

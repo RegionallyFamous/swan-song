@@ -25,6 +25,8 @@ module apf_savestate_v2_owner_tb;
   reg sdram_quiescent = 1'b0;
   wire device_freeze;
   reg [2:0] device_frozen = 3'b000;
+  reg [2:0] device_settling = 3'b000;
+  reg device_protocol_fault = 1'b0;
   wire stage_acquire;
   reg stage_granted = 1'b0;
   wire capture_start;
@@ -70,6 +72,8 @@ module apf_savestate_v2_owner_tb;
       .sdram_quiescent(sdram_quiescent),
       .device_freeze(device_freeze),
       .device_frozen(device_frozen),
+      .device_settling(device_settling),
+      .device_protocol_fault(device_protocol_fault),
       .stage_acquire(stage_acquire),
       .stage_granted(stage_granted),
       .capture_start(capture_start),

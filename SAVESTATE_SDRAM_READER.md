@@ -74,6 +74,14 @@ word is unconsumed. `read_word_valid` and `read_word_ready` provide the stable
 cache handoff. `fetched_bytes` counts complete physical x32 reads;
 `delivered_bytes` counts only consumer handshakes.
 
+`quiescent` is stronger than physical-request idle: it is false while the
+one-entry response cache is populated, even though the request state machine
+has returned to `IDLE`. This lets the isolated v2 preflight safely abort or
+invalidate on title/content change without mistaking a held response for a
+drained transaction. A v2 composition must also override `STAGE_BYTES` with
+the fixed `0x120000` payload size; the v1-sized default remains an isolated
+legacy transport fixture.
+
 Invalid address, either backend error, or abort poisons the transaction and
 invalidates the cache. Abort prevents a second half and has priority even when
 ready and error arrive on the same edge. If a request is physically
@@ -129,9 +137,9 @@ Other explicit assumptions and gates:
 - A lossless, full-observed CDC request/response path is still required.
 - The future fourth SDRAM client needs bounded arbitration against live ROM,
   save RAM, and bridge traffic. This slice does not edit `sdram.sv`.
-- Full-blob header mapping, sequential-policy enforcement, CRC orchestration,
-  A0 publication, A4 validation, Quartus fit/timing, and Pocket hardware tests
-  remain unimplemented.
+- Production full-blob header mapping, A0 publication, composition of the
+  isolated A4 preflight with the real reader plus future subsystem semantic
+  gates, Quartus fit/timing, and Pocket hardware tests remain unimplemented.
 
 The dedicated Verilator regression covers exact first/last bounds, endian
 normalization, independently stalled halves, stable cache data, held-request

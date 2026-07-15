@@ -16,6 +16,7 @@ architecture test of rtc_state_tb is
 
   signal clk                 : std_logic := '0';
   signal reset               : std_logic := '1';
+  signal console_ce          : std_logic := '1';
   signal timestamp_new       : std_logic := '0';
   signal timestamp_in        : std_logic_vector(31 downto 0) := x"DEADBEEF";
   signal timestamp_saved     : std_logic_vector(31 downto 0) := x"00000000";
@@ -84,7 +85,7 @@ begin
   dut : entity work.rtc
     port map (
       clk                => clk,
-      ce                 => '1',
+      ce                 => console_ce,
       reset              => reset,
       hasRTC             => '1',
       RTC_timestampNew   => timestamp_new,
@@ -334,7 +335,20 @@ begin
              std_logic_vector(to_unsigned(124, 32))
       report "state load replayed RTC command-register side effects" severity failure;
 
-    report "PASS rtc_state_tb" severity note;
+    -- PocketOS menu pause suppresses the console CE shared by CPU, DMA, GPU,
+    -- and sound, but the cartridge RTC is a wall clock driven from raw clk.
+    -- Prove that a low console CE does not freeze its subsecond phase.
+    load_frozen(command_10_image);
+    console_ce <= '0';
+    release_for_one_edge;
+    request_freeze;
+    assert state_data_out(159 downto 128) =
+             std_logic_vector(to_unsigned(124, 32))
+      report "RTC stopped advancing while console CE was paused" severity failure;
+    console_ce <= '1';
+
+    report "PASS rtc_state_tb including raw-clock advance with console CE low"
+      severity note;
     finish;
     wait;
   end process;

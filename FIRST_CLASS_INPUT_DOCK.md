@@ -129,12 +129,18 @@ level crosses into the system clock through a fail-closed synchronizer and
 clears every Fast Forward latch, counter, and edge-history state. Host reset,
 Reset Core/Console Setup reset, and a new title load clear that state too.
 
-This focus boundary does not pause the emulated WonderSwan. The internally
-injected **Console Setup** Start gesture is ORed in after physical PAD filtering
-and remains available while the PocketOS menu is open. Physical hardware must
-still prove the ordering of `00B0` and PAD updates on current firmware, including
-the Select + Down fallback; source logic no longer depends on PocketOS fully
-intercepting the chord.
+Swan Song treats that same held `00B0` level as a product-level pause policy.
+A dedicated three-register level synchronizer pauses the emulated console while
+PocketOS owns focus; cartridge RTC wall time and the SDRAM refresh watchdog keep
+running. Menu exit releases the console independently of the physical-input
+guard, which can remain blocked until its later neutral packet. Analogue permits
+cores to ignore `00B0` for compatibility, so pausing is Swan Song's product
+choice rather than an APF requirement. The internally injected **Console Setup**
+gesture remains armed while menu focus is held; its bounded reset/Start windows
+begin only after menu exit, and forced Start remains separate from physical PAD
+filtering. Physical hardware
+must still prove `00B0`/PAD ordering, pause/resume, audio, and display behavior on
+current firmware, including the Select + Down fallback.
 
 There is no supported openFPGA metadata mechanism for:
 
@@ -157,7 +163,7 @@ first-class Pocket/Dock input:
 2. Confirm Auto follows live game orientation rather than physical Pocket rotation. Force Horizontal and Vertical and prove the face/shoulder mapping changes exactly as documented while the D-pad path, game-visible orientation, and presentation remain unchanged. Separately confirm Display Orientation and Landscape 180 affect presentation only.
 3. On Dock, repeat the input matrix with one wired type-2 controller and one wireless analog-capable type-3 controller. Verify D-pad behavior explicitly; do not assume analog-stick-to-D-pad synthesis.
 4. Hot-unplug and reconnect the Dock controller while holding a button. Confirm no stuck key and that P1 recovers without a core reset.
-5. Use a controller with a dedicated menu button, then one requiring Select + Down. Confirm menu entry immediately suppresses gameplay, Fast Forward is cleared, held input does not reappear on exit, and a neutral release rearms controls without pausing the game.
+5. Use a controller with a dedicated menu button, then one requiring Select + Down. During visible action, confirm menu entry pauses the emulated console and clears Fast Forward without an audio pop or partial/resynchronized display. Confirm menu exit resumes before and independently of the later neutral PAD rearm, the held menu chord does not leak into gameplay, RTC wall time remains correct, and repeated entry/exit does not duplicate a memory/DMA action.
 6. Verify PocketOS reports Memories unavailable cleanly; Memories and Sleep/Wake remain disabled in this core.
 7. Inspect 0, 270, and 180 degree output on Pocket and HDMI, including aspect, crop, display modes, mode transitions, and a vertical game's first frame.
 8. Install a per-game Interact/Input preset with a non-Auto Control Layout. Confirm APF replacement lookup, the per-title default, and Reset all to defaults, then record the complete Controls behavior on firmware 2.6.0 for Pocket and Dock: displayed labels/defaults, whether editing is offered, and—if it is—application, relaunch persistence, and per-asset scope. Either an observed read-only screen or an observed beta remapper is evidence; neither may be assumed from the conflicting pages.

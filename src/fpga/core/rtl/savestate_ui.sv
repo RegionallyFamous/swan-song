@@ -1,3 +1,6 @@
+// Modified for Swan Song by Regionally Famous on 2026-07-14.
+// See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
 module savestate_ui #(parameter INFO_TIMEOUT_BITS)
 (
 	input            clk,    
@@ -138,4 +141,3 @@ always @(posedge clk) begin
 end
 
 endmodule
-

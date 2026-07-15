@@ -22,6 +22,88 @@ LEGACY_TEST_PREFIXES = (
     "testroms/timingtest/",
     "testroms/windowtest/",
 )
+WONDERSWAN_WRAPPER = pathlib.PurePosixPath("src/fpga/core/wonderswan.sv")
+SV_MODIFICATION_NOTICE = """// Modified for Swan Song by Regionally Famous on 2026-07-14.
+// See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
+"""
+VHDL_MODIFICATION_NOTICE = """-- Modified for Swan Song by Regionally Famous on 2026-07-14.
+-- See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
+"""
+MODIFIED_WONDERSWAN_PATHS = (
+    WONDERSWAN_WRAPPER,
+    pathlib.PurePosixPath("src/fpga/core/rtl/IRQ.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/cpu.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/dma.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/dummyregs.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/eeprom.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/gpu.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/gpu_bg.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/joypad.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/memorymux.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/reg_savestates.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/reg_swan.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/registerpackage.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/rtc.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/savestate_ui.sv"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/savestates.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/sprites.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/swanTop.vhd"),
+)
+MODIFIED_SDRAM_PATH = pathlib.PurePosixPath("src/fpga/core/rtl/sdram.sv")
+MODIFIED_GPL_NOTICES = {
+    WONDERSWAN_WRAPPER: SV_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/IRQ.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/cpu.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/dma.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/dummyregs.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/eeprom.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/gpu.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/gpu_bg.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/joypad.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/memorymux.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath(
+        "src/fpga/core/rtl/reg_savestates.vhd"
+    ): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/reg_swan.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath(
+        "src/fpga/core/rtl/registerpackage.vhd"
+    ): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/rtc.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/savestate_ui.sv"): SV_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/savestates.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/sprites.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/swanTop.vhd"): VHDL_MODIFICATION_NOTICE,
+    MODIFIED_SDRAM_PATH: SV_MODIFICATION_NOTICE,
+}
+MODIFIED_GPL_PATHS = tuple(MODIFIED_GPL_NOTICES)
+WONDERSWAN_NOTICE = SV_MODIFICATION_NOTICE + """//============================================================================
+// WonderSwan
+// Copyright (c) 2021 Robert Peip
+//
+// MiSTer Framework
+// Copyright (C) 2021 Sorgelig
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation; either version 2 of the License, or (at your option)
+// any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+// more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+// Pocket adaptation derived from agg23/openfpga-wonderswan. Swan Song changes
+// are maintained by Regionally Famous; see UPSTREAMS.md and LICENSING.md.
+//============================================================================
+
+"""
 
 
 class StrictJsonError(ValueError):
@@ -140,6 +222,46 @@ def _review(
     return status, _text(blocker, f"{where}.blocker")
 
 
+def validate_wonderswan_notice(source_root: pathlib.Path) -> str:
+    path = source_root / pathlib.Path(*WONDERSWAN_WRAPPER.parts)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"WonderSwan wrapper must be a regular file: {path}")
+    try:
+        contents = path.read_text(encoding="utf-8")
+    except UnicodeError as error:
+        raise ValueError("WonderSwan wrapper must be UTF-8") from error
+    if not contents.startswith(WONDERSWAN_NOTICE):
+        raise ValueError(
+            "WonderSwan wrapper must retain the exact upstream GPL-2.0-or-later notice"
+        )
+    return hashlib.sha256(WONDERSWAN_NOTICE.encode("utf-8")).hexdigest()
+
+
+def validate_modified_file_notices(
+    source_root: pathlib.Path,
+) -> dict[str, str]:
+    """Bind every known changed GPL file to its prominent dated notice."""
+
+    results: dict[str, str] = {}
+    for relative, expected in MODIFIED_GPL_NOTICES.items():
+        path = source_root / pathlib.Path(*relative.parts)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"modified GPL source must be a regular file: {path}")
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except UnicodeError as error:
+            raise ValueError(f"modified GPL source must be UTF-8: {path}") from error
+        if not contents.startswith(expected):
+            raise ValueError(
+                "modified GPL source must retain its exact dated Swan Song notice: "
+                + relative.as_posix()
+            )
+        results[relative.as_posix()] = hashlib.sha256(
+            expected.encode("utf-8")
+        ).hexdigest()
+    return results
+
+
 def validate_license_manifest(
     dist: pathlib.Path,
     *,
@@ -205,6 +327,7 @@ def validate_license_manifest(
         raise ValueError("license manifest components must be a nonempty array")
     ids: set[str] = set()
     unresolved: set[str] = set()
+    component_scopes: dict[str, set[str]] = {}
     for index, raw_component in enumerate(components_value):
         where = f"license manifest components[{index}]"
         component = _exact(
@@ -225,7 +348,9 @@ def validate_license_manifest(
         if component_id in ids:
             raise ValueError(f"license manifest id is duplicated: {component_id}")
         ids.add(component_id)
-        _text_list(component["scope"], f"{where}.scope")
+        component_scopes[component_id] = set(
+            _text_list(component["scope"], f"{where}.scope")
+        )
         origin = _exact(
             component["origin"],
             f"{where}.origin",
@@ -252,6 +377,20 @@ def validate_license_manifest(
         )
         if status == "review_required":
             unresolved.add(component_id)
+
+    notice_scope_bindings = {
+        "wonderswan-program": {
+            path.as_posix() for path in MODIFIED_WONDERSWAN_PATHS
+        },
+        "sorgelig-memory-controllers": {MODIFIED_SDRAM_PATH.as_posix()},
+    }
+    for component_id, required_paths in notice_scope_bindings.items():
+        absent = required_paths - component_scopes.get(component_id, set())
+        if absent:
+            raise ValueError(
+                f"license manifest {component_id} scope omits audited modified files: "
+                + ", ".join(sorted(absent))
+            )
 
     requirements_value = body["requirements"]
     if not isinstance(requirements_value, list) or not requirements_value:
@@ -301,50 +440,31 @@ def validate_license_manifest(
         )
 
     legacy_value = body["legacy_test_assets"]
-    if not isinstance(legacy_value, list) or len(legacy_value) != 19:
-        raise ValueError("license manifest must inventory exactly 19 legacy test assets")
-    legacy: dict[str, str] = {}
-    for index, raw_asset in enumerate(legacy_value):
-        where = f"license manifest legacy_test_assets[{index}]"
-        asset = _exact(
-            raw_asset, where, {"path", "sha256", "introduced_commit"}
+    if legacy_value != []:
+        raise ValueError(
+            "license manifest legacy_test_assets must remain empty; "
+            "the inherited test roots are retired"
         )
-        asset_path = _text(asset["path"], f"{where}.path")
-        pure_path = pathlib.PurePosixPath(asset_path)
-        if (
-            pure_path.is_absolute()
-            or ".." in pure_path.parts
-            or not asset_path.startswith(LEGACY_TEST_PREFIXES)
-        ):
-            raise ValueError(f"{where}.path is outside the legacy test roots")
-        if asset_path in legacy:
-            raise ValueError(f"legacy test asset is duplicated: {asset_path}")
-        legacy[asset_path] = _sha256(asset["sha256"], f"{where}.sha256")
-        _commit(asset["introduced_commit"], f"{where}.introduced_commit")
-    if list(legacy) != sorted(legacy):
-        raise ValueError("license manifest legacy_test_assets must be sorted")
+    legacy: dict[str, str] = {}
 
     if source_root is not None:
         root = source_root.resolve()
-        actual_paths: set[str] = set()
+        validate_modified_file_notices(root)
+        wonderswan_notice_sha256 = validate_wonderswan_notice(root)
         for prefix in LEGACY_TEST_PREFIXES:
             directory = root / prefix.rstrip("/")
-            if not directory.is_dir():
-                raise ValueError(f"legacy test root is missing: {prefix}")
+            if not directory.exists() and not directory.is_symlink():
+                continue
+            if directory.is_symlink() or not directory.is_dir():
+                raise ValueError(f"retired legacy test root is invalid: {prefix}")
             for asset_path in directory.rglob("*"):
-                if asset_path.is_symlink() or not asset_path.is_file():
-                    raise ValueError(f"legacy test asset must be a regular file: {asset_path}")
-                relative = asset_path.relative_to(root).as_posix()
-                actual_paths.add(relative)
-                actual_digest = hashlib.sha256(asset_path.read_bytes()).hexdigest()
-                if legacy.get(relative) != actual_digest:
-                    raise ValueError(
-                        f"legacy test asset identity is absent or changed: {relative}"
-                    )
-        if actual_paths != legacy.keys():
-            raise ValueError(
-                "license manifest legacy test inventory does not match source tree"
-            )
+                raise ValueError(
+                    "retired legacy test root must remain empty: "
+                    + asset_path.relative_to(root).as_posix()
+                )
+
+    else:
+        wonderswan_notice_sha256 = None
 
     if require_release_ready and not complete:
         raise ValueError(
@@ -363,6 +483,7 @@ def validate_license_manifest(
         "legacy_test_asset_count": len(legacy),
         "licensing_review_complete": complete,
         "unresolved_ids": unresolved_ids,
+        "wonderswan_notice_sha256": wonderswan_notice_sha256,
     }
 
 

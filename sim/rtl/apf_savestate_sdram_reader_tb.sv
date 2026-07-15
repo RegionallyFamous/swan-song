@@ -213,6 +213,8 @@ module apf_savestate_sdram_reader_tb;
                        high_stall, 1'b0, "high half");
       expect_true(read_word_valid,
                   "successful high half did not populate cache");
+      expect_true(busy && !quiescent,
+                  "held response cache was incorrectly reported drained");
       expect_true(read_word_offset == offset && read_word == word_value,
                   "cached normalized word was torn or byte-swapped");
       expect_true(fetched_bytes == fetched_before + 32'd4,

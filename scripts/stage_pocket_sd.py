@@ -33,9 +33,15 @@ from package_core import (
     RELEASE_EVIDENCE_V2,
     RELEASE_QUARTUS_VERSION,
     RELEASE_SOURCE_INPUTS_V1,
+    SIGNED_BUILD_PAIR_V1,
     validate_release_policy,
 )
 from license_manifest import validate_license_manifest
+from known_title_compatibility import (
+    MAGIC as KNOWN_TITLE_COMPATIBILITY_MAGIC,
+    REQUIRED_COMMERCIAL_IDS as KNOWN_TITLE_COMMERCIAL_IDS,
+    REQUIRED_OPEN_IDS as KNOWN_TITLE_OPEN_IDS,
+)
 from package_validator import (
     StrictJsonError,
     ValidatedDistribution,
@@ -43,6 +49,13 @@ from package_validator import (
     validate_distribution,
 )
 from reverse_rbf import REVERSE
+from pocket_hardware_qa import (
+    CASE_SPECS as HARDWARE_QA_CASE_SPECS,
+    INSTALLED_STATIC_PAYLOAD_NAMES as HARDWARE_QA_STATIC_PAYLOAD_NAMES,
+    MANIFEST_MAGIC as HARDWARE_QA_MANIFEST_MAGIC,
+    PERSISTENT_SETTING_NAMES as HARDWARE_QA_PERSISTENT_SETTING_NAMES,
+    installed_payload_names as hardware_qa_installed_payload_names,
+)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -54,6 +67,7 @@ EXPECTED_PLATFORM_ID = "wonderswan"
 EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / EXPECTED_CORE_ID
 CORE_JSON = CORE_DIRECTORY / "core.json"
+INTERACT_JSON = CORE_DIRECTORY / "interact.json"
 DATA_JSON = CORE_DIRECTORY / "data.json"
 ASSET_DIRECTORY = pathlib.PurePosixPath("Assets/wonderswan/common")
 MAX_ARCHIVE_ENTRIES = 128
@@ -63,6 +77,7 @@ MAX_ARCHIVE_TOTAL_SIZE = 16 * 1024 * 1024
 MAX_PROVENANCE_SIZE = 2 * 1024 * 1024
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
+JOB_NONCE_PATTERN = re.compile(r"[0-9a-f]{32}\Z")
 RELEASE_GATE_NAMES = {
     "compressed_bitstream",
     "dock_hardware",
@@ -500,6 +515,160 @@ def _entry_record(value: object, description: str) -> dict:
     return record
 
 
+def _verified_signed_build_origins(
+    value: object,
+    *,
+    source_commit: str,
+    source_date_epoch: int,
+    build_id: dict,
+    root_audit: dict,
+) -> dict:
+    pair = _exact_members(
+        value,
+        "release evidence signed build origins",
+        {"magic", "source_commit", "source_date_epoch", "rbf", "build_id", "builds"},
+    )
+    if pair["magic"] != SIGNED_BUILD_PAIR_V1:
+        raise StagingError(
+            f"release evidence signed origins require {SIGNED_BUILD_PAIR_V1}"
+        )
+    if pair["source_commit"] != source_commit:
+        raise StagingError("signed build origins source commit does not match")
+    if _integer(
+        pair["source_date_epoch"], "signed build origins source_date_epoch"
+    ) != source_date_epoch:
+        raise StagingError("signed build origins source epoch does not match")
+    pair_rbf = _identity_record(pair["rbf"], "signed build origins RBF")
+    if pair_rbf["filename"] != "ap_core.rbf":
+        raise StagingError("signed build origins RBF filename is invalid")
+    pair_build_id = _identity_record(
+        pair["build_id"], "signed build origins build ID"
+    )
+    if pair_build_id != build_id:
+        raise StagingError("signed build origins build ID does not match evidence")
+
+    builds = pair["builds"]
+    if not isinstance(builds, list) or len(builds) != 2:
+        raise StagingError("signed build origins must contain exactly two builds")
+    fields = {
+        "label",
+        "repository",
+        "workflow_path",
+        "source_ref",
+        "source_commit",
+        "run_id",
+        "run_attempt",
+        "job",
+        "job_nonce",
+        "runner_environment",
+        "candidate_audit",
+        "attestation_bundle",
+        "recomputed_audit_sha256",
+        "submitted_audit_sha256",
+    }
+
+    def relative_identity(value: object, description: str, expected: str) -> dict:
+        record = _exact_members(value, description, {"filename", "size", "sha256"})
+        if record["filename"] != expected:
+            raise StagingError(f"{description} filename must be {expected}")
+        _integer(record["size"], f"{description} size", positive=True)
+        _sha256(record["sha256"], f"{description} SHA-256")
+        return record
+
+    normalized: list[dict] = []
+    for index, label in enumerate(("a", "b")):
+        build = _exact_members(
+            builds[index], f"signed build origin {label}", fields
+        )
+        expected_static = {
+            "label": label,
+            "repository": "RegionallyFamous/swan-song",
+            "workflow_path": ".github/workflows/quartus-fit.yml",
+            "source_ref": "refs/heads/main",
+            "source_commit": source_commit,
+            "job": "fit",
+            "runner_environment": "self-hosted",
+        }
+        if any(build.get(name) != expected for name, expected in expected_static.items()):
+            raise StagingError(f"signed build origin {label} identity is invalid")
+        run_id = _integer(
+            build["run_id"], f"signed build origin {label} run_id", positive=True
+        )
+        run_attempt = _integer(
+            build["run_attempt"],
+            f"signed build origin {label} run_attempt",
+            positive=True,
+        )
+        nonce = build["job_nonce"]
+        if not isinstance(nonce, str) or JOB_NONCE_PATTERN.fullmatch(nonce) is None:
+            raise StagingError(
+                f"signed build origin {label} job_nonce must be 32 lowercase hex"
+            )
+        candidate = relative_identity(
+            build["candidate_audit"],
+            f"signed build origin {label} candidate audit",
+            f"signed-builds/{label}/quartus-audit-candidate.json",
+        )
+        bundle = relative_identity(
+            build["attestation_bundle"],
+            f"signed build origin {label} attestation bundle",
+            f"signed-builds/{label}/quartus-audit-candidate.attestation.json",
+        )
+        recomputed = _sha256(
+            build["recomputed_audit_sha256"],
+            f"signed build origin {label} recomputed audit SHA-256",
+        )
+        submitted = _sha256(
+            build["submitted_audit_sha256"],
+            f"signed build origin {label} submitted audit SHA-256",
+        )
+        if submitted != candidate["sha256"]:
+            raise StagingError(
+                f"signed build origin {label} submitted audit identity mismatch"
+            )
+        if label == "a" and (
+            candidate["size"] != root_audit["size"]
+            or candidate["sha256"] != root_audit["sha256"]
+        ):
+            raise StagingError(
+                "signed build origin a is not the root recomputed Quartus audit"
+            )
+        normalized.append(
+            {
+                **expected_static,
+                "run_id": run_id,
+                "run_attempt": run_attempt,
+                "job_nonce": nonce,
+                "candidate_audit": candidate,
+                "attestation_bundle": bundle,
+                "recomputed_audit_sha256": recomputed,
+                "submitted_audit_sha256": submitted,
+            }
+        )
+    if normalized[0]["run_id"] == normalized[1]["run_id"]:
+        raise StagingError("signed build origins must have distinct workflow run IDs")
+    if normalized[0]["job_nonce"] == normalized[1]["job_nonce"]:
+        raise StagingError("signed build origins must have distinct workflow job nonces")
+    if (
+        normalized[0]["candidate_audit"]["sha256"]
+        == normalized[1]["candidate_audit"]["sha256"]
+    ):
+        raise StagingError("signed build origins must have distinct candidate audits")
+    if (
+        normalized[0]["attestation_bundle"]["sha256"]
+        == normalized[1]["attestation_bundle"]["sha256"]
+    ):
+        raise StagingError("signed build origins must have distinct attestation bundles")
+    return {
+        "magic": SIGNED_BUILD_PAIR_V1,
+        "source_commit": source_commit,
+        "source_date_epoch": source_date_epoch,
+        "rbf": pair_rbf,
+        "build_id": pair_build_id,
+        "builds": normalized,
+    }
+
+
 def _verified_build_evidence(value: object, expected_source_commit: str) -> dict:
     evidence = _exact_members(
         value,
@@ -515,6 +684,9 @@ def _verified_build_evidence(value: object, expected_source_commit: str) -> dict
             "build_id",
             "reports",
             "quartus_audit",
+            "hardware_qa",
+            "known_title_compatibility",
+            "signed_build_origins",
             "gates",
         },
     )
@@ -535,7 +707,9 @@ def _verified_build_evidence(value: object, expected_source_commit: str) -> dict
         raise StagingError(
             f"release provenance must identify exact Quartus {RELEASE_QUARTUS_VERSION}"
         )
-    _identity_record(evidence["build_id"], "release evidence build_id")
+    build_id = _identity_record(
+        evidence["build_id"], "release evidence build_id"
+    )
 
     reports = _exact_members(
         evidence["reports"], "release evidence reports", {"flow", "fit", "sta"}
@@ -588,6 +762,153 @@ def _verified_build_evidence(value: object, expected_source_commit: str) -> dict
     )
     if any(candidate_gates[name] is not True for name in AUDIT_REQUIRED_TRUE_GATES):
         raise StagingError("release evidence has an unaccepted candidate gate")
+
+    _verified_signed_build_origins(
+        evidence["signed_build_origins"],
+        source_commit=source_commit,
+        source_date_epoch=source_date_epoch,
+        build_id=build_id,
+        root_audit=audit,
+    )
+
+    hardware = _exact_members(
+        evidence["hardware_qa"],
+        "release evidence hardware QA",
+        {
+            "manifest", "inventory", "magic", "run_id", "case_count",
+            "artifact_count", "firmware_version", "core", "pocket", "dock",
+        },
+    )
+    _identity_record(hardware["manifest"], "release evidence hardware QA manifest")
+    _identity_record(hardware["inventory"], "release evidence hardware QA inventory")
+    if hardware["magic"] != HARDWARE_QA_MANIFEST_MAGIC:
+        raise StagingError("release evidence hardware QA magic is invalid")
+    if not isinstance(hardware["run_id"], str) or not hardware["run_id"]:
+        raise StagingError("release evidence hardware QA run_id is invalid")
+    case_count = _integer(
+        hardware["case_count"],
+        "release evidence hardware QA case count",
+        positive=True,
+    )
+    if case_count != len(HARDWARE_QA_CASE_SPECS):
+        raise StagingError("release evidence hardware QA case catalogue is incomplete")
+    _integer(
+        hardware["artifact_count"],
+        "release evidence hardware QA artifact count",
+        positive=True,
+    )
+    if hardware["firmware_version"] != "2.6.0":
+        raise StagingError("release evidence hardware QA firmware must be 2.6.0")
+    core = _exact_members(
+        hardware["core"],
+        "release evidence hardware QA core",
+        {
+            "core_id", "version", "date_release", "core_json", "interact_json",
+            "persistent_settings", "raw_rbf", "installed_bitstream",
+            "installed_payloads",
+        },
+    )
+    if core["core_id"] != EXPECTED_CORE_ID:
+        raise StagingError("release evidence hardware QA core identity is invalid")
+    if not isinstance(core["version"], str) or not core["version"]:
+        raise StagingError("release evidence hardware QA core version is invalid")
+    if not isinstance(core["date_release"], str) or not core["date_release"]:
+        raise StagingError("release evidence hardware QA core date is invalid")
+    for name in ("core_json", "interact_json", "raw_rbf", "installed_bitstream"):
+        _identity_record(core[name], f"release evidence hardware QA {name}")
+    if core["persistent_settings"] != list(HARDWARE_QA_PERSISTENT_SETTING_NAMES):
+        raise StagingError(
+            "release evidence hardware QA persistent-setting catalogue is invalid"
+        )
+    installed_payloads = _object(
+        core["installed_payloads"],
+        "release evidence hardware QA installed payloads",
+    )
+    static_names = set(HARDWARE_QA_STATIC_PAYLOAD_NAMES)
+    if (
+        not static_names.issubset(installed_payloads)
+        or len(installed_payloads) != len(static_names) + 2
+    ):
+        raise StagingError(
+            "release evidence hardware QA installed payload catalogue is incomplete"
+        )
+    for name, value in installed_payloads.items():
+        if not isinstance(name, str):
+            raise StagingError(
+                "release evidence hardware QA installed payload name is invalid"
+            )
+        relative = _safe_member_name(name)
+        if relative.as_posix() != name:
+            raise StagingError(
+                "release evidence hardware QA installed payload name is not canonical"
+            )
+        _entry_record(
+            value, f"release evidence hardware QA installed payload {name}"
+        )
+    pocket = _exact_members(
+        hardware["pocket"],
+        "release evidence hardware QA Pocket",
+        {"model", "hardware_revision", "device_id_sha256"},
+    )
+    dock = _exact_members(
+        hardware["dock"],
+        "release evidence hardware QA Dock",
+        {"model", "hardware_revision", "firmware_version", "device_id_sha256"},
+    )
+    for device, description in ((pocket, "Pocket"), (dock, "Dock")):
+        for name in set(device) - {"device_id_sha256"}:
+            if not isinstance(device[name], str) or not device[name]:
+                raise StagingError(
+                    f"release evidence hardware QA {description} {name} is invalid"
+                )
+        _sha256(
+            device["device_id_sha256"],
+            f"release evidence hardware QA {description} device ID",
+        )
+
+    known_title = _exact_members(
+        evidence["known_title_compatibility"],
+        "release evidence known-title compatibility",
+        {
+            "catalogue", "manifest", "magic", "run_id", "case_count",
+            "commercial_case_count", "open_sanity_case_count", "mode_pass_count",
+            "artifact_count", "artifact_index_sha256", "firmware_version",
+        },
+    )
+    _identity_record(
+        known_title["catalogue"],
+        "release evidence known-title compatibility catalogue",
+    )
+    _identity_record(
+        known_title["manifest"],
+        "release evidence known-title compatibility manifest",
+    )
+    if known_title["magic"] != KNOWN_TITLE_COMPATIBILITY_MAGIC:
+        raise StagingError("release evidence known-title compatibility magic is invalid")
+    if not isinstance(known_title["run_id"], str) or not known_title["run_id"]:
+        raise StagingError("release evidence known-title compatibility run_id is invalid")
+    expected_commercial = len(KNOWN_TITLE_COMMERCIAL_IDS)
+    expected_open = len(KNOWN_TITLE_OPEN_IDS)
+    expected_cases = expected_commercial + expected_open
+    if known_title["commercial_case_count"] != expected_commercial:
+        raise StagingError("release evidence known-title commercial catalogue is incomplete")
+    if known_title["open_sanity_case_count"] != expected_open:
+        raise StagingError("release evidence known-title open catalogue is incomplete")
+    if known_title["case_count"] != expected_cases:
+        raise StagingError("release evidence known-title case catalogue is incomplete")
+    if known_title["mode_pass_count"] != expected_cases * 2:
+        raise StagingError("release evidence known-title Pocket/Dock passes are incomplete")
+    _integer(
+        known_title["artifact_count"],
+        "release evidence known-title artifact count",
+        positive=True,
+    )
+    _sha256(
+        known_title["artifact_index_sha256"],
+        "release evidence known-title artifact index SHA-256",
+    )
+    if known_title["firmware_version"] != "2.6.0":
+        raise StagingError("release evidence known-title firmware must be 2.6.0")
 
     gates = _exact_members(
         evidence["gates"], "release evidence final gates", set(RELEASE_GATE_NAMES)
@@ -661,7 +982,20 @@ def _validate_release_provenance(
         raise StagingError("release package provenance magic is invalid")
     if body["release"] is not True:
         raise StagingError("release package provenance must explicitly identify a release")
-    if body["license_manifest"] != license_manifest:
+    provenance_license = _object(
+        body["license_manifest"], "release license manifest provenance"
+    )
+    source_notice_sha256 = _sha256(
+        provenance_license.get("wonderswan_notice_sha256"),
+        "release source notice SHA-256",
+    )
+    expected_license = {
+        **license_manifest,
+        # This source-only check cannot be reconstructed from an installed ZIP;
+        # it is independently protected by the required provenance digest.
+        "wonderswan_notice_sha256": source_notice_sha256,
+    }
+    if provenance_license != expected_license:
         raise StagingError(
             "release license manifest provenance does not match the packaged manifest"
         )
@@ -719,7 +1053,57 @@ def _validate_release_provenance(
     }:
         raise StagingError("release Chip32 identity is invalid")
 
-    _verified_build_evidence(body["build_evidence"], expected_commit)
+    verified_build = _verified_build_evidence(body["build_evidence"], expected_commit)
+    if verified_build["signed_build_origins"]["rbf"] != raw_rbf:
+        raise StagingError(
+            "release signed build RBF identity does not match package provenance"
+        )
+    hardware_core = verified_build["hardware_qa"]["core"]
+    if hardware_core["raw_rbf"] != raw_rbf:
+        raise StagingError(
+            "release hardware QA raw RBF identity does not match package provenance"
+        )
+    expected_core_json = {
+        "filename": "core.json",
+        "size": len(payloads[CORE_JSON]),
+        "sha256": sha256_bytes(payloads[CORE_JSON]),
+    }
+    if hardware_core["core_json"] != expected_core_json:
+        raise StagingError(
+            "release hardware QA core.json identity does not match package content"
+        )
+    expected_interact_json = {
+        "filename": "interact.json",
+        "size": len(payloads[INTERACT_JSON]),
+        "sha256": sha256_bytes(payloads[INTERACT_JSON]),
+    }
+    if hardware_core["interact_json"] != expected_interact_json:
+        raise StagingError(
+            "release hardware QA interact.json identity does not match package content"
+        )
+    if hardware_core["version"] != definition.version:
+        raise StagingError(
+            "release hardware QA core version does not match package metadata"
+        )
+    if hardware_core["date_release"] != definition.release_date:
+        raise StagingError(
+            "release hardware QA core date does not match package metadata"
+        )
+    if hardware_core["installed_bitstream"] != packaged:
+        raise StagingError(
+            "release hardware QA installed bitstream does not match package content"
+        )
+    expected_installed_payloads = {
+        name: {
+            "size": len(payloads[pathlib.PurePosixPath(name)]),
+            "sha256": sha256_bytes(payloads[pathlib.PurePosixPath(name)]),
+        }
+        for name in hardware_qa_installed_payload_names(bitstream_name, chip32_name)
+    }
+    if hardware_core["installed_payloads"] != expected_installed_payloads:
+        raise StagingError(
+            "release hardware QA installed payload inventory does not match package content"
+        )
     _verified_release_source_inputs(
         body["source_inputs"],
         expected_source_commit=expected_commit,

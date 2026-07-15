@@ -42,6 +42,13 @@ context, Docker layers, Quartus installation, and compile artifacts. An 8 GB or
 larger Docker VM memory allocation is a practical starting point for the fit;
 that is a project recommendation, not a vendor guarantee.
 
+The optional native-macOS GHDL wrapper in
+[`BUILDING.md`](BUILDING.md#optional-native-ghdl-on-macos) is only a simulation
+convenience. It cannot run Quartus, build an RBF, produce TimeQuest evidence, or
+replace any command on this page. It intentionally rejects the Quartus Docker
+image and every non-GHDL container command. Quartus on Apple Silicon still
+requires this isolated Linux/amd64 workflow or the native x86_64 lab.
+
 ## Preflight and installation
 
 Docker Desktop must be running. First prove that this Mac can start a pinned
@@ -120,6 +127,15 @@ deliberately rejects a dirty tree. Then run:
 ./scripts/quartus_docker.sh build
 ```
 
+That direct local command defaults to `SWANSONG_BUILD_CLASS=development`. It
+requires GitHub workflow identity variables to be absent, records development
+metadata, and deliberately does not create `quartus-audit-candidate.json` or a
+GitHub attestation bundle. Its RBF and reports are useful engineering output,
+but cannot satisfy candidate or release gates. Candidate mode is reserved for
+the checked-in GitHub workflow, which supplies and validates the exact
+repository, workflow, commit, run, attempt, job, and fresh job nonce before the
+audit is created and signed.
+
 The host checkout is mounted read-only and the container builds a fresh
 `git archive` of the exact commit with its commit timestamp. Runtime networking
 is disabled. The existing `scripts/build_core.sh` invokes
@@ -144,10 +160,11 @@ Quartus warning 12241. This follows Quartus's
 [text-format report contract](https://www.intel.com/content/www/us/en/programmable/quartushelp/23.3/reference/glossary/def_rpt.htm),
 which identifies `.map.rpt` as the Analysis & Synthesis report and says partial
 reports retain the results generated before a stopped compilation.
-For a successful candidate, the audit JSON hash-binds every required input,
-including the map report, and the upload collector rejects missing or unknown
-artifact identities and verifies every copied file against its recorded size
-and SHA-256. Warning 12241 is a fail/review gate: the
+In the workflow's candidate build class, the audit JSON hash-binds every
+required input, including the map report, and the upload collector rejects
+missing or unknown artifact identities and verifies every copied file against
+its recorded size and SHA-256. Development output has no candidate audit and
+must not be relabeled. Warning 12241 is a fail/review gate: the
 [vendor's message documentation](https://www.intel.com/content/www/us/en/programmable/quartushelp/17.0/msgs/msgs/wsgn_connectivity_warnings.htm)
 assigns that ID specifically to hierarchy connectivity warnings, so its stable
 numeric ID is detected mechanically while the exact Connectivity Checks tables
@@ -272,6 +289,11 @@ python3 scripts/verify_hosted_regression.py \
 ./scripts/quartus_docker.sh build "$RUNNER_TEMP/quartus-fit"
 ```
 
+The checked-in `quartus-fit.yml` job explicitly selects candidate build class
+and supplies the GitHub run identity around that command. Running the shell
+command locally, or omitting any candidate identity field, remains development
+mode or fails closed; it is not a shortcut to signed candidate evidence.
+
 The proof uses the read-only GitHub Actions API and requires the active
 `.github/workflows/regression.yml` workflow's exact ID and path plus a
 completed successful `push` run for the same repository, default branch, and
@@ -305,9 +327,10 @@ repo digests, and a sorted, hashed `dpkg-query` package manifest from the same
 image. Registry hosts, repository names, and the requested local image tag are
 deliberately discarded before public evidence is written.
 
-Publish only the audit JSON, reports, build log, RBF SHA-256, candidate RBF,
-toolchain/build-ID files, container/package manifest, and provenance metadata;
-never publish the Quartus installer or private runtime image. Do not route
+Publish only the audit JSON and its GitHub attestation bundle, reports, build
+log, RBF SHA-256, candidate RBF, toolchain/build-ID files, container/package
+manifest, and provenance metadata; never publish the Quartus installer or
+private runtime image. Do not route
 public pull-request code to a persistent self-hosted runner: GitHub warns that
 forked PRs can execute dangerous code on that machine. Prefer an ephemeral VM,
 or restrict a dedicated runner group to a trusted workflow and protected
@@ -321,12 +344,15 @@ other Quartus output. On a public repository, assume the uploaded 14-day
 evidence bundle is public to signed-in users with repository read access.
 
 Each dispatch performs one clean synthesis, fit, assembly, and TimeQuest run,
-then applies the resource/timing auditor and preserves a bounded candidate for
-later comparison. It does **not** establish RBF reproducibility: Phase 0 still
-requires two independent clean Quartus 21.1.1 fits of the same commit with
-identical RBF hashes. The lane also cannot certify PocketOS commands, LCD/Dock
-behavior, SDRAM on the actual board, or Sleep/Wake; those remain
-physical-Pocket gates.
+then applies the resource/timing auditor, signs the exact candidate audit, and
+preserves a bounded candidate for later comparison. One dispatch does **not**
+establish release reproducibility: release closure requires two distinct signed
+workflow executions for the same commit and epoch, different fresh job nonces,
+accepted audits, and byte-identical RBF and build-ID files. Those records prove
+distinct workflow executions, not different physical hosts; the same ephemeral
+or self-hosted runner may service both. The lane also cannot certify PocketOS
+commands, LCD/Dock behavior, SDRAM on the actual board, or Sleep/Wake; those
+remain physical-Pocket gates.
 
 Publish source-derived status in source-first order. Commit and publish the
 reviewed implementation, evidence identity, and repository documentation

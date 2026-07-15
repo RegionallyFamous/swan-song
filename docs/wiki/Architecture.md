@@ -86,11 +86,14 @@ contract](https://github.com/RegionallyFamous/swan-song/blob/main/FIRST_CLASS_IN
 
 ## Memories boundary
 
-Memories and Sleep/Wake are disabled. The project has a versioned fixed ABI,
-integrity primitives, a fail-closed channel ownership mux, and isolated SDRAM
-reader/writer work, but it does not yet have the complete cooperative pause,
-quiescence, lossless crossing, and atomic live restore required for production.
+Memories and Sleep/Wake are disabled. The project has a frozen v2 blob
+allocation and header field layout, exact RTC/EEPROM device schemas, integrity primitives,
+a fail-closed channel ownership mux, isolated SDRAM
+reader/writer work, and a bounded EEPROM load-settle ownership guard that keeps
+raw device acknowledgements honest. It still does not have the complete
+cooperative pause, quiescence, lossless crossing, and atomic live restore
+required for production.
 
 The design and remaining gates are recorded in [save-state format](https://github.com/RegionallyFamous/swan-song/blob/main/SAVESTATE_FORMAT.md),
-[v2 ABI](https://github.com/RegionallyFamous/swan-song/blob/main/SAVESTATE_V2_FORMAT.md),
+[v2 allocation and device ABI](https://github.com/RegionallyFamous/swan-song/blob/main/SAVESTATE_V2_FORMAT.md),
 and [Memories staging](https://github.com/RegionallyFamous/swan-song/blob/main/MEMORIES_STAGING.md).

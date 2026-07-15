@@ -56,9 +56,16 @@ PocketOS Select + Down menu chord. Swan Song uses PocketOS's focus notification
 to block physical gameplay input and clear Fast Forward as the menu opens. It
 requires a fresh valid neutral Pocket or Dock gamepad packet before controls
 are rearmed, so a held menu chord cannot leak back into the game. This guard
-does not pause the emulated system, and the internally generated **Console
-Setup** Start gesture remains separate from physical input. Exact notification
-and PAD ordering on current firmware remains a physical Pocket/Dock test.
+is independent from Swan Song's menu-pause path: the held `00B0` focus level
+pauses the emulated console, then menu exit resumes it even if controls are still
+waiting for neutral rearm. Cartridge RTC wall time continues while paused. This
+is a Swan Song product choice—Analogue permits a core to ignore `00B0` for
+compatibility—not a requirement imposed on every openFPGA core. The internally
+generated **Console Setup** Start gesture remains separate from physical input.
+When that action is selected in the menu, its reset/Start gesture remains armed
+under menu focus and begins its bounded countdown only after the menu closes.
+Exact notification/PAD ordering, audio, display, and resume behavior on current
+firmware remain physical Pocket/Dock tests.
 
 ## System settings
 
@@ -76,15 +83,31 @@ and PAD ordering on current firmware remains a physical Pocket/Dock test.
 PocketChallenge v2 is intentionally not listed because its distinct machine
 behavior and `.pc2` launch path are not implemented.
 
+All nine persistent settings use Analogue's documented read/write Interact
+behavior. PocketOS writes a choice before Reset Exit, and Swan Song reads the
+requested value back at the same BRIDGE address so the menu can reflect the
+core's state. For **System Type (reset)**, readback intentionally reports the
+requested menu choice; the active Auto-resolved model does not replace that
+choice. Quit/relaunch persistence and **Reset all to defaults** remain physical
+Pocket acceptance tests.
+
 ## Video settings
 
 - **Triple Buffer:** shows only complete frames, preventing producer/scanout
   tearing at the cost of buffered delivery and unavoidable skipped native
   frames. Off uses the lower-latency direct path and may tear.
-- **LCD Response:** `Off` shows the newest sample. `2-Frame Blend` retains the
-  familiar two-frame blend. `Persistence` uses a finite 50/25/25 history model
-  inspired by ares. The latter two choices imply buffering. Neither is claimed
-  as a measurement of an original WonderSwan panel.
+- **Motion / LCD Response:** `Off` shows the newest sample. `2-Frame Blend`
+  retains the familiar two-frame blend. `Persistence` uses a finite 50/25/25
+  history model inspired by ares. `Complete Frames 60.9Hz` changes only the
+  Pocket output cadence and, once priming completes, uses the newest completed
+  frame. On a direct-to-buffered change, the live/direct picture remains visible
+  for one producer-frame priming interval and retains the direct path's tearing
+  risk; the steady-state complete-frame guarantee begins with the first
+  completed buffered frame. It does not speed up the game, interpolate frames,
+  emulate an LCD, or guarantee lower latency. All three non-Off choices request
+  completed-frame buffering even when Triple Buffer is off. Standard remains
+  the default; the 60.9 Hz option is experimental until Pocket and Dock
+  verification is complete.
 - **Display Orientation:** selects Pocket scaler presentation independently of
   the game's native input orientation.
 - **Landscape 180°:** rotates landscape presentation by 180 degrees. It is not

@@ -1,6 +1,6 @@
 # Pocket launcher and Library boundary
 
-Last researched: **2026-07-13**, against Pocket firmware **2.6.0**.
+Last researched: **2026-07-14**, against Pocket firmware **2.6.0**.
 
 ## Result
 
@@ -12,8 +12,8 @@ shortest supported path is:
 1. Set Pocket's **Startup Action** to **openFPGA**.
 2. Launch Swan Song once; Pocket 2.6.0 is expected to record that usage
    activity in openFPGA's host-owned **Recent** category.
-3. Let Swan Song's persistent cartridge data slot reuse the last selected
-   `.ws` or `.wsc` file when the core is opened again.
+3. Let slot 0's persisted browsed filename reuse the last selected `.ws` or
+   `.wsc` file when the core is opened again.
 
 That is the supported launcher target. It still needs final Pocket hardware
 validation; it is not the same thing as a dedicated WonderSwan tile in the
@@ -28,7 +28,7 @@ top-level OS Library.
 | openFPGA Recent | Firmware 2.6.0 records recent openFPGA usage activity. | No documented API can pre-seed, pin, rename, or promise the contents of Recent. The host owns it. |
 | Remembered title | APF data-slot parameter bit 9 persists a browsed filename. | Swan Song sets that bit for slot 0, so a normal core relaunch is expected to reuse the last title. This acts only after the host opens the core. |
 | Analogue Library | Analogue documents Library as a cartridge collection database: playing a recognized cartridge adds its entry, date, and play time. | There is no Library-registration field in the public core, data, platform, or instance definitions. |
-| Memories and screenshots | The host keeps Memories per openFPGA core and automatically captures openFPGA screenshots. | Swan Song supplies truthful video and, once implemented and certified, save-state data. These features do not create Library entries. |
+| Memories and screenshots | The host keeps Memories per openFPGA core and automatically provides Screenshot support; the user captures a screenshot with **Menu + Start**. Screenshot capture is independent of a core's save-state support. | Swan Song supplies truthful video, so PocketOS screenshot capture remains available while Swan Song's save-state Memories and Sleep/Wake support are deliberately disabled. Once implemented and certified, Swan Song can also supply save-state data. Neither feature creates Library entries. |
 
 Primary references: [firmware 1.1 beta](https://www.analogue.co/support/pocket/firmware/1.1-beta),
 [firmware 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0),
@@ -123,8 +123,9 @@ and the [Analogue EULA](https://assets.analogue.co/pdf/43478bf701eb4905172acbecc
 
 The most useful work is to make the supported path feel immediate and reliable:
 
-- retain framework/PocketOS 2.3 as the technical minimum and recommend
-  PocketOS 2.6.0 for its Recent and quit-to-openFPGA experience;
+- declare PocketOS 2.3 as the APF minimum firmware and target PocketOS 2.6.0
+  for launch qualification, including its Recent and quit-to-openFPGA
+  experience;
 - validate Startup Action, Recent, last-title relaunch, clean title switching,
   and save flushes on real Pocket hardware;
 - keep the WonderSwan platform art, metadata, About text, controls, display

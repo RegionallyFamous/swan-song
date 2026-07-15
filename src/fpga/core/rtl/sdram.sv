@@ -1,3 +1,6 @@
+// Modified for Swan Song by Regionally Famous on 2026-07-14.
+// See UPSTREAMS.md and LICENSING.md for provenance and licensing details.
+
 //
 // sdram
 // Copyright (c) 2015-2019 Sorgelig
@@ -166,16 +169,22 @@ always @(posedge clk) begin
 	ch2_req_1 <= ch2_req;
 	ch3_req_1 <= ch3_req;
 	
-	ch3_rnw_1  <= ch3_rnw;
-	ch3_addr_1 <= ch3_addr;
-	ch3_din_1  <= ch3_din;
-	ch3_be_1   <= ch3_be;
-	
 	doRefresh_1 <= doRefresh;
 
 	if (ch1_req & ~ch1_req_1) ch1_rq <= 1;
 	if (ch2_req & ~ch2_req_1) ch2_rq <= 1;
-	if (ch3_req & ~ch3_req_1) ch3_rq <= 1;
+	if (ch3_req & ~ch3_req_1) begin
+		// SwanTop issues channel-3 accesses as a short request pulse and then
+		// advances its live bus signals.  Arbitration can be delayed by a
+		// higher-priority channel or refresh, so the pending bit and its entire
+		// payload must be captured on the same edge.  Continuously sampling the
+		// payload can turn a queued read into a write or redirect a save write.
+		ch3_rq     <= 1;
+		ch3_rnw_1  <= ch3_rnw;
+		ch3_addr_1 <= ch3_addr;
+		ch3_din_1  <= ch3_din;
+		ch3_be_1   <= ch3_be;
+	end
 
 	ch1_ready <= 0;
 	ch2_ready <= 0;

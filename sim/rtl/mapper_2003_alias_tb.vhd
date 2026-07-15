@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-2.0-only
--- Black-box coverage for the Bandai 2003 low aliases and high bank bytes.
+-- Black-box coverage for Bandai 2003 aliases, high bank bytes, and GPO latches.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -99,7 +99,17 @@ begin
       SSMEM_WriteData        => (others => '0'),
       SSMEM_ReadData_REG     => open,
       SSMEM_ReadData_RAM     => open,
-      SSMEM_ReadData_SRAM    => open
+      SSMEM_ReadData_SRAM    => open,
+      internal_eeprom_state_freeze => '0',
+      internal_eeprom_state_frozen => open,
+      internal_eeprom_state_load   => '0',
+      internal_eeprom_state_in     => (others => '0'),
+      internal_eeprom_state_out    => open,
+      cartridge_eeprom_state_freeze => '0',
+      cartridge_eeprom_state_frozen => open,
+      cartridge_eeprom_state_load   => '0',
+      cartridge_eeprom_state_in     => (others => '0'),
+      cartridge_eeprom_state_out    => open
     );
 
   stimulus : process
@@ -185,11 +195,15 @@ begin
     write_port(16#D1#, 16#FF#);
     write_port(16#D3#, 16#FF#);
     write_port(16#D5#, 16#FF#);
+    write_port(16#CC#, 16#FF#);
+    write_port(16#CD#, 16#FF#);
     expect_port(16#C0#, 1);
     expect_port(16#CF#, 0);
     expect_port(16#D1#, 0);
     expect_port(16#D3#, 0);
     expect_port(16#D5#, 0);
+    expect_port(16#CC#, 0);
+    expect_port(16#CD#, 0);
     expect_mapping(16#40000#, 5, 16#140000#);
 
     -- Unknown footer values are not permission to decode Bandai 2003 ports.
@@ -205,11 +219,15 @@ begin
     write_port(16#D1#, 16#FF#);
     write_port(16#D3#, 16#FF#);
     write_port(16#D5#, 16#FF#);
+    write_port(16#CC#, 16#FF#);
+    write_port(16#CD#, 16#FF#);
     expect_port(16#C0#, 3);
     expect_port(16#CF#, 0);
     expect_port(16#D1#, 0);
     expect_port(16#D3#, 0);
     expect_port(16#D5#, 0);
+    expect_port(16#CC#, 0);
+    expect_port(16#CD#, 0);
     expect_mapping(16#40000#, 5, 16#340000#);
 
     -- Select Bandai 2003 through the footer byte, then prove each alias has
@@ -231,6 +249,27 @@ begin
     expect_port(16#D1#, 3);
     expect_port(16#D3#, 3);
     expect_port(16#D5#, 3);
+    expect_port(16#CC#, 0);
+    expect_port(16#CD#, 0);
+
+    -- CC/CD are independent four-bit GPO latches. The Pocket core has no
+    -- external cartridge peripheral attached, but software-visible register
+    -- state must still match the Bandai 2003 interface. Exhaust every byte to
+    -- prove that undocumented upper bits cannot survive or cross-couple.
+    for value in 0 to 255 loop
+      write_port(16#CC#, value);
+      expect_port(16#CC#, value mod 16);
+      expect_port(16#CD#, 0);
+    end loop;
+    for value in 0 to 255 loop
+      write_port(16#CD#, value);
+      expect_port(16#CD#, value mod 16);
+      expect_port(16#CC#, 15);
+    end loop;
+    write_port(16#CC#, 5);
+    write_port(16#CD#, 10);
+    expect_port(16#CC#, 5);
+    expect_port(16#CD#, 10);
 
     write_port(16#CF#, 5);
     expect_port(16#CF#, 5);
@@ -325,6 +364,8 @@ begin
     write_port(16#D3#, 2);
     write_port(16#D4#, 16#65#);
     write_port(16#D5#, 3);
+    write_port(16#CC#, 5);
+    write_port(16#CD#, 10);
     sleep_state <= '0';
     tick;
     expect_port(16#D0#, 16#21#);
@@ -333,6 +374,8 @@ begin
     expect_port(16#D3#, 2);
     expect_port(16#D4#, 16#65#);
     expect_port(16#D5#, 3);
+    expect_port(16#CC#, 5);
+    expect_port(16#CD#, 10);
 
     -- Mapper-specific state cannot leak into a Bandai 2001/unknown title or
     -- resurrect if metadata changes without a separate register reset. A
@@ -342,16 +385,22 @@ begin
     expect_port(16#D1#, 0);
     expect_port(16#D3#, 0);
     expect_port(16#D5#, 0);
+    expect_port(16#CC#, 0);
+    expect_port(16#CD#, 0);
     write_port(16#D1#, 3);
     write_port(16#D3#, 3);
     write_port(16#D5#, 3);
+    write_port(16#CC#, 15);
+    write_port(16#CD#, 15);
     romtype <= x"01";
     tick;
     expect_port(16#D1#, 3);
     expect_port(16#D3#, 3);
     expect_port(16#D5#, 3);
+    expect_port(16#CC#, 0);
+    expect_port(16#CD#, 0);
 
-    report "PASS boot-lock consumer, Bandai 2003 low aliases, exhaustive high bytes, and save replay" severity note;
+    report "PASS boot-lock consumer, Bandai 2003 aliases/high bytes/GPO, and save replay" severity note;
     stop;
     wait;
   end process;

@@ -1,19 +1,34 @@
-# WonderSwan Memories v2 fixed ABI
+# WonderSwan Memories v2 fixed allocation and device ABI
 
-Status: **fixed layout, exact RTC/EEPROM controller boundaries, and isolated
-atomic-owner/EEPROM-walker slices implemented and focused-tested; none is
-integrated into production.** The production core still advertises neither
-Memories nor Sleep + Wake. This document,
+Status: **fixed blob allocation and header field layout, exact RTC/EEPROM controller
+schemas, and isolated structural/integrity/profile/device preflight,
+atomic-owner, EEPROM-walker, and load-settle-guard slices implemented and
+focused-tested; the machine semantic ABI is incomplete and none is integrated
+into production.** The production core
+still advertises neither Memories nor Sleep + Wake. This document,
 `src/fpga/core/apf_savestate_v2_layout_pkg.sv`, and
-`src/fpga/core/apf_savestate_v2_device_abi_pkg.sv` freeze the target binary
-contract. The live RTC and both EEPROM instances expose synthesis-tested
+`src/fpga/core/apf_savestate_v2_device_abi_pkg.sv` freeze the blob allocation,
+header field layout, padding rules, and RTC/EEPROM portion of the target binary
+contract. They do not yet define byte-level schemas for the directory, CPU,
+IRQ/input/serial, DMA, scheduler, mapper/cart, PPU, APU, or live-I/O sections.
+No v2 image has shipped; those schemas must be defined and executable before
+the machine ABI can be frozen or production Memories can be enabled. The live
+RTC and both EEPROM instances expose synthesis-tested
 freeze/export/load ports, but every production instance ties those ports off.
-The isolated owner and EEPROM walker are not instantiated and are absent from
-`ap_core.qsf`; the production top level still sets `savestate_supported` false
+The isolated preflight, owner, EEPROM walker, and load-settle guard are not instantiated
+and are absent from `ap_core.qsf`; the production top level still sets
+`savestate_supported` false
 and the shipped core descriptor still sets `sleep_supported` false. These
 slices prove bounded control- and data-plane contracts only. There is no
-complete v2 serializer/validator/reader/writer, global clock-domain integration,
+complete v2 serializer or CPU/PPU/APU/mapper/scheduler/DMA/live-I/O semantic
+validator, global clock-domain integration,
 production owner wiring, or change to the version-1 transport.
+
+Header CPU/PPU/APU schema values and the `SWANSONG-STATE2` identity are
+provisional integration guards, not permission to interpret undefined machine
+section bytes. They must be reconciled with the exact section schemas before
+the first supported v2 image; later semantic changes require a new schema or
+format identity and may never silently reuse schema `1`.
 
 Version 1 is not a migration source. Its 32-byte envelope and `0x90300` payload
 omit CPU pipeline state, live PPU/APU pipelines, RTC protocol/timing, EEPROM
@@ -235,12 +250,66 @@ The package's `v2_fixed_zero_payload_byte` and
 `v2_fixed_zero_header_byte` helpers identify bytes that are zero for every v2
 image; model/title-dependent zero tails are additional validation.
 
-## Isolated owner and EEPROM walker
+## Isolated A4 preflight
 
-`apf_savestate_v2_owner.sv` and `apf_savestate_v2_eeprom_walker.sv` are
-deliberately isolated verification slices. Neither is in `ap_core.qsf`, neither
-is instantiated by the production core, and no current Pocket command reaches
-either module.
+`apf_savestate_v2_restore_preflight.sv` consumes only exact, sequential,
+durably committed normalized words. It retains the 256-byte header separately,
+waits for the payload stage to drain, validates the fixed header fields and current
+ROM/model/mapper/RAM/active-BIOS/hard-setting identity, checks both CRC64s,
+scans every one of the exact `0x120000` payload bytes, rejects fixed and
+profile-dependent nonzero padding, and validates the RTC plus both EEPROM
+controller images. Backend start, request, response, terminal-quiescence, and
+abort-drain waits are bounded. Backend failure is latched across control states,
+including the CRC-clear cycle, and validity is published only after the final
+response and definitive backend quiescence.
+An accepted `stage_transfer_start` is also the reader's stale-failure clear:
+the previous transaction may leave its failure level asserted while idle, and
+only a failure observed after this restart edge belongs to the new scan.
+The preflight's `done` and `failed` outputs are internal one-cycle terminal
+pulses. A future A4 command frontend must latch exactly one result as persistent
+APF busy/done/error state for Pocket's documented polling lifecycle; directly
+wiring either pulse to a host-visible result code is forbidden.
+
+That frontend must also derive `copy_finalize` from proved copy completion
+behind a lossless bridge adapter. It must count only accepted
+`copy_word_valid && copy_word_ready` durable commits, require the exact
+sequential `V2_TOTAL_BYTES` image with no reported FIFO/backend error, and wait
+until every buffered write is committed. Only then may Request Load emit one
+`copy_finalize` event (including on the same edge as the accepted final word).
+Seeing the final address, an unaccepted valid word, bridge silence, or Request
+Load by itself is not completion. An early Request Load remains busy or fails
+without validating or mutating live state, and any FIFO overflow must be
+observable and invalidate the copy.
+
+Compatibility is rechecked throughout the scan and while the image remains
+published. Any title, active BIOS, CPU-turbo hard setting, flash capability, or
+authoritative staging-content change invalidates it. Every writer outside the
+A4 commit stream, especially A0 capture into a shared store, must pulse
+`stage_content_changed`; alternatively capture and restore require physically
+separate stores. Flash-bearing images remain rejected while
+`current_flash_supported` is false, as it must be until a bounded MBM29DL400
+controller and semantic schema exist. The composed isolated bench proves that
+the owner respects this generation/lock signal; it does not prove a production
+restore safe.
+
+This is deliberately not a complete untrusted-state semantic validator. CPU,
+PPU, APU, mapper, scheduler, DMA, and live-I/O payload sections are presently
+opaque bytes protected only by identity, length, CRC, and padding rules. Their
+future per-section semantic validators must form an additional gate before a
+live restore can be enabled. The preflight is absent from `ap_core.qsf`, and
+production Memories/Sleep capability flags remain false.
+
+The abstract reader `stage_quiescent` contract is stronger than physical
+request-idle: it covers held response/cache data and every late terminal.
+`apf_savestate_sdram_reader.sv` therefore reports quiescent only when its state
+machine is idle **and** its response cache is empty.
+
+## Isolated owner, EEPROM walker, and load-settle guard
+
+`apf_savestate_v2_owner.sv`, `apf_savestate_v2_eeprom_walker.sv`, and
+`apf_savestate_v2_load_settle_guard.sv` are deliberately isolated verification
+slices. None is in `ap_core.qsf`, none is instantiated by the production core,
+and no current Pocket command reaches any of them.
 
 ### Atomic owner ordering and failure boundary
 
@@ -268,6 +337,27 @@ Release is the reverse ownership order: staging, devices, then runtime; the
 owner publishes the result only after the runtime pause acknowledgement falls.
 Stale terminals, wrong-operation terminals, and late same-edge failures fail
 closed, while cancellation drains any request already in flight.
+
+EEPROM restore has one additional device-local phase. Its raw `frozen_ack`
+deliberately falls while the controller image is applied and its synchronous
+RAM address/write pipeline settles. The load-settle guard does not forge that
+acknowledgement. After a load pulse accepted from a previously acknowledged
+freeze, it asserts a separate `device_settling` ownership-retention level for
+at most two raw-low samples. The owner accepts `raw_ack || device_settling`
+only as an active-operation retention invariant; completion and stage release
+still require every raw acknowledgement high and every settling bit low. A
+completion on the re-ack edge therefore waits one more owner edge. Illegal or
+repeated load, an unrequested ack drop, device reset, or an overlong gap ends
+retention and raises a sticky protocol fault. This closes the former mismatch
+between the EEPROM's required settle gap and the owner's ack-drop fatal rule
+without weakening the release boundary.
+
+RTC does not use this guard. Its freeze branch intentionally dominates console
+and register reset, so its raw acknowledgement remains asserted until release.
+EEPROM device reset intentionally has the opposite priority and immediately
+invalidates the retained-settle claim. The mixed-language device benches prove
+those distinct reset semantics; the combined guard/owner bench covers reset,
+cancel, timeout, raw-reack/terminal, and release/terminal races.
 
 A capture abort is recoverable only while the owner can prove that no live
 mutation or ambiguous outstanding ownership remains. Restore error, cancel,
@@ -328,19 +418,22 @@ complete while the machine is frozen, restoration fails closed; it must never
 run the game while applying one second per MHz clock. With no valid epoch,
 policy `0` performs an exact restore.
 
-A4 writes only isolated staging storage. Before any live mutation it validates
-the exact length/order, both CRCs, ABI/schema/policies, ROM/model/mapper/RAM/BIOS
-identity, hard settings, active sizes, every enum/flag, and all zero padding.
-Failure before mutation resumes the original state. Failure after application
-begins holds the console reset until a clean title reload. Reset Enter, PLL loss,
-title reload, interruption, or a new offset-zero transaction invalidates a
-previous staged image.
+The completed A4 path must write only isolated staging storage. Before any live
+mutation it must validate the exact length/order, both CRCs,
+ABI/schema/policies, ROM/model/mapper/RAM/BIOS identity, hard settings, active
+sizes, every subsystem enum/flag, and all zero padding. Failure before mutation
+must resume the original state. Failure after application begins must hold the
+console reset until a clean title reload. Reset Enter, PLL loss, title reload,
+interruption, or a new offset-zero transaction must invalidate a previous
+staged image. The current isolated preflight implements only the structural,
+integrity, profile, and RTC/EEPROM-device subset documented above.
 
 The exact v1 tuple (`version=1`, header `0x20`, payload `0x90300`, total
 `0x90320`, format `0x57530001`) and every partial mixture of v1/v2 static fields
-must fail the v2 static gate. Future field meaning, capture-cut, or restore
-semantic changes require a new format/ABI; compatible Git builds need not match
-build IDs.
+must fail the v2 static gate. Changes to the frozen allocation, header-field,
+or RTC/EEPROM-device portions—and later changes to any machine section after
+its executable byte schema is defined—require a new format or schema identity;
+compatible Git builds need not match build IDs.
 
 ## Focused executable contract
 
@@ -352,7 +445,9 @@ Run:
 ./sim/rtl/run_rtc_state_tb.sh
 ./sim/rtl/run_eeprom_state_tb.sh
 ./sim/rtl/run_apf_savestate_v2_eeprom_walker_tb.sh
+./sim/rtl/run_apf_savestate_v2_load_settle_guard_tb.sh
 ./sim/rtl/run_apf_savestate_v2_owner_tb.sh
+./sim/rtl/run_apf_savestate_v2_restore_preflight_tb.sh
 ```
 
 The layout test checks every region boundary and sum, header compound-field
@@ -364,14 +459,25 @@ including synthesis, transient RTC replay, all EEPROM FSMs, pending-write drain,
 legacy-state normalization, reset ordering, and synchronous-read settling. The
 walker test covers both EEPROM layouts, two-pass restore, padding rejection,
 late staging/backing-memory completions, restart rejection, and ownership held
-through poison. The owner test covers acquisition/release ordering, generation
-locking, stale and wrong-operation terminals, legal non-quiescent staging
-traffic, recoverable pre-apply aborts, sticky fatal restore, lifecycle reset,
-and phase timeouts.
+through poison. The load-settle guard test composes both EEPROM guards with the
+owner and covers one- and two-cycle gaps, exact re-ack/terminal ordering,
+overlong gaps, cancellation, lifecycle reset, EEPROM reset/terminal races, and
+the RTC's distinct freeze-dominant reset behavior. The owner test covers
+acquisition/release ordering, generation locking, stale and wrong-operation
+terminals, legal non-quiescent staging traffic, recoverable pre-apply aborts,
+sticky fatal restore, lifecycle reset, and phase timeouts.
 
-All six behavior tests are part of `make regression`. The owner and walker
-runners skip Yosys by default even when it is installed; setting
+The preflight bench scans the complete fixed image for mono, Color SRAM, and
+Color EEPROM profiles. It mutates header/payload CRCs, padding, RTC/EEPROM
+schemas, flash capability, identity, copy order, backend responses, and terminal
+timing; exercises bounded stuck start/request/response/quiescence paths and
+same-edge abort/replacement, failure, identity, and content-change races;
+composes the generation/lock with the owner; and proves A0 capture invalidates
+an older A4 preflight result.
+
+All eight behavior tests are part of `make regression`. The owner, walker, and
+guard runners skip Yosys by default even when it is installed; setting
 `SWAN_REQUIRE_YOSYS=1` makes synthesis mandatory, including tool availability
 and a nonempty netlist. Only `0` and `1` are accepted. Passing these isolated
 tests is not evidence of Quartus fit, production integration, or Pocket
-hardware behavior; both modules remain outside the Quartus project.
+hardware behavior; all four modules remain outside the Quartus project.

@@ -75,7 +75,7 @@ class SwanSongDoctorTests(unittest.TestCase):
     def add_game(self, relative: str = "Game.wsc") -> Path:
         path = self.sd / "Assets/wonderswan/common" / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"ROM bytes must never be inspected")
+        path.write_bytes(b"ROM bytes must never be inspected".ljust(64 * 1024, b"!"))
         return path
 
     def add_legacy(self, *, with_preset: bool = False) -> None:
@@ -110,6 +110,7 @@ class SwanSongDoctorTests(unittest.TestCase):
             report = doctor.audit_sd(self.sd)
         self.assertEqual(report.errors, 0)
         self.assertIn("core-identity", self.codes(report))
+        self.assertIn("display-payloads", self.codes(report, "OK"))
         self.assertIn("bios-bw.rom", self.codes(report))
         self.assertIn("bios-color.rom", self.codes(report))
 
@@ -195,6 +196,35 @@ class SwanSongDoctorTests(unittest.TestCase):
         bitstream.write_bytes(b"")
         self.assertIn("core-payload-invalid", self.codes(doctor.audit_sd(self.sd), "ERROR"))
 
+    def test_missing_and_empty_user_visible_payloads_fail(self) -> None:
+        for relative in doctor.USER_VISIBLE_PAYLOADS:
+            with self.subTest(relative=relative, condition="missing"):
+                path = self.sd / Path(*relative.parts)
+                original = path.read_bytes()
+                path.unlink()
+                report = doctor.audit_sd(self.sd)
+                finding = next(
+                    item
+                    for item in report.findings
+                    if item.code == "display-payload-missing"
+                    and item.path == relative.as_posix()
+                )
+                self.assertEqual(finding.severity, "ERROR")
+                path.write_bytes(original)
+            with self.subTest(relative=relative, condition="empty"):
+                path = self.sd / Path(*relative.parts)
+                original = path.read_bytes()
+                path.write_bytes(b"")
+                report = doctor.audit_sd(self.sd)
+                finding = next(
+                    item
+                    for item in report.findings
+                    if item.code == "display-payload-invalid"
+                    and item.path == relative.as_posix()
+                )
+                self.assertEqual(finding.severity, "ERROR")
+                path.write_bytes(original)
+
     def test_platform_missing_is_actionable_error(self) -> None:
         (self.sd / "Platforms/wonderswan.json").unlink()
         report = doctor.audit_sd(self.sd)
@@ -206,11 +236,36 @@ class SwanSongDoctorTests(unittest.TestCase):
         (self.sd / "Assets/wonderswan/common/Challenge.pc2").write_bytes(b"x")
         misplaced = self.sd / "Assets/wonderswan/wrong/Moved.wsc"
         misplaced.parent.mkdir(parents=True)
-        misplaced.write_bytes(b"x")
+        misplaced.write_bytes(b"x" * (64 * 1024))
         report = doctor.audit_sd(self.sd)
         self.assertIn("games-found", self.codes(report))
         self.assertIn("pc2-unsupported", self.codes(report, "WARN"))
         self.assertIn("game-misplaced", self.codes(report, "WARN"))
+
+    def test_games_require_whole_64k_banks_within_slot_bounds(self) -> None:
+        game = self.sd / "Assets/wonderswan/common/Geometry.wsc"
+        for size in (64 * 1024, 2 * 64 * 1024, 16 * 1024 * 1024):
+            with self.subTest(size=size, valid=True):
+                game.touch()
+                os.truncate(game, size)
+                report = doctor.audit_sd(self.sd)
+                self.assertNotIn("game-size", self.codes(report, "ERROR"))
+                self.assertEqual(len(report.inventory.games_by_preset), 1)
+        invalid_sizes = (
+            0,
+            1,
+            64 * 1024 - 1,
+            64 * 1024 + 1,
+            96 * 1024,
+            16 * 1024 * 1024 + 64 * 1024,
+        )
+        for size in invalid_sizes:
+            with self.subTest(size=size, valid=False):
+                game.touch()
+                os.truncate(game, size)
+                report = doctor.audit_sd(self.sd)
+                self.assertIn("game-size", self.codes(report, "ERROR"))
+                self.assertEqual(report.inventory.games_by_preset, {})
 
     def test_same_stem_ws_and_wsc_blocks_ambiguous_presets(self) -> None:
         self.add_game("Twin.ws")
@@ -486,10 +541,54 @@ class SwanSongDoctorTests(unittest.TestCase):
             ),
         )
 
-    def test_doctor_has_no_bios_hash_implementation_and_guide_cites_official_docs(self) -> None:
-        source = Path(doctor.__file__).read_text()
-        self.assertNotIn("import hashlib", source)
-        self.assertNotIn("sha256", source.lower())
+    def test_optional_bios_identification_reads_only_bios_and_never_rejects_unknown(self) -> None:
+        game = self.add_game()
+        original_reader = doctor._read_regular_snapshot_at
+        content_reads: list[str] = []
+
+        def observe(directory: int, name: str, **kwargs: object):
+            if name in {"bw.rom", "color.rom", game.name}:
+                content_reads.append(name)
+            return original_reader(directory, name, **kwargs)
+
+        with mock.patch.object(
+            doctor, "_read_regular_snapshot_at", side_effect=observe
+        ):
+            report = doctor.audit_sd(self.sd, identify_bios=True)
+        self.assertEqual(content_reads, ["bw.rom", "color.rom"])
+        self.assertTrue(report.bios_contents_read)
+        self.assertEqual(report.errors, 0)
+        self.assertIn("bios-unrecognized-bw.rom", self.codes(report, "INFO"))
+        self.assertIn("bios-unrecognized-color.rom", self.codes(report, "INFO"))
+
+        status, output, error = self.invoke("--identify-bios")
+        self.assertEqual(status, 0, error)
+        self.assertIn("Swan Song does not reject unfamiliar same-size dumps", output)
+        self.assertIn("BIOS contents were read locally", output)
+        self.assertIn("game contents were not read or hashed", output)
+
+    def test_documented_bios_identifiers_report_matches(self) -> None:
+        class Digest:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def hexdigest(self) -> str:
+                return self.value
+
+        with mock.patch.object(
+            doctor.hashlib,
+            "md5",
+            side_effect=[
+                Digest(doctor.KNOWN_BIOS_MD5["bw.rom"]),
+                Digest(doctor.KNOWN_BIOS_MD5["color.rom"]),
+            ],
+        ):
+            report = doctor.audit_sd(self.sd, identify_bios=True)
+        self.assertEqual(report.errors, 0)
+        self.assertIn("bios-identified-bw.rom", self.codes(report, "OK"))
+        self.assertIn("bios-identified-color.rom", self.codes(report, "OK"))
+
+    def test_guide_cites_official_docs_and_explains_bios_opt_in(self) -> None:
         guide = GUIDE.read_text()
         for url in (
             "https://www.analogue.co/developer/docs/directories-and-sd-folder-structure",
@@ -499,7 +598,10 @@ class SwanSongDoctorTests(unittest.TestCase):
             "https://www.analogue.co/developer/docs/packaging-a-core",
         ):
             self.assertIn(url, guide)
-        self.assertIn("never opened, hashed, copied, or uploaded", guide)
+        self.assertIn("--identify-bios", guide)
+        self.assertIn("unfamiliar same-size dump", guide)
+        self.assertIn("Game contents are never", guide)
+        self.assertIn("opened or hashed in any mode", guide)
         self.assertIn("may update access-time metadata", guide)
         self.assertIn("different destination is never\noverwritten", guide)
 

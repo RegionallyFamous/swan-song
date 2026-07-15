@@ -12,6 +12,7 @@ import tempfile
 import unittest
 
 import quartus_evidence
+import quartus_fit_audit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ HOST_POSTBUILD_EVIDENCE = {
     Path("container-provenance.json"),
     Path("container-packages.tsv"),
     Path("quartus-audit-candidate.json"),
+    Path("quartus-audit-candidate.attestation.json"),
 }
 
 
@@ -103,6 +105,14 @@ class BuildCoreEvidenceTest(unittest.TestCase):
                 "QUARTUS_STA": str(quartus_sta),
                 "SWANSONG_SOURCE_COMMIT": SOURCE_COMMIT,
                 "SOURCE_DATE_EPOCH": SOURCE_EPOCH,
+                "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swan-song",
+                "SWANSONG_WORKFLOW_PATH": ".github/workflows/quartus-fit.yml",
+                "SWANSONG_WORKFLOW_SHA": SOURCE_COMMIT,
+                "SWANSONG_WORKFLOW_RUN_ID": "100",
+                "SWANSONG_WORKFLOW_RUN_ATTEMPT": "1",
+                "SWANSONG_WORKFLOW_JOB": "fit",
+                "SWANSONG_BUILD_JOB_NONCE": "0" * 32,
+                "SWANSONG_BUILD_CLASS": "candidate",
             }
         )
         return temporary, root, build, output, artifacts, tools, environment
@@ -141,6 +151,13 @@ class BuildCoreEvidenceTest(unittest.TestCase):
                 [
                     f"source_commit={SOURCE_COMMIT}",
                     f"source_date_epoch={SOURCE_EPOCH}",
+                    "workflow_repository=RegionallyFamous/swan-song",
+                    "workflow_path=.github/workflows/quartus-fit.yml",
+                    f"workflow_sha={SOURCE_COMMIT}",
+                    "workflow_run_id=100",
+                    "workflow_run_attempt=1",
+                    "workflow_job=fit",
+                    "workflow_job_nonce=" + "0" * 32,
                     "platform=linux/amd64",
                     "quartus=21.1.1.850 Lite",
                     "device=5CEBA4F23C8",
@@ -150,6 +167,40 @@ class BuildCoreEvidenceTest(unittest.TestCase):
             self.assertIn(
                 "fake strict post-fit signoff", (artifacts / "quartus.log").read_text()
             )
+
+    def test_development_evidence_works_without_github_identity_and_cannot_be_candidate(self) -> None:
+        fixture = self.fixture()
+        temporary, _, build, _, artifacts, _, environment = fixture
+        with temporary:
+            environment["SWANSONG_BUILD_CLASS"] = "development"
+            for name in (
+                "SWANSONG_WORKFLOW_REPOSITORY",
+                "SWANSONG_WORKFLOW_PATH",
+                "SWANSONG_WORKFLOW_SHA",
+                "SWANSONG_WORKFLOW_RUN_ID",
+                "SWANSONG_WORKFLOW_RUN_ATTEMPT",
+                "SWANSONG_WORKFLOW_JOB",
+                "SWANSONG_BUILD_JOB_NONCE",
+            ):
+                environment.pop(name, None)
+            result = subprocess.run(
+                [str(build), "--artifacts", str(artifacts)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            metadata = (artifacts / "build-metadata.txt").read_text().splitlines()
+            self.assertIn("build_class=development", metadata)
+            self.assertFalse(any(line.startswith("workflow_") for line in metadata))
+            with self.assertRaisesRegex(
+                quartus_fit_audit.AuditError,
+                "workflow_repository mismatch",
+            ):
+                quartus_fit_audit.parse_metadata(
+                    (artifacts / "build-metadata.txt").read_text()
+                )
 
     def test_failed_compile_preserves_only_current_partial_evidence(self) -> None:
         fixture = self.fixture(compile_exit=37, omit="ap_core.rbf")

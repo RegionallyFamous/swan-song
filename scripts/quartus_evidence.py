@@ -46,6 +46,9 @@ class EvidenceFile:
 
 CANDIDATE_EVIDENCE_FILES = (
     EvidenceFile(Path("quartus-audit-candidate.json"), 8 * 1024 * 1024),
+    EvidenceFile(
+        Path("quartus-audit-candidate.attestation.json"), 8 * 1024 * 1024
+    ),
     EvidenceFile(Path("quartus.log"), 128 * 1024 * 1024),
     EvidenceFile(Path("ap_core.rbf.sha256"), 64 * 1024),
     EvidenceFile(Path("build-metadata.txt"), 1024 * 1024),

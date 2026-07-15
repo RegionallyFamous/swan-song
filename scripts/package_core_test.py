@@ -51,6 +51,102 @@ class PackageCoreTest(unittest.TestCase):
         self.rbf.write_bytes(self.rbf_bytes)
         self.release_policy = self.root / "release-policy.json"
         shutil.copy2(RELEASE_POLICY, self.release_policy)
+        self.hardware_qa_verifier = mock.patch.object(
+            package_core,
+            "verify_hardware_qa_manifest",
+            side_effect=self.verify_synthetic_hardware_qa,
+        )
+        self.hardware_qa_verifier.start()
+        self.addCleanup(self.hardware_qa_verifier.stop)
+        self.known_title_verifier = mock.patch.object(
+            package_core,
+            "verify_known_title_compatibility_manifest",
+            side_effect=self.verify_synthetic_known_title_compatibility,
+        )
+        self.known_title_verifier.start()
+        self.addCleanup(self.known_title_verifier.stop)
+        self.real_signed_origin_verifier = (
+            package_core._verify_signed_origin_attestation
+        )
+        self.signed_origin_verifier_patcher = mock.patch.object(
+            package_core,
+            "_verify_signed_origin_attestation",
+            side_effect=self.verify_synthetic_signed_origin,
+        )
+        self.signed_origin_verifier = self.signed_origin_verifier_patcher.start()
+        self.addCleanup(self.signed_origin_verifier_patcher.stop)
+
+    @staticmethod
+    def verify_synthetic_signed_origin(
+        *,
+        candidate: pathlib.Path,
+        bundle: pathlib.Path,
+        source_commit: str,
+    ) -> dict[str, object]:
+        if not bundle.read_bytes().startswith(b"synthetic-attestation-"):
+            raise ValueError("synthetic attestation bundle is invalid")
+        document = json.loads(candidate.read_text(encoding="utf-8"))
+        provenance = document["quartus_audit"]["provenance"]
+        if provenance["source_commit"] != source_commit:
+            raise ValueError("synthetic attestation source commit mismatch")
+        return {
+            "run_id": int(provenance["workflow_run_id"]),
+            "run_attempt": int(provenance["workflow_run_attempt"]),
+            "runner_environment": "self-hosted",
+        }
+
+    @staticmethod
+    def verify_synthetic_hardware_qa(
+        manifest_path: pathlib.Path,
+        inventory_path: pathlib.Path,
+        *,
+        require_pass: bool = True,
+    ) -> dict[str, object]:
+        if not require_pass:
+            raise AssertionError("package integration must require accepted hardware QA")
+        if not inventory_path.is_file():
+            raise ValueError("synthetic inventory is missing")
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        body = document["hardware_qa"]
+        return {
+            "run_id": body["run_id"],
+            "cases": body["case_count"],
+            "artifacts": body["artifact_count"],
+            "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "inventory_sha256": hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
+            "magic": body["magic"],
+            "firmware_version": body["firmware_version"],
+            "core": body["core"],
+            "pocket": body["pocket"],
+            "dock": body["dock"],
+        }
+
+    @staticmethod
+    def verify_synthetic_known_title_compatibility(
+        catalogue_path: pathlib.Path,
+        manifest_path: pathlib.Path,
+        *,
+        require_pass: bool = True,
+    ) -> dict[str, object]:
+        if not require_pass:
+            raise AssertionError("package integration must require known-title passes")
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        body = document["synthetic_known_title"]
+        return {
+            "magic": package_core.KNOWN_TITLE_COMPATIBILITY_MAGIC,
+            "catalogue_revision": 1,
+            "catalogue_sha256": hashlib.sha256(catalogue_path.read_bytes()).hexdigest(),
+            "required_firmware_version": "2.6.0",
+            "cases": len(package_core.KNOWN_TITLE_COMMERCIAL_IDS)
+            + len(package_core.KNOWN_TITLE_OPEN_IDS),
+            "commercial_cases": len(package_core.KNOWN_TITLE_COMMERCIAL_IDS),
+            "open_sanity_cases": len(package_core.KNOWN_TITLE_OPEN_IDS),
+            "artifacts": body["artifact_count"],
+            "status": {"pass": 34, "fail": 0, "pending": 0},
+            "artifact_index_sha256": body["artifact_index_sha256"],
+            "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "run": body["run"],
+        }
 
     def test_release_report_version_accepts_only_quartus_legacy_degree_byte(
         self,
@@ -302,6 +398,189 @@ class PackageCoreTest(unittest.TestCase):
                 "size": len(audit_bytes),
                 "sha256": hashlib.sha256(audit_bytes).hexdigest(),
             }
+            core_json_path = self.dist / CORE_DIRECTORY / "core.json"
+            core_json_bytes = core_json_path.read_bytes()
+            interact_json_path = self.dist / CORE_DIRECTORY / "interact.json"
+            interact_json_bytes = interact_json_path.read_bytes()
+            core_definition = json.loads(core_json_bytes)["core"]
+            metadata = core_definition["metadata"]
+            installed_bytes = self.rbf_bytes.translate(REVERSE)
+            hardware_manifest = evidence_directory / "hardware-qa-manifest.json"
+            hardware_inventory = evidence_directory / "hardware-qa-inventory.json"
+            hardware_inventory.write_text(
+                json.dumps({"synthetic_private_inventory": True}), encoding="utf-8"
+            )
+            hardware_document = {
+                "hardware_qa": {
+                    "magic": package_core.HARDWARE_QA_MANIFEST_MAGIC,
+                    "run_id": "synthetic-package-test",
+                    "case_count": len(package_core.HARDWARE_QA_CASE_SPECS),
+                    "artifact_count": 72,
+                    "firmware_version": "2.6.0",
+                    "core": {
+                        "core_id": CORE_ID,
+                        "version": metadata["version"],
+                        "date_release": metadata["date_release"],
+                        "core_json": {
+                            "filename": "core.json",
+                            "size": len(core_json_bytes),
+                            "sha256": hashlib.sha256(core_json_bytes).hexdigest(),
+                        },
+                        "interact_json": {
+                            "filename": "interact.json",
+                            "size": len(interact_json_bytes),
+                            "sha256": hashlib.sha256(interact_json_bytes).hexdigest(),
+                        },
+                        "persistent_settings": list(
+                            package_core.HARDWARE_QA_PERSISTENT_SETTING_NAMES
+                        ),
+                        "raw_rbf": {
+                            "filename": self.rbf.name,
+                            "size": len(self.rbf_bytes),
+                            "sha256": hashlib.sha256(self.rbf_bytes).hexdigest(),
+                        },
+                        "installed_bitstream": {
+                            "filename": core_definition["cores"][0]["filename"],
+                            "size": len(installed_bytes),
+                            "sha256": hashlib.sha256(installed_bytes).hexdigest(),
+                        },
+                    },
+                    "pocket": {
+                        "model": "Analogue Pocket",
+                        "hardware_revision": "synthetic",
+                        "device_id_sha256": "1" * 64,
+                    },
+                    "dock": {
+                        "model": "Analogue Dock",
+                        "hardware_revision": "synthetic",
+                        "firmware_version": "synthetic",
+                        "device_id_sha256": "2" * 64,
+                    },
+                }
+            }
+            hardware_document["hardware_qa"]["core"]["installed_payloads"] = (
+                package_core.installed_payload_records(
+                    dist=self.dist,
+                    bitstream_name=core_definition["cores"][0]["filename"],
+                    bitstream=installed_bytes,
+                    chip32_name=core_definition["framework"]["chip32_vm"],
+                    chip32=chip32_image(ASSEMBLY, ENCODED_IMAGE),
+                )
+            )
+            hardware_manifest.write_text(
+                json.dumps(hardware_document, sort_keys=True), encoding="utf-8"
+            )
+
+            def identity(path: pathlib.Path) -> dict[str, object]:
+                payload = path.read_bytes()
+                return {
+                    "filename": path.name,
+                    "size": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+
+            document["release_evidence"]["hardware_qa"] = {
+                "manifest": identity(hardware_manifest),
+                "inventory": identity(hardware_inventory),
+            }
+            known_title_catalogue = (
+                evidence_directory / "known-title-compatibility-catalogue.json"
+            )
+            known_title_manifest = (
+                evidence_directory / "known-title-compatibility-manifest.json"
+            )
+            shutil.copy2(
+                ROOT / "known-title-compatibility.json", known_title_catalogue
+            )
+            known_title_manifest.write_text(
+                json.dumps(
+                    {
+                        "synthetic_known_title": {
+                            "run": {
+                                "run_id": "synthetic-known-title-run",
+                                "core_commit": source_commit,
+                                "raw_rbf_sha256": hashlib.sha256(
+                                    self.rbf_bytes
+                                ).hexdigest(),
+                                "firmware_version": "2.6.0",
+                            },
+                            "artifact_count": 100,
+                            "artifact_index_sha256": "7" * 64,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            document["release_evidence"]["known_title_compatibility"] = {
+                "catalogue": identity(known_title_catalogue),
+                "manifest": identity(known_title_manifest),
+            }
+            signed_builds = evidence_directory / "signed-builds"
+            signed_documents = []
+            for label, run_id, nonce in (
+                ("a", 100, "0" * 32),
+                ("b", 200, "1" * 32),
+            ):
+                directory = signed_builds / label
+                directory.mkdir(parents=True)
+                signed_document = json.loads(json.dumps(audit_document))
+                provenance = signed_document["quartus_audit"]["provenance"]
+                provenance["workflow_run_id"] = str(run_id)
+                provenance["workflow_run_attempt"] = "1"
+                provenance["workflow_job_nonce"] = nonce
+                candidate = directory / package_core.QUARTUS_AUDIT_FILENAME
+                candidate.write_text(
+                    json.dumps(signed_document, sort_keys=True), encoding="utf-8"
+                )
+                bundle = directory / package_core.ATTESTATION_FILENAME
+                bundle.write_bytes(f"synthetic-attestation-{label}".encode("ascii"))
+
+                def relative_identity(path: pathlib.Path) -> dict[str, object]:
+                    payload = path.read_bytes()
+                    return {
+                        "filename": path.relative_to(evidence_directory).as_posix(),
+                        "size": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+
+                signed_documents.append(
+                    {
+                        "label": label,
+                        "repository": package_core.ATTESTATION_REPOSITORY,
+                        "workflow_path": package_core.ATTESTATION_WORKFLOW_PATH,
+                        "source_ref": package_core.ATTESTATION_SOURCE_REF,
+                        "source_commit": source_commit,
+                        "run_id": run_id,
+                        "run_attempt": 1,
+                        "job": "fit",
+                        "job_nonce": nonce,
+                        "runner_environment": "self-hosted",
+                        "candidate_audit": relative_identity(candidate),
+                        "attestation_bundle": relative_identity(bundle),
+                        "recomputed_audit_sha256": (
+                            package_core._canonical_json_sha256(signed_document)
+                        ),
+                        "submitted_audit_sha256": hashlib.sha256(
+                            candidate.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+            document["release_evidence"]["signed_build_origins"] = {
+                "magic": package_core.SIGNED_BUILD_PAIR_V1,
+                "source_commit": source_commit,
+                "source_date_epoch": 1_700_000_000,
+                "rbf": {
+                    "filename": "ap_core.rbf",
+                    "size": len(self.rbf_bytes),
+                    "sha256": hashlib.sha256(self.rbf_bytes).hexdigest(),
+                },
+                "build_id": {
+                    "filename": "build_id.mif",
+                    "size": len(build_id_contents),
+                    "sha256": hashlib.sha256(build_id_contents).hexdigest(),
+                },
+                "builds": signed_documents,
+            }
         path = evidence_directory / "release-evidence.json"
         path.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
         return path
@@ -324,6 +603,29 @@ class PackageCoreTest(unittest.TestCase):
         (evidence.parent / entry["filename"]).write_bytes(contents)
         entry["size"] = len(contents)
         entry["sha256"] = hashlib.sha256(contents).hexdigest()
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+
+    @staticmethod
+    def rewrite_signed_candidate(
+        evidence: pathlib.Path, label: str, mutation
+    ) -> None:
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        builds = document["release_evidence"]["signed_build_origins"]["builds"]
+        build = next(item for item in builds if item["label"] == label)
+        candidate = evidence.parent / build["candidate_audit"]["filename"]
+        candidate_document = json.loads(candidate.read_text(encoding="utf-8"))
+        mutation(candidate_document)
+        candidate.write_text(
+            json.dumps(candidate_document, sort_keys=True), encoding="utf-8"
+        )
+        candidate_bytes = candidate.read_bytes()
+        candidate_digest = hashlib.sha256(candidate_bytes).hexdigest()
+        build["candidate_audit"]["size"] = len(candidate_bytes)
+        build["candidate_audit"]["sha256"] = candidate_digest
+        build["submitted_audit_sha256"] = candidate_digest
+        build["recomputed_audit_sha256"] = package_core._canonical_json_sha256(
+            candidate_document
+        )
         evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
 
     def test_chip32_identity_and_deterministic_complete_package(self) -> None:
@@ -459,10 +761,15 @@ class PackageCoreTest(unittest.TestCase):
             self.assertEqual(variables_by_id[43]["address"], "0x208")
             self.assertEqual(variables_by_id[44]["name"], "Landscape 180°")
             self.assertEqual(variables_by_id[44]["address"], "0x20C")
-            self.assertEqual(variables_by_id[42]["name"], "LCD Response")
+            self.assertEqual(variables_by_id[42]["name"], "Motion / LCD Response")
             self.assertEqual(
                 [(item["value"], item["name"]) for item in variables_by_id[42]["options"]],
-                [(0, "Off"), (1, "2-Frame Blend"), (2, "Persistence")],
+                [
+                    (0, "Off"),
+                    (1, "2-Frame Blend"),
+                    (2, "Persistence"),
+                    (3, "Complete Frames 60.9Hz"),
+                ],
             )
             self.assertEqual(variables_by_id[45]["name"], "Color Profile")
             self.assertEqual(variables_by_id[45]["address"], "0x210")
@@ -1000,12 +1307,26 @@ class PackageCoreTest(unittest.TestCase):
     def test_predecessor_history_does_not_become_swan_song_history(self) -> None:
         self.authorize_release_policy()
         output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+        self.signed_origin_verifier.reset_mock()
         self.package(output, build_evidence=self.build_evidence(), release=True)
         self.assertTrue(output.is_file())
+        self.assertEqual(self.signed_origin_verifier.call_count, 2)
 
-        provenance = json.loads(
+        package_provenance = json.loads(
             self.provenance_path(output).read_text(encoding="utf-8")
-        )["package_provenance"]["release_policy"]
+        )["package_provenance"]
+        signed_origins = package_provenance["build_evidence"][
+            "signed_build_origins"
+        ]
+        self.assertEqual(signed_origins["magic"], package_core.SIGNED_BUILD_PAIR_V1)
+        self.assertEqual(
+            [build["run_id"] for build in signed_origins["builds"]], [100, 200]
+        )
+        self.assertEqual(
+            [build["label"] for build in signed_origins["builds"]], ["a", "b"]
+        )
+
+        provenance = package_provenance["release_policy"]
         self.assertEqual(provenance["published_release_count"], 0)
         self.assertIsNone(provenance["latest_published_version"])
         self.assertEqual(provenance["predecessor"]["core_id"], "agg23.WonderSwan")
@@ -1375,6 +1696,7 @@ class PackageCoreTest(unittest.TestCase):
 
         self.authorize_release_policy()
         self.set_release_metadata("2.0.0", "2026-07-13")
+        evidence = self.build_evidence()
         release_output = self.root / "RegionallyFamous.SwanSong_2.0.0_2026-07-13.zip"
         self.package(release_output, build_evidence=evidence, release=True)
         release_provenance = json.loads(
@@ -1393,6 +1715,7 @@ class PackageCoreTest(unittest.TestCase):
         self.assertEqual(verified_policy["core_id"], CORE_ID)
         self.assertEqual(verified_policy["repository_url"], CORE_REPOSITORY)
         self.assertTrue(verified_policy["identity_authorized"])
+
         self.assertTrue(
             verified_policy["distribution_and_licensing_authorized"]
         )
@@ -1436,6 +1759,155 @@ class PackageCoreTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "release package filename must be"):
             self.package(output, build_evidence=evidence, release=True)
+
+    def test_release_rejects_v2_evidence_without_known_title_binding(self) -> None:
+        self.authorize_release_policy()
+        self.set_release_metadata("2.0.0", "2026-07-13")
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        del document["release_evidence"]["known_title_compatibility"]
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        output = self.root / "RegionallyFamous.SwanSong_2.0.0_2026-07-13.zip"
+        with self.assertRaisesRegex(ValueError, "known-title compatibility evidence"):
+            self.package(output, build_evidence=evidence, release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_v2_rejects_rehashed_alternate_known_title_catalogue(self) -> None:
+        evidence = self.build_evidence()
+        catalogue = evidence.parent / "known-title-compatibility-catalogue.json"
+        catalogue.write_text(json.dumps({"alternate": True}), encoding="utf-8")
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        payload = catalogue.read_bytes()
+        document["release_evidence"]["known_title_compatibility"]["catalogue"].update(
+            size=len(payload), sha256=hashlib.sha256(payload).hexdigest()
+        )
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        output = self.root / "alternate-known-title-catalogue.zip"
+        with self.assertRaisesRegex(ValueError, "exact checked-in catalogue"):
+            self.package(output, build_evidence=evidence)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_hardware_qa_interact_identity_drift(self) -> None:
+        self.authorize_release_policy()
+        evidence = self.build_evidence()
+        hardware_manifest = evidence.parent / "hardware-qa-manifest.json"
+        hardware_document = json.loads(hardware_manifest.read_text(encoding="utf-8"))
+        hardware_document["hardware_qa"]["core"]["interact_json"]["sha256"] = "0" * 64
+        hardware_manifest.write_text(
+            json.dumps(hardware_document, sort_keys=True), encoding="utf-8"
+        )
+        evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+        manifest_bytes = hardware_manifest.read_bytes()
+        evidence_document["release_evidence"]["hardware_qa"]["manifest"].update(
+            size=len(manifest_bytes),
+            sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        )
+        evidence.write_text(
+            json.dumps(evidence_document, sort_keys=True), encoding="utf-8"
+        )
+        output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+        with self.assertRaisesRegex(ValueError, "hardware QA interact.json identity"):
+            self.package(output, build_evidence=evidence, release=True)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_hardware_qa_installed_payload_identity_drift(self) -> None:
+        self.authorize_release_policy()
+        relative_names = (
+            "Cores/RegionallyFamous.SwanSong/data.json",
+            "Cores/RegionallyFamous.SwanSong/input.json",
+            "Cores/RegionallyFamous.SwanSong/video.json",
+            "Cores/RegionallyFamous.SwanSong/audio.json",
+            "Cores/RegionallyFamous.SwanSong/variants.json",
+            "Platforms/wonderswan.json",
+            "Platforms/_images/wonderswan.bin",
+        )
+        for index, relative_name in enumerate(relative_names):
+            with self.subTest(relative_name=relative_name):
+                evidence = self.build_evidence()
+                hardware_manifest = evidence.parent / "hardware-qa-manifest.json"
+                hardware_document = json.loads(
+                    hardware_manifest.read_text(encoding="utf-8")
+                )
+                hardware_document["hardware_qa"]["core"]["installed_payloads"][
+                    relative_name
+                ]["sha256"] = "0" * 64
+                hardware_manifest.write_text(
+                    json.dumps(hardware_document, sort_keys=True), encoding="utf-8"
+                )
+                evidence_document = json.loads(
+                    evidence.read_text(encoding="utf-8")
+                )
+                manifest_bytes = hardware_manifest.read_bytes()
+                evidence_document["release_evidence"]["hardware_qa"]["manifest"].update(
+                    size=len(manifest_bytes),
+                    sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+                )
+                evidence.write_text(
+                    json.dumps(evidence_document, sort_keys=True), encoding="utf-8"
+                )
+                output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+                with self.assertRaisesRegex(
+                    ValueError, "installed payload inventory"
+                ):
+                    self.package(output, build_evidence=evidence, release=True)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
+
+    def test_release_rejects_payload_changes_after_hardware_qa(self) -> None:
+        mutations = (
+            (
+                "Cores/RegionallyFamous.SwanSong/data.json",
+                lambda body: body["data"]["data_slots"][0].__setitem__(
+                    "name", "Game Pak"
+                ),
+            ),
+            (
+                "Cores/RegionallyFamous.SwanSong/input.json",
+                lambda body: (
+                    body["input"]["controllers"][0]["mappings"][0].__setitem__(
+                        "key", "pad_btn_b"
+                    ),
+                    body["input"]["controllers"][0]["mappings"][1].__setitem__(
+                        "key", "pad_btn_a"
+                    ),
+                ),
+            ),
+            (
+                "Cores/RegionallyFamous.SwanSong/video.json",
+                lambda body: body["video"]["defaults"].__setitem__("sharpness", 2),
+            ),
+            (
+                "Cores/RegionallyFamous.SwanSong/audio.json",
+                lambda body: None,
+            ),
+            (
+                "Cores/RegionallyFamous.SwanSong/variants.json",
+                lambda body: None,
+            ),
+            (
+                "Platforms/wonderswan.json",
+                lambda body: body["platform"].__setitem__("name", "WonderSwan Color"),
+            ),
+        )
+        for index, (relative_name, mutation) in enumerate(mutations):
+            with self.subTest(relative_name=relative_name):
+                self.reset_dist()
+                self.authorize_release_policy()
+                evidence = self.build_evidence()
+                path = self.dist / pathlib.Path(*pathlib.PurePosixPath(relative_name).parts)
+                document = json.loads(path.read_text(encoding="utf-8"))
+                mutation(document)
+                path.write_text(json.dumps(document), encoding="utf-8")
+                output = self.root / "RegionallyFamous.SwanSong_0.1.0-dev.1_2026-07-13.zip"
+                with self.assertRaisesRegex(
+                    ValueError, "installed payload inventory"
+                ):
+                    self.package(output, build_evidence=evidence, release=True)
+                self.assertFalse(output.exists())
+                self.assertFalse(self.provenance_path(output).exists())
 
     def test_release_source_binding_rejects_valid_but_dirty_dist(self) -> None:
         checkout = self.root / "source-checkout"
@@ -1560,6 +2032,265 @@ class PackageCoreTest(unittest.TestCase):
         ):
             self.package(output, build_evidence=evidence)
 
+    def test_signed_build_pair_rejects_missing_reused_or_unbound_origins(self) -> None:
+        output = self.root / "bad-signed-build-pair.zip"
+
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        document["release_evidence"].pop("signed_build_origins")
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "invalid members.*signed_build_origins"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        document["release_evidence"]["signed_build_origins"]["builds"].pop()
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "exactly two builds"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        document["release_evidence"]["signed_build_origins"]["builds"][1][
+            "run_id"
+        ] = 100
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        self.rewrite_signed_candidate(
+            evidence,
+            "b",
+            lambda candidate: candidate["quartus_audit"]["provenance"].__setitem__(
+                "workflow_run_id", "100"
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "distinct workflow run IDs"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        document["release_evidence"]["signed_build_origins"]["builds"][1][
+            "job_nonce"
+        ] = "0" * 32
+        evidence.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        self.rewrite_signed_candidate(
+            evidence,
+            "b",
+            lambda candidate: candidate["quartus_audit"]["provenance"].__setitem__(
+                "workflow_job_nonce", "0" * 32
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "distinct workflow job nonces"):
+            self.package(output, build_evidence=evidence)
+
+        for field, replacement in (
+            ("source_commit", "b" * 40),
+            ("source_ref", "refs/heads/not-main"),
+            ("workflow_path", ".github/workflows/not-quartus.yml"),
+        ):
+            with self.subTest(origin_field=field):
+                evidence = self.build_evidence()
+                document = json.loads(evidence.read_text(encoding="utf-8"))
+                document["release_evidence"]["signed_build_origins"]["builds"][1][
+                    field
+                ] = replacement
+                evidence.write_text(
+                    json.dumps(document, sort_keys=True), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "signed build origin b identity is invalid"
+                ):
+                    self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        candidate = (
+            evidence.parent
+            / "signed-builds/b/quartus-audit-candidate.json"
+        )
+        candidate.write_bytes(candidate.read_bytes() + b"\n")
+        with self.assertRaisesRegex(ValueError, "candidate audit (size|SHA-256) mismatch"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        bundle = (
+            evidence.parent
+            / "signed-builds/b/quartus-audit-candidate.attestation.json"
+        )
+        bundle.write_bytes(b"mutated-attestation-bundle")
+        with self.assertRaisesRegex(
+            ValueError, "attestation bundle (size|SHA-256) mismatch"
+        ):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        self.rewrite_signed_candidate(
+            evidence,
+            "b",
+            lambda candidate: candidate["quartus_audit"]["artifacts"][
+                "output_files/ap_core.rbf"
+            ].__setitem__("sha256", "f" * 64),
+        )
+        with self.assertRaisesRegex(ValueError, "RBF binding does not match"):
+            self.package(output, build_evidence=evidence)
+
+        evidence = self.build_evidence()
+        with mock.patch.object(
+            package_core,
+            "_verify_signed_origin_attestation",
+            return_value={
+                "run_id": 999,
+                "run_attempt": 1,
+                "runner_environment": "self-hosted",
+            },
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "certificate run identity does not match"
+            ):
+                self.package(output, build_evidence=evidence)
+
+    def test_github_attestation_verifier_rejects_forged_or_incomplete_results(
+        self,
+    ) -> None:
+        candidate = self.root / package_core.QUARTUS_AUDIT_FILENAME
+        candidate.write_bytes(b'{"candidate":true}')
+        bundle = self.root / package_core.ATTESTATION_FILENAME
+        bundle.write_bytes(b"synthetic-bundle")
+        source_commit = "a" * 40
+        signer_uri = (
+            "https://github.com/RegionallyFamous/swan-song/"
+            ".github/workflows/quartus-fit.yml@refs/heads/main"
+        )
+        certificate = {
+            "githubWorkflowTrigger": "workflow_dispatch",
+            "githubWorkflowSHA": source_commit,
+            "githubWorkflowRepository": "RegionallyFamous/swan-song",
+            "githubWorkflowRef": "refs/heads/main",
+            "buildSignerURI": signer_uri,
+            "buildSignerDigest": source_commit,
+            "runnerEnvironment": "self-hosted",
+            "sourceRepositoryURI": (
+                "https://github.com/RegionallyFamous/swan-song"
+            ),
+            "sourceRepositoryDigest": source_commit,
+            "sourceRepositoryRef": "refs/heads/main",
+            "buildConfigURI": signer_uri,
+            "buildConfigDigest": source_commit,
+            "buildTrigger": "workflow_dispatch",
+            "runInvocationURI": (
+                "https://github.com/RegionallyFamous/swan-song/"
+                "actions/runs/100/attempts/1"
+            ),
+        }
+
+        def verification_result() -> list[dict[str, object]]:
+            return [
+                {
+                    "verificationResult": {
+                        "signature": {"certificate": dict(certificate)},
+                        "verifiedTimestamps": [{"timestamp": "synthetic"}],
+                        "statement": {
+                            "subject": [
+                                {
+                                    "name": package_core.QUARTUS_AUDIT_FILENAME,
+                                    "digest": {
+                                        "sha256": hashlib.sha256(
+                                            candidate.read_bytes()
+                                        ).hexdigest()
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                }
+            ]
+
+        def completed(payload: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args=["gh"], returncode=0, stdout=json.dumps(payload), stderr=""
+            )
+
+        with mock.patch.object(
+            package_core.subprocess,
+            "run",
+            return_value=completed(verification_result()),
+        ) as run:
+            self.assertEqual(
+                self.real_signed_origin_verifier(
+                    candidate=candidate,
+                    bundle=bundle,
+                    source_commit=source_commit,
+                ),
+                {
+                    "run_id": 100,
+                    "run_attempt": 1,
+                    "runner_environment": "self-hosted",
+                },
+            )
+            command = run.call_args.args[0]
+            self.assertIn("--bundle", command)
+            self.assertIn("--source-digest", command)
+            self.assertIn("--source-ref", command)
+            self.assertIn("--signer-workflow", command)
+
+        malformed_cases = []
+        missing_certificate = verification_result()
+        missing_certificate[0]["verificationResult"]["signature"] = {}
+        malformed_cases.append(
+            ("missing-certificate", missing_certificate, "lacks certificate")
+        )
+        missing_timestamps = verification_result()
+        missing_timestamps[0]["verificationResult"]["verifiedTimestamps"] = []
+        malformed_cases.append(
+            ("missing-timestamps", missing_timestamps, "lacks certificate or timestamp")
+        )
+        wrong_subject = verification_result()
+        wrong_subject[0]["verificationResult"]["statement"]["subject"][0][
+            "name"
+        ] = "other.json"
+        malformed_cases.append(
+            ("wrong-subject", wrong_subject, "subject is not the candidate audit")
+        )
+        for field, replacement in (
+            ("githubWorkflowRepository", "attacker/repository"),
+            ("githubWorkflowRef", "refs/heads/not-main"),
+            ("buildSignerURI", "https://example.invalid/forged-workflow"),
+        ):
+            forged_origin = verification_result()
+            forged_origin[0]["verificationResult"]["signature"]["certificate"][
+                field
+            ] = replacement
+            malformed_cases.append(
+                (field, forged_origin, "certificate origin does not match")
+            )
+        forged_run = verification_result()
+        forged_run[0]["verificationResult"]["signature"]["certificate"][
+            "runInvocationURI"
+        ] = "https://example.invalid/actions/runs/100/attempts/1"
+        malformed_cases.append(
+            ("forged-run", forged_run, "no exact run invocation")
+        )
+        for name, payload, message in malformed_cases:
+            with self.subTest(case=name), mock.patch.object(
+                package_core.subprocess, "run", return_value=completed(payload)
+            ):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.real_signed_origin_verifier(
+                        candidate=candidate,
+                        bundle=bundle,
+                        source_commit=source_commit,
+                    )
+
+        failure = subprocess.CalledProcessError(
+            1, ["gh"], stderr="attestation did not verify"
+        )
+        with mock.patch.object(package_core.subprocess, "run", side_effect=failure):
+            with self.assertRaisesRegex(
+                ValueError, "did not verify: attestation did not verify"
+            ):
+                self.real_signed_origin_verifier(
+                    candidate=candidate,
+                    bundle=bundle,
+                    source_commit=source_commit,
+                )
+
     def test_release_evidence_requires_exact_quartus_version_and_report_agreement(
         self,
     ) -> None:
@@ -1681,6 +2412,27 @@ class PackageCoreTest(unittest.TestCase):
             self.package(release, build_evidence=evidence, release=True)
         self.assertFalse(release.exists())
         self.assertFalse(self.provenance_path(release).exists())
+
+    def test_public_release_cli_is_assembler_only(self) -> None:
+        output = self.root / "must-not-exist.zip"
+        completed = subprocess.run(
+            [
+                "python3",
+                str(ROOT / "scripts/package_core.py"),
+                "--release",
+                "--rbf",
+                str(self.rbf),
+                "--output",
+                str(output),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("public release packaging is assembler-only", completed.stderr)
+        self.assertFalse(output.exists())
+        self.assertFalse(self.provenance_path(output).exists())
 
     def test_v2_recomputes_candidate_instead_of_trusting_rehashed_claims(self) -> None:
         evidence = self.build_evidence()
