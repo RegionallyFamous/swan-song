@@ -61,7 +61,7 @@ Use a host/filesystem combination that proves the required operation, then
 rerun the read-only plan and verify every intended destination is identical.
 
 Read the complete [core-ID migration
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/CORE_ID_MIGRATION.md)
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/CORE_ID_MIGRATION.md)
 before applying anything.
 
 ## Legacy cartridge-save migration
@@ -78,11 +78,11 @@ python3 scripts/migrate_cartridge_save_namespace.py \
 It validates the matching ROM footer/checksum and recognized save layout,
 leaves the shared source unchanged, and never overwrites a destination. See
 the complete [Cartridge Save Migration
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/CARTRIDGE_SAVE_MIGRATION.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/CARTRIDGE_SAVE_MIGRATION.md).
 
 ## Memories and Sleep/Wake
 
 Pocket Memories and Sleep/Wake remain disabled. A future state format is being
 designed and tested, but the live core does not claim safe save-state capture
 or restoration. See [Compatibility and Current
-Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits).
+Limits](https://github.com/RegionallyFamous/swansong-core/wiki/Compatibility-and-Current-Limits).

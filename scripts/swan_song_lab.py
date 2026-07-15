@@ -36,7 +36,7 @@ OUTBOUND_RULES = (
     "protocol:icmp,ports:0,address:0.0.0.0/0"
 )
 MAGIC = "SWAN_SONG_DIGITALOCEAN_LAB_V1"
-DEFAULT_REPO = "RegionallyFamous/swan-song"
+DEFAULT_REPO = "RegionallyFamous/swansong-core"
 DEFAULT_IMAGE = "ubuntu-24-04-x64"
 DEFAULT_SIZE = "g-8vcpu-32gb"
 DEFAULT_REGION = "nyc3"

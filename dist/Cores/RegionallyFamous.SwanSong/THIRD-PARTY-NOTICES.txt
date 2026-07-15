@@ -102,7 +102,7 @@ Corresponding source
 
 The project repository is:
 
-  https://github.com/RegionallyFamous/swan-song
+  https://github.com/RegionallyFamous/swansong-core
 
 Release packaging records the exact source commit in the package provenance.
 The release gate separately requires the corresponding source for that exact

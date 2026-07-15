@@ -114,7 +114,7 @@ the artifact bundle preserves the resulting
 `quartus-audit-candidate.attestation.json`. Stable assembly uses `gh
 attestation verify` with GitHub's current official online Sigstore/TUF trust
 material and restricts the certificate to repository
-`RegionallyFamous/swan-song`, workflow `.github/workflows/quartus-fit.yml`,
+`RegionallyFamous/swansong-core`, workflow `.github/workflows/quartus-fit.yml`,
 `main`, and the exact source commit. Its signed run-invocation URI must match
 the run ID and attempt recorded inside the audited build metadata. Two release
 candidates must have different signed run IDs and different fresh job nonces,

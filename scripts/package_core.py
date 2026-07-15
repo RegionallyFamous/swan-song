@@ -60,17 +60,17 @@ RELEASE_EVIDENCE_V2 = "SWAN_SONG_RELEASE_EVIDENCE_V2"
 SIGNED_BUILD_PAIR_V1 = "SWAN_SONG_SIGNED_BUILD_PAIR_V1"
 RELEASE_SOURCE_INPUTS_V1 = "SWAN_SONG_RELEASE_SOURCE_INPUTS_V1"
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swan-song"
+EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swansong-core"
 QUARTUS_AUDIT_FILENAME = "quartus-audit-candidate.json"
 ATTESTATION_FILENAME = "quartus-audit-candidate.attestation.json"
-ATTESTATION_REPOSITORY = "RegionallyFamous/swan-song"
+ATTESTATION_REPOSITORY = "RegionallyFamous/swansong-core"
 ATTESTATION_WORKFLOW = (
-    "github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml"
+    "github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml"
 )
 ATTESTATION_WORKFLOW_PATH = ".github/workflows/quartus-fit.yml"
 ATTESTATION_SOURCE_REF = "refs/heads/main"
 ATTESTATION_RUN_INVOCATION_PATTERN = re.compile(
-    r"https://github[.]com/RegionallyFamous/swan-song/actions/runs/"
+    r"https://github[.]com/RegionallyFamous/swansong-core/actions/runs/"
     r"([1-9][0-9]*)/attempts/([1-9][0-9]*)"
 )
 JOB_NONCE_PATTERN = re.compile(r"[0-9a-f]{32}")
@@ -604,7 +604,7 @@ def _verify_signed_origin_attestation(
         raise ValueError("verified attestation subject is not the candidate audit")
 
     signer_uri = (
-        "https://github.com/RegionallyFamous/swan-song/"
+        "https://github.com/RegionallyFamous/swansong-core/"
         ".github/workflows/quartus-fit.yml@refs/heads/main"
     )
     expected_certificate = {
@@ -615,7 +615,7 @@ def _verify_signed_origin_attestation(
         "buildSignerURI": signer_uri,
         "buildSignerDigest": source_commit,
         "runnerEnvironment": "self-hosted",
-        "sourceRepositoryURI": "https://github.com/RegionallyFamous/swan-song",
+        "sourceRepositoryURI": "https://github.com/RegionallyFamous/swansong-core",
         "sourceRepositoryDigest": source_commit,
         "sourceRepositoryRef": ATTESTATION_SOURCE_REF,
         "buildConfigURI": signer_uri,

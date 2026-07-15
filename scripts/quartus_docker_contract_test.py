@@ -268,7 +268,7 @@ esac
                     ),
                     "FAKE_FIT_MARKER": str(marker),
                     "FAKE_RESERVED_COLLISION": "1" if reserved_collision else "0",
-                    "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swan-song",
+                    "SWANSONG_WORKFLOW_REPOSITORY": "RegionallyFamous/swansong-core",
                     "SWANSONG_WORKFLOW_PATH": ".github/workflows/quartus-fit.yml",
                     "SWANSONG_WORKFLOW_SHA": "a" * 40,
                     "SWANSONG_WORKFLOW_RUN_ID": "100",
@@ -720,7 +720,7 @@ esac
     def test_connectivity_refresh_profile_is_exactly_guarded(self) -> None:
         workflow = WORKFLOW.read_text()
         for guard in (
-            "github.repository == 'RegionallyFamous/swan-song'",
+            "github.repository == 'RegionallyFamous/swansong-core'",
             "github.event_name == 'workflow_dispatch'",
             "github.ref_type == 'branch'",
             "github.workflow_sha == github.sha",

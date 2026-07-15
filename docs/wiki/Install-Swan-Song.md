@@ -3,7 +3,7 @@
 > **There is no verified Swan Song release to install yet.** Do not treat a
 > development ZIP, source checkout, or third-party repost as a release. Wait
 > for an explicitly verified package on the official [Swan Song Releases
-> page](https://github.com/RegionallyFamous/swan-song/releases).
+> page](https://github.com/RegionallyFamous/swansong-core/releases).
 
 Historical protected-main Quartus candidate `f0345ee4` exists for controlled
 Pocket/Dock hardware QA, but it remains a tester-only development package.
@@ -59,7 +59,7 @@ read-only-first staging command that verifies the published ZIP SHA-256,
 published provenance SHA-256, version, source commit, exact release provenance,
 and release-policy authorization before offering an explicit merge. The command
 currently refuses installation because no release is authorized. See the [Pocket SD staging
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_SD_STAGING.md).
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_SD_STAGING.md).
 
 ## Add the required BIOS files
 
@@ -95,7 +95,7 @@ Games and BIOS files remain in the shared `wonderswan/common` asset folder.
 Cartridge saves use Swan Song's core-specific namespace. Older shared saves do
 not appear automatically; back up the card and use the ROM-aware migration
 helper rather than copying them by hand. See [Saves and
-Migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration).
+Migration](https://github.com/RegionallyFamous/swansong-core/wiki/Saves-and-Migration).
 
 ## Update Swan Song
 
@@ -121,16 +121,16 @@ update for a verified release.
 
    gh attestation verify \
      /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.json \
-     --repo RegionallyFamous/swan-song \
-     --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+     --repo RegionallyFamous/swansong-core \
+     --signer-workflow github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml \
      --source-digest "$FINAL_COMMIT" \
      --source-ref refs/heads/main \
      --bundle /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.attestation.json
 
    gh attestation verify \
      /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.json \
-     --repo RegionallyFamous/swan-song \
-     --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+     --repo RegionallyFamous/swansong-core \
+     --signer-workflow github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml \
      --source-digest "$FINAL_COMMIT" \
      --source-ref refs/heads/main \
      --bundle /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.attestation.json
@@ -181,7 +181,7 @@ The repository includes a read-only-first Mac staging workflow. Its development
 mode remains tied to the exact checkout and cannot make an unverified build
 safe for ordinary use. Its separate release mode requires trusted published
 identity and refuses the current unauthorized policy. See the [Pocket SD staging
-guide](https://github.com/RegionallyFamous/swan-song/blob/main/POCKET_SD_STAGING.md)
+guide](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_SD_STAGING.md)
 and [Build and
-Test](https://github.com/RegionallyFamous/swan-song/wiki/Build-and-Test) only if
+Test](https://github.com/RegionallyFamous/swansong-core/wiki/Build-and-Test) only if
 you are helping test the project.

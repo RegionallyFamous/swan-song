@@ -34,7 +34,7 @@ The result begins with `READY`, `READY WITH NOTES`, or `NEEDS ATTENTION`, and
 each finding includes a suggested next step. The Doctor changes nothing unless
 you deliberately select a repair and add `--apply`. Read the [complete Swan
 Song Doctor
-reference](https://github.com/RegionallyFamous/swan-song/blob/main/SWAN_SONG_DOCTOR.md)
+reference](https://github.com/RegionallyFamous/swansong-core/blob/main/SWAN_SONG_DOCTOR.md)
 before using an optional repair.
 
 ## Common setup problems
@@ -44,7 +44,7 @@ before using an optional repair.
 There is no verified public release yet. An updater may install or restore the
 upstream WonderSwan core instead. Use only a Swan Song release explicitly
 published by Regionally Famous on the official [Releases
-page](https://github.com/RegionallyFamous/swan-song/releases).
+page](https://github.com/RegionallyFamous/swansong-core/releases).
 
 ### Pocket asks for a BIOS
 
@@ -99,7 +99,7 @@ whether you also compared the same revision on original hardware; emulator
 agreement alone does not establish the correct hardware result.
 
 Open a [Swan Song GitHub
-issue](https://github.com/RegionallyFamous/swan-song/issues) for Pocket
+issue](https://github.com/RegionallyFamous/swansong-core/issues) for Pocket
 integration or Swan Song-specific behavior. Shared console-logic fixes should
 be proposed upstream after verification, with a link back to the Swan Song
 evidence.

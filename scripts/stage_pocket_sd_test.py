@@ -291,7 +291,7 @@ class StagePocketSDTest(unittest.TestCase):
             "builds": [
                 {
                     "label": "a",
-                    "repository": "RegionallyFamous/swan-song",
+                    "repository": "RegionallyFamous/swansong-core",
                     "workflow_path": ".github/workflows/quartus-fit.yml",
                     "source_ref": "refs/heads/main",
                     "source_commit": commit,
@@ -320,7 +320,7 @@ class StagePocketSDTest(unittest.TestCase):
                 },
                 {
                     "label": "b",
-                    "repository": "RegionallyFamous/swan-song",
+                    "repository": "RegionallyFamous/swansong-core",
                     "workflow_path": ".github/workflows/quartus-fit.yml",
                     "source_ref": "refs/heads/main",
                     "source_commit": commit,

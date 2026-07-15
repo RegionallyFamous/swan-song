@@ -77,7 +77,7 @@ SDRAM_DQ_MARKER_RE = re.compile(
 # contract separately checks the capability gate itself; this remains a fitted
 # resource gate, not an estimate derived from logical memory-bit utilization.
 MAX_CANDIDATE_RAM_BLOCKS = 289
-WORKFLOW_REPOSITORY = "RegionallyFamous/swan-song"
+WORKFLOW_REPOSITORY = "RegionallyFamous/swansong-core"
 WORKFLOW_PATH = ".github/workflows/quartus-fit.yml"
 WORKFLOW_JOB = "fit"
 WORKFLOW_METADATA_FIELDS = {

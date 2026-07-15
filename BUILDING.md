@@ -507,10 +507,10 @@ changes a Wiki implicitly. After the source documentation and all of its
 configured Git or GitHub CLI credentials:
 
 ```sh
-git clone https://github.com/RegionallyFamous/swan-song.wiki.git \
-  /absolute/path/to/swan-song.wiki
+git clone https://github.com/RegionallyFamous/swansong-core.wiki.git \
+  /absolute/path/to/swansong-core.wiki
 python3 scripts/wiki_sync.py \
-  --wiki-clone /absolute/path/to/swan-song.wiki
+  --wiki-clone /absolute/path/to/swansong-core.wiki
 ```
 
 The default is offline and read-only. It runs `wiki_publication_check`, proves
@@ -522,9 +522,9 @@ plan. Review that complete plan before publishing:
 
 ```sh
 python3 scripts/wiki_sync.py \
-  --wiki-clone /absolute/path/to/swan-song.wiki \
+  --wiki-clone /absolute/path/to/swansong-core.wiki \
   --apply \
-  --confirm-publish RegionallyFamous/swan-song.wiki
+  --confirm-publish RegionallyFamous/swansong-core.wiki
 ```
 
 Only that exact `--apply` plus confirmation combination copies the planned
@@ -1003,16 +1003,16 @@ tar -xf signed-quartus-provenance.tar -C /tmp/swan-song-signed
 
 gh attestation verify \
   /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.json \
-  --repo RegionallyFamous/swan-song \
-  --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+  --repo RegionallyFamous/swansong-core \
+  --signer-workflow github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml \
   --source-digest "$FINAL_COMMIT" \
   --source-ref refs/heads/main \
   --bundle /tmp/swan-song-signed/signed-builds/a/quartus-audit-candidate.attestation.json
 
 gh attestation verify \
   /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.json \
-  --repo RegionallyFamous/swan-song \
-  --signer-workflow github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml \
+  --repo RegionallyFamous/swansong-core \
+  --signer-workflow github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml \
   --source-digest "$FINAL_COMMIT" \
   --source-ref refs/heads/main \
   --bundle /tmp/swan-song-signed/signed-builds/b/quartus-audit-candidate.attestation.json
@@ -1144,7 +1144,7 @@ From the repository root on the authenticated Mac, run the read-only preflight:
 python3 scripts/prepare_launch_pr.py
 ```
 
-It verifies `gh` authentication, the `RegionallyFamous/swan-song` origin and
+It verifies `gh` authentication, the `RegionallyFamous/swansong-core` origin and
 GitHub repository, the local/remote base, and the exact launch-hardening change
 allowlist. A separate explicit preservation list protects the existing local
 hardware, macOS, build-output, dependency, and adjacent-project paths: the

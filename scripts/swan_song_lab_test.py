@@ -566,7 +566,7 @@ class SwanSongLabTest(unittest.TestCase):
             with mock.patch.object(lab, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as cancel:
                 with mock.patch.object(lab.time, "sleep"):
                     lab.cancel_workflow_run(state)
-        self.assertIn("repos/RegionallyFamous/swan-song/actions/runs/99/cancel", cancel.call_args.args[0])
+        self.assertIn("repos/RegionallyFamous/swansong-core/actions/runs/99/cancel", cancel.call_args.args[0])
 
     def test_dispatch_records_exact_api_run_and_commit_binding(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

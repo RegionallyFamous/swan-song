@@ -26,7 +26,7 @@ import wiki_publication_check as publication
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "RegionallyFamous/swan-song.wiki"
+REPOSITORY = "RegionallyFamous/swansong-core.wiki"
 CONFIRMATION = REPOSITORY
 DEFAULT_COMMIT_MESSAGE = "Sync reviewed Swan Song Wiki pages"
 SAFE_PAGE_NAME = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_-]*|_[A-Za-z0-9_-]+)\.md\Z")
@@ -185,9 +185,9 @@ def _config_values(clone: Path, key: str) -> tuple[str, ...]:
 
 def _expected_remote(url: str) -> bool:
     patterns = (
-        r"https://github\.com/RegionallyFamous/swan-song\.wiki(?:\.git)?/?",
-        r"git@github\.com:RegionallyFamous/swan-song\.wiki(?:\.git)?",
-        r"ssh://git@github\.com/RegionallyFamous/swan-song\.wiki(?:\.git)?/?",
+        r"https://github\.com/RegionallyFamous/swansong-core\.wiki(?:\.git)?/?",
+        r"git@github\.com:RegionallyFamous/swansong-core\.wiki(?:\.git)?",
+        r"ssh://git@github\.com/RegionallyFamous/swansong-core\.wiki(?:\.git)?/?",
     )
     return any(re.fullmatch(pattern, url, re.IGNORECASE) for pattern in patterns)
 
@@ -591,7 +591,7 @@ def _parser() -> argparse.ArgumentParser:
         "--wiki-clone",
         type=Path,
         required=True,
-        help="explicit path to a clean local clone of RegionallyFamous/swan-song.wiki",
+        help="explicit path to a clean local clone of RegionallyFamous/swansong-core.wiki",
     )
     parser.add_argument("--apply", action="store_true", help="copy, commit, and push the reviewed plan")
     parser.add_argument(

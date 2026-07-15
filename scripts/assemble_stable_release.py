@@ -46,16 +46,16 @@ MAGIC = "SWAN_SONG_STABLE_RELEASE_V1"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RUN_INVOCATION_RE = re.compile(
-    r"https://github\.com/RegionallyFamous/swan-song/actions/runs/"
+    r"https://github\.com/RegionallyFamous/swansong-core/actions/runs/"
     r"([1-9][0-9]*)/attempts/([1-9][0-9]*)\Z"
 )
 MAX_SOURCE_ARCHIVE_BYTES = 512 * 1024 * 1024
 RELEASE_BODY_FILENAME = "release-body.md"
 SIGNED_PROVENANCE_FILENAME = "signed-quartus-provenance.tar"
 ATTESTATION_FILENAME = "quartus-audit-candidate.attestation.json"
-ATTESTATION_REPOSITORY = "RegionallyFamous/swan-song"
+ATTESTATION_REPOSITORY = "RegionallyFamous/swansong-core"
 ATTESTATION_WORKFLOW = (
-    "github.com/RegionallyFamous/swan-song/.github/workflows/quartus-fit.yml"
+    "github.com/RegionallyFamous/swansong-core/.github/workflows/quartus-fit.yml"
 )
 ATTESTATION_SOURCE_REF = "refs/heads/main"
 RELEASE_DECISION_LABELS = (
@@ -278,7 +278,7 @@ def _verify_candidate_attestation(
         raise AssemblyError("verified attestation subject is not the candidate audit")
 
     signer_uri = (
-        "https://github.com/RegionallyFamous/swan-song/"
+        "https://github.com/RegionallyFamous/swansong-core/"
         ".github/workflows/quartus-fit.yml@refs/heads/main"
     )
     expected_certificate = {
@@ -289,7 +289,7 @@ def _verify_candidate_attestation(
         "buildSignerURI": signer_uri,
         "buildSignerDigest": source_commit,
         "runnerEnvironment": "self-hosted",
-        "sourceRepositoryURI": "https://github.com/RegionallyFamous/swan-song",
+        "sourceRepositoryURI": "https://github.com/RegionallyFamous/swansong-core",
         "sourceRepositoryDigest": source_commit,
         "sourceRepositoryRef": ATTESTATION_SOURCE_REF,
         "buildConfigURI": signer_uri,
@@ -963,7 +963,7 @@ Pocket, by Regionally Famous. This verified release was published on
    files; they are not included.
 5. Start Swan Song from **openFPGA**.
 
-Read the [installation, update, rollback, and uninstall guide](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song)
+Read the [installation, update, rollback, and uninstall guide](https://github.com/RegionallyFamous/swansong-core/wiki/Install-Swan-Song)
 before changing an existing installation. `core.json` declares the minimum
 Pocket firmware that may load the core; use the evidence-backed Analogue OS
 support version stated in that guide for this release.
@@ -983,7 +983,7 @@ update. Replacing only the core files does not roll back saves or settings.
 - Accepted physical hardware-QA run: `{hardware_run_id}`
 - Corresponding source: `{source_filename}`
 - Signed Quartus provenance: `{signed_provenance_filename}`
-- Verification procedure: [extract the signed provenance archive and verify both workflow attestations](https://github.com/RegionallyFamous/swan-song/blob/main/BUILDING.md#signed-stable-release-assembly)
+- Verification procedure: [extract the signed provenance archive and verify both workflow attestations](https://github.com/RegionallyFamous/swansong-core/blob/main/BUILDING.md#signed-stable-release-assembly)
 - Machine-readable evidence summary: `release-manifest.json`
 - Checksums for the package and public release records: `SHA256SUMS`
 

@@ -41,7 +41,7 @@ jobs:
   fit:
     if: >-
       ${{
-        github.repository == 'RegionallyFamous/swan-song' &&
+        github.repository == 'RegionallyFamous/swansong-core' &&
         github.event_name == 'workflow_dispatch' &&
         github.ref_type == 'branch' &&
         github.workflow_sha == github.sha &&

@@ -9,7 +9,7 @@ the Analogue Pocket by **Regionally Famous**.
 > newer source changes still require a fresh regression and FPGA build. The
 > complete Pocket and Dock experience and distribution clearance also need
 > final verification. The [Releases
-> page](https://github.com/RegionallyFamous/swan-song/releases) is the only
+> page](https://github.com/RegionallyFamous/swansong-core/releases) is the only
 > place that will identify an installable public release.
 
 ## Why Swan Song exists
@@ -40,15 +40,15 @@ console-logic improvements should flow upstream after they are verified.
 
 ## Player guide
 
-- [Install Swan Song](https://github.com/RegionallyFamous/swan-song/wiki/Install-Swan-Song)
-- [Playing Games](https://github.com/RegionallyFamous/swan-song/wiki/Playing-Games)
-- [Controls and Settings](https://github.com/RegionallyFamous/swan-song/wiki/Controls-and-Settings)
-- [Saves and Migration](https://github.com/RegionallyFamous/swan-song/wiki/Saves-and-Migration)
-- [Compatibility and Current Limits](https://github.com/RegionallyFamous/swan-song/wiki/Compatibility-and-Current-Limits)
-- [Troubleshooting and Bug Reports](https://github.com/RegionallyFamous/swan-song/wiki/Troubleshooting-and-Bug-Reports)
+- [Install Swan Song](https://github.com/RegionallyFamous/swansong-core/wiki/Install-Swan-Song)
+- [Playing Games](https://github.com/RegionallyFamous/swansong-core/wiki/Playing-Games)
+- [Controls and Settings](https://github.com/RegionallyFamous/swansong-core/wiki/Controls-and-Settings)
+- [Saves and Migration](https://github.com/RegionallyFamous/swansong-core/wiki/Saves-and-Migration)
+- [Compatibility and Current Limits](https://github.com/RegionallyFamous/swansong-core/wiki/Compatibility-and-Current-Limits)
+- [Troubleshooting and Bug Reports](https://github.com/RegionallyFamous/swansong-core/wiki/Troubleshooting-and-Bug-Reports)
 
 Developers can start at the [Developer
-Hub](https://github.com/RegionallyFamous/swan-song/wiki/Developer-Hub).
+Hub](https://github.com/RegionallyFamous/swansong-core/wiki/Developer-Hub).
 
 ## What Swan Song does not include
 
@@ -59,5 +59,5 @@ issue, this repository, a test server, or a public cloud service.
 
 The independent Pocket core identity is `RegionallyFamous.SwanSong`. The
 project preserves [documented provenance and known
-credits](https://github.com/RegionallyFamous/swan-song/blob/main/UPSTREAMS.md);
+credits](https://github.com/RegionallyFamous/swansong-core/blob/main/UPSTREAMS.md);
 final distribution clearance remains pending.

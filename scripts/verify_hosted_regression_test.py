@@ -15,7 +15,7 @@ from urllib import parse
 import verify_hosted_regression as proof
 
 
-REPOSITORY = "RegionallyFamous/swan-song"
+REPOSITORY = "RegionallyFamous/swansong-core"
 SHA = "a" * 40
 BRANCH = "main"
 WORKFLOW_ID = 312570632
