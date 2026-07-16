@@ -16,7 +16,7 @@ copyright holder or qualified reviewer.
   under GPL-2.0-or-later and credits Robert Peip and Sorgelig. Pocket's
   `wonderswan.sv` adaptation omitted that header; Swan Song now restores the
   complete upstream copyright, GPL-2.0-or-later, warranty, and source-delivery
-  notice in the current Pocket-derived wrapper. All 18 files in the pinned
+  notice in the current Pocket-derived wrapper. All 20 files in the pinned
   WonderSwan program scope that differ from upstream now carry a prominent
   `2026-07-14` Swan Song modification notice; the source-bound manifest
   validator enforces that this audited changed-file set retains the exact
@@ -54,8 +54,9 @@ copyright holder or qualified reviewer.
 ## Blocking decisions
 
 1. **Project contribution declaration.** Regionally Famous must declare a
-   license for its original source, tests, documentation, and generated art,
-   and a reviewer must confirm the combined-work license and required notices.
+   license for its original source, tests, documentation, generated art, and
+   project-authored Open IPL generator/header, and a reviewer must confirm the
+   combined-work license and required notices.
 2. **Inherited program notice.** The pinned MiSTer GPL-2.0-or-later/copyright
    notice is restored in the Pocket-derived top level, and dated modification
    notices are source-bound across the audited changed-file set. Record the

@@ -375,7 +375,6 @@ class PocketVideoContractTest(unittest.TestCase):
         qsf = read("src/fpga/ap_core.qsf")
         regression = read("scripts/regression.sh")
         sdc = read("src/fpga/core/core_constraints.sdc")
-        signal_tap = read("src/fpga/core/stp1.stp")
 
         for path in (
             "core/apf_settings_cdc.sv",
@@ -406,11 +405,12 @@ class PocketVideoContractTest(unittest.TestCase):
         ):
             self.assertEqual(regression.count(f'"$ROOT/sim/rtl/{runner}"'), 1)
 
-        for signal in ("video_de", "video_hs", "video_vs"):
-            self.assertIn(
-                f"core_top:ic|apf_video_bus:video_bus|{signal}", signal_tap
-            )
-            self.assertNotIn(f"core_top:ic|{signal}_reg", signal_tap)
+        self.assertEqual(
+            qsf.count("set_global_assignment -name ENABLE_SIGNALTAP OFF"), 1
+        )
+        self.assertNotIn("SIGNALTAP_FILE", qsf)
+        self.assertNotIn("USE_SIGNALTAP_FILE", qsf)
+        self.assertFalse((ROOT / "src/fpga/core/stp1.stp").exists())
 
         self.assertRegex(
             sdc,

@@ -9,8 +9,8 @@
   checks without carrying the 19 retired unlicensed MiSTer test assets.
 - Wonderful's open WSC extended-range fixture renders all three PASS fields and
   proves that 2bpp Color mode fetches its map, bank-1 tiles, and sprite table
-  above 16 KiB without aliasing; all 16,281 physical display reads match
-  provenance (15,611 exact CPU-written words and 670 power-up reads).
+  above 16 KiB without aliasing; all 16,190 physical display reads match
+  provenance (15,518 exact CPU-written words and 672 power-up reads).
   Its 32 atomic sprite-row events bind four cached descriptors to slots 0-3
   on lines 72-79 and distinguish 32 contributing 2bpp words from the engine's
   32 noncontributing second reads.
@@ -45,7 +45,7 @@
 - The native open Shift-JIS fixture renders `日本語かな漢` from licensed Misaki
   rows and proves 48 exact GDMA word transfers (48 ROM reads paired with 48
   tile-RAM writes), six exact CPU map writers, two promotions of every glyph
-  row, and every final RGB pixel. All 25,610 display reads match the
+  row, and every final RGB pixel. All 25,612 display reads match the
   reset-complete writer scoreboard.
 - Paired build-generated, non-checked-in WSC probes exercise both documented
   Color 4bpp layouts: planar mode `0xc0` and packed mode `0xe0`. Each copies a
@@ -92,7 +92,7 @@
   marker, complete v5 manifest, trace-observed `F3 A4` origins, uninterrupted
   alternating read/write chains, addresses, mapped offsets, lanes, all 4,096
   values, destination integrity, completion word, and terminal PC. The live
-  run records 4,123 CPU and 8,250 memory events. Display-provenance correlation
+  run records 4,168 CPU and 8,345 memory events. Display-provenance correlation
   remains independently covered by the generated 4bpp, Shift-JIS, and
   extended-range workloads; `unattributed` alone is never treated as proven
   prefetch. The suite also generates build-only
@@ -124,10 +124,11 @@
   `cart_rom_linear` classification. Exact checks cover C0/C1 bank bits that
   survive their masks, C1 wrap through a declared 128 KiB SRAM, even-word and
   odd-byte writes, ROM aliases, resolved offsets, instruction origins, and the
-  current core's readback values. Separate generated 4 KiB/8 KiB boot images
-  prove mono and Color overlay offsets, execution from byte zero, a low-window
-  marker read, A0 lockout, and the same top addresses becoming cartridge ROM.
-  A second generated pair declares header values `0x01` and `0x02` and requires
+  current core's readback values. Generated carrier ROMs exercise all eight
+  immutable 4 KiB/8 KiB Open IPL variants and prove mono/Color overlay offsets,
+  exact top-of-memory reset vectors, contiguous startup-tail execution, IRAM
+  handoff, A0 lockout, and the same top addresses becoming cartridge ROM. A
+  second generated pair declares header values `0x01` and `0x02` and requires
   identical seven-event traces proving 32 KiB behavior: offsets `0x0000`,
   `0x2000`, and `0x7fff` remain distinct and `0x8000` mirrors zero. A focused
   contract also requires matching 32,768-byte mapper/save-state sizes, 64
@@ -144,8 +145,8 @@
   so overlapping DMA and repeated 8-bit line numbers cannot blur slot order. V6 preserves
   the exact v5 prefix and is emitted only when `sprite_row` is requested. The
   focused fixtures cover simultaneous Screen 1/2 behavior. Translated
-  regression validates 5,177 extended-range Color cells and each generated
-  window variant adds 8,494 Screen 2 cells. The Shift-JIS workload adds 8,308 Screen 1 cells,
+  regression validates 5,146 extended-range Color cells and each generated
+  window variant adds 8,463 Screen 2 cells. The Shift-JIS workload adds 8,308 Screen 1 cells,
   including 96 manifest-bound Japanese glyph-row promotions. The generated
   planar and packed workloads add 8,494 Screen 1 4bpp cells apiece, including
   64 exact diagnostic rows per encoding. All six translated runs
@@ -172,7 +173,7 @@
   accepted for execution only when its final 16-byte WonderSwan footer and
   checksum are valid; the loader fills the lower prefix with `0xff` and
   right-aligns the image in its next-power-of-two mapper aperture;
-  slots 9 and 10 accept exactly 4 KiB and 8 KiB firmware respectively; slot 11
+  retired firmware slot IDs 9 and 10 are permanently rejected; slot 11
   accepts only absent, cartridge-canonical, or supported legacy EEPROM-save
   lengths once footer metadata is ready; fixed console-EEPROM slots 12 and 13
   accept exact 128-byte mono and 2,048-byte Color images in both load and
@@ -203,7 +204,7 @@
   and `50` use 128/2,048/1,024 bytes. The 12-byte RTC trailer is now conditional
   on the cartridge footer bit, and `data.json` caps the dynamic slot at 524,300
   bytes. Header-derived type/RTC/size metadata crosses to `clk_74a` atomically;
-  after `008F`, the core publishes slot index 3 / ID 11 with the exact payload
+  after `008F`, the core publishes slot index 1 / ID 11 with the exact payload
   plus optional trailer, and keeps that metadata alive across Reset Enter for
   shutdown flush. A focused RTL lifecycle bench proves that an absent external
   EEPROM is initialized to `0xffff` for exactly its selected word capacity, a
@@ -221,7 +222,7 @@
   valid RBFs, but two builds of the final release commit have not yet produced
   and compared byte-identical RBFs.
 - The reverse-bit and deterministic APF package scripts are host-independent.
-  Packaging materializes the core's required 411-byte `chip32.bin` offline,
+  Packaging materializes the core's required 293-byte `chip32.bin` offline,
   verifies both its assembly-source and image identities, and rejects missing,
   changed, or path-escaping core references. The image is the exact official
   assembler output for this fork's extended loader source.
@@ -334,8 +335,6 @@ and lower 32 bits in parameter 1. Read and write requests independently return
 | ID | Purpose | Accepted host operation and size |
 | --- | --- | --- |
 | 0 | Cartridge | Write only; 64 KiB through 16 MiB in whole 64 KiB banks. Power-of-two images retain the legacy direct path; a compact image requires a valid final 16-byte WonderSwan footer/checksum and is `0xff`-prefilled/right-aligned into its next-power-of-two mapper aperture. APF persists the selected filename and performs a full core reload when it changes |
-| 9 | Mono BIOS | Required write-only APF asset; exactly 4,096 bytes |
-| 10 | Color BIOS | Required write-only APF asset; exactly 8,192 bytes |
 | 11 | Save | Read becomes ready only after `reset_n=0`, synchronized execution has stopped, and a fixed 31-`clk_74a` drain guard has elapsed, with startup metadata/table/init still valid; write accepts absent (zero), canonical for the current cartridge, or legacy 2,060-byte RTC EEPROM type `10`/`50` |
 | 12 | Mono console EEPROM | Optional fixed-name, core-specific nonvolatile machine state; exact 128-byte load and shutdown unload |
 | 13 | Color console EEPROM | Optional fixed-name, core-specific nonvolatile machine state; exact 2,048-byte load and shutdown unload |
@@ -376,13 +375,10 @@ terminal synchronizer and the exact PMP `0x14` read mux. A compiled full-wrapper
 behavioral observation and physical Pocket log are still open; source-string
 coverage alone is not presented as CDC or hardware proof.
 
-Slots 9 and 10 use `required: true` and `size_exact` in `data.json`, matching
-the current Chip32 program, which queries and loads both BIOS files on every
-launch. This lets APF surface missing or malformed firmware at its normal file
-boundary instead of advertising an optional asset that the launcher later
-rejects. They are read-only assets with APF's persist-browsed-filename bit, so
-a one-time browser choice is reused until **Reset all to defaults**. The exact-size
-RTL guard remains a second, independent check.
+The core boots through its built-in open IPL. `data.json` and Chip32 therefore
+have no external BIOS slots or firmware-file prompts; players select only a
+cartridge image. The FPGA still retains defensive bounds at its bridge and
+memory boundaries.
 
 Slot 0 uses APF parameter `0x309`: user-browsable, read-only, full-core reload,
 and persisted browsed filename. This makes a normal launch reuse the last title
@@ -437,10 +433,11 @@ raise the core's implemented limit.
 ### Supported Pocket launch boundary
 
 The packaged product is an openFPGA SD-card asset launcher for `.ws` and `.wsc`
-images with both legally obtained BIOS files. It uses APF for data slots,
+images. It always boots through the bundled clean-room Open IPL and has no
+external firmware slot or setup step. It uses APF for data slots,
 video, audio, input, saves, settings, and Dock transport. It does not enable
 Pocket's physical cartridge adapter or link port, does not participate in the
-first-party physical-cartridge/Library launch flow, and does not bundle BIOS or
+first-party physical-cartridge/Library launch flow, and does not bundle
 commercial game data. [POCKET_LAUNCHER_LIBRARY.md](POCKET_LAUNCHER_LIBRARY.md)
 records the current firmware, Recent, platform-art, Library-image, cartridge
 adapter, and unsupported-firmware boundaries behind that statement.
@@ -592,11 +589,9 @@ for variant in inside outside; do
 done
 ```
 
-Add `--trace build/sim/window-boundary.vcd` for a VCD or
-`--bios /path/to/color.rom`
-to test with a legally obtained 8 KiB Color firmware image. Without `--bios`, the harness
-programs a nine-byte open bootstrap suitable for these generated ROMs. The
-harness never searches for or downloads firmware.
+Add `--trace build/sim/window-boundary.vcd` for a VCD. The translated harness
+uses the same generated `open-bootstrap-v3` image as production; it has no
+external firmware option and never searches for or downloads firmware.
 
 ### Structured event traces
 
@@ -678,7 +673,7 @@ mutation tests reject changed source, footer, checksum, ROM, terminal state,
 result tile, framebuffer, manifest, and paired-run identity.
 
 The generated CPU-quirks probe separately binds its exact authored program,
-marker, footer, checksum, ROM and boot identities, complete v5 CPU/memory
+marker, footer, checksum, ROM and generated Open IPL identities, complete v5 CPU/memory
 manifest, every result write and owning PC, adjacent SALC completions, and the
 halt boundary. Its mutation suite flips each AAM/AAD/INT0/SALC contract,
 instruction origin, ROM, manifest, and SALC memory behavior; even an
@@ -710,7 +705,7 @@ left/top/right/bottom comparisons and each sprite's bit-12 inside/outside
 selection. Both generated ROMs bind 24 named boundary samples and a complete
 stable frame; their mutation suite rejects all 48 sample inversions plus ROM
 and nonsampled-frame drift. Each translated capture also requires all six VRAM
-roles, 26,296 exact display reads with zero mismatch/collision, and 8,494
+roles, 26,205 exact display reads with zero mismatch/collision, and 8,463
 provenance-complete Screen 2 cells.
 The generated REP MOVSB verifier independently locks two 2 KiB CPU copies to
 the exact authored source and destination windows. It requires trace-observed
@@ -729,16 +724,16 @@ requires its provenance ledger and four-column `unique-exact` contact sheet to
 recover the six manifest-bound glyph candidates. The reporter's focused tests
 cover 2bpp/4bpp planar and packed decoding, both flips, repeated and rewritten
 epochs, incomplete/mixed/collision states, and byte-identical CSV/PNG output.
-The capture manifest is bound to the trace, ROM, and boot image by sizes and
+The capture manifest is bound to the trace, ROM, and Open IPL image by sizes and
 FNV-1a digests; dedicated fixtures separately lock their generated inputs with
 SHA-256. Regression also proves a failed same-path rerun removes the preceding
 success certificate.
 
 For resumable exploratory smoke tests across a private, legally held ROM
 collection, see [`PRIVATE_CORPUS_TESTING.md`](PRIVATE_CORPUS_TESTING.md). That
-runner keeps ROMs, BIOSes, frames, logs, and paths outside the repository and
+runner keeps ROMs, frames, logs, and paths outside the repository and
 emits only secret-keyed, sanitized results. It is separate from the cloud
-Quartus Lab below, which never receives ROM or BIOS data, and it does not
+Quartus Lab below, which never receives ROM data, and it does not
 replace physical Pocket/Dock acceptance.
 
 Generated VHDL-to-Verilog files, binaries, traces, raw RGB frames, and PNGs live
@@ -751,7 +746,7 @@ authenticated Mac terminal, see [`SWAN_SONG_LAB.md`](SWAN_SONG_LAB.md). Its
 DigitalOcean control surface is a dry run by default, prepares the exact local
 Quartus Docker image before registering a one-job GitHub JIT runner, and
 deletes the Droplet, attached volume, firewall, tag, and runner explicitly.
-It never handles ROM or BIOS data.
+It never handles ROM data.
 
 The checked-in project records Quartus 18.1.1 as its original version and
 21.1.1 Lite as its last-saved version; `ap_core.qpf` still declares 18.1. The
@@ -848,7 +843,7 @@ make chip32
 ```
 
 This produces `build/chip32.bin` from the checked-in canonical hexadecimal
-image only after `src/support/chip32.asm` and the decoded 411-byte image match
+image only after `src/support/chip32.asm` and the decoded 293-byte image match
 their pinned SHA-256 identities. It requires no network access or host
 assembler. The encoded image is the exact output of the official
 [open-fpga/bass-chip32 v1.0.0](https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0)
@@ -985,7 +980,7 @@ The final directory contains exactly seven public files:
   record; and
 - `SHA256SUMS`, covering every public payload except itself in filename order.
 
-Private firmware, BIOS, ROM, device identity, hardware and known-title captures,
+Private ROM, device identity, hardware and known-title captures,
 inventories, and Release Evidence V2 files remain below the temporary private tree and are
 removed from the public output before its exact inventory is checked. Retain
 the original private inputs separately as release records. The checked-in
@@ -993,7 +988,7 @@ release policy and license manifest remain hard gates: the current intentional
 `distribution_and_licensing_authorized: false` state makes both plan and apply
 stop before assembly.
 
-The public signed-build archive is intentionally ROM-, BIOS-, save-, and
+The public signed-build archive is intentionally ROM-, save-, and
 device-identity-free. Consumers can verify both build attestations with the
 official online trust root after extracting it:
 
@@ -1024,7 +1019,7 @@ manifest. Direct release use of `build_release_evidence.py` and
 can carry two signed origins through Release Evidence V2 and reverify the
 staged package. Their library validators remain useful to tests, but are not a
 second release path. Preserve the assembler's private input bundles and
-hardware inventories separately; never upload ROM, BIOS, device identity, or
+hardware inventories separately; never upload ROM, device identity, or
 private captures.
 
 The output name must exactly match the author, shortname, version, and date in
@@ -1131,10 +1126,9 @@ identity, tool version, and accepted gates, making that reviewed evidence
 cryptographically bound to the distributed ZIP.
 
 For an unpacked SD-card tree, unzip the package at the card root. The user must
-separately place legally obtained `bw.rom`, `color.rom`, and cartridge images in
-`Assets/wonderswan/common/`; they are intentionally never packaged here. Both
-BIOS files are required in the APF definition and have exact 4 KiB/8 KiB host
-size checks; the core still independently rejects an invalid transfer length.
+separately place legally obtained cartridge images in
+`Assets/wonderswan/common/`; they are intentionally never packaged here. No
+external BIOS file is required.
 
 ## Launch-hardening pull request handoff
 

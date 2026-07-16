@@ -549,12 +549,8 @@ def first_class_source_errors(sources: dict[str, str]) -> list[str]:
             errors.append(error)
     if "raw_write_data[15:12]!=4'd0" in rom_loader_compact:
         errors.append("compact footer must not reject legal upper maintenance flags")
-    if (
-        "if(cart_download_sys_external)begin"
-        "colorcart_downloaded<=colorcart_download_sys;end"
-        not in wonderswan_compact
-    ):
-        errors.append("Color model must latch only during the external LOADF window")
+    if "colorcart_downloaded" in wonderswan_compact or "colorcart_download_sys" in wonderswan_compact:
+        errors.append("filename extension must not override footer-derived model selection")
 
     validation_status_requirements = (
         (
@@ -662,9 +658,8 @@ class PocketFirstClassContractTest(unittest.TestCase):
             "Swan Song for WonderSwan and WonderSwan Color",
         )
 
-        # Framework 2.3 is the declared package floor.  The current APF data-slot
-        # contract defines Reset All to Defaults as clearing the per-core browser
-        # history used by the cartridge and BIOS slots.
+        # Framework 2.3 is the declared package floor. The APF data-slot contract
+        # defines Reset All to Defaults as clearing per-core cartridge history.
         self.assertEqual(core["framework"]["version_required"], "2.3")
         # Memories/sleep remains disabled until the full controller and a
         # physical Pocket endurance matrix have passed.
@@ -709,16 +704,9 @@ class PocketFirstClassContractTest(unittest.TestCase):
         self.assertEqual(cartridge["extensions"], ["ws", "wsc"])
         self.assertIn("* WonderSwan .ws and WonderSwan Color .wsc", lines)
 
-        bw_bios = slots[9]
-        color_bios = slots[10]
-        self.assertTrue(bw_bios["required"])
-        self.assertTrue(color_bios["required"])
-        self.assertIn(
-            "* User-supplied "
-            f"{bw_bios['size_exact'] // 1024} KiB {bw_bios['filename']} and "
-            f"{color_bios['size_exact'] // 1024} KiB {color_bios['filename']}",
-            lines,
-        )
+        self.assertTrue({9, 10}.isdisjoint(slots))
+        self.assertIn("* Built-in open IPL; no external BIOS file required", lines)
+        self.assertNotIn("Console Setup", info)
         self.assertIn(
             "* Minimum firmware "
             f"{core['framework']['version_required']}; "
@@ -872,27 +860,7 @@ class PocketFirstClassContractTest(unittest.TestCase):
             self.assertEqual(parameters & (1 << 3), 0)  # writable on shutdown
             self.assertEqual(parameters & (1 << 5), 0)  # retain factory seed if absent
 
-        # Both boot ROMs are dependencies of the current Chip32 launch path.
-        # Advertise that requirement to APF and reject malformed firmware at
-        # the host definition before the guarded bridge transfer begins.
-        bios_contract = {
-            number(slot["id"]): (
-                slot["required"],
-                slot["filename"],
-                number(slot["parameters"]),
-                number(slot["size_exact"]),
-                number(slot["address"]),
-            )
-            for slot in slots
-            if number(slot["id"]) in (9, 10)
-        }
-        self.assertEqual(
-            bios_contract,
-            {
-                9: (True, "bw.rom", 0x208, 4096, 0x30000000),
-                10: (True, "color.rom", 0x208, 8192, 0x30000000),
-            },
-        )
+        self.assertTrue({9, 10}.isdisjoint(number(slot["id"]) for slot in slots))
 
     def test_input_and_interact_limits(self) -> None:
         input_definition = load("input.json")["input"]
@@ -976,6 +944,8 @@ class PocketFirstClassContractTest(unittest.TestCase):
         )
         self.assertLessEqual(len(variables) + reloadable_slots, 20)
         variables_by_id = {number(item["id"]): item for item in variables}
+        self.assertNotIn(1, variables_by_id)
+        self.assertNotIn(0x54, {number(item["address"]) for item in variables})
         persistent_addresses = {
             number(item["id"]): number(item["address"])
             for item in variables

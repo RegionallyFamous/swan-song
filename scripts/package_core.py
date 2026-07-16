@@ -2052,7 +2052,7 @@ def create_package(
         leaked = [path for path in stage.rglob("*") if path.suffix.lower() in forbidden]
         if leaked:
             raise ValueError(
-                "refusing to package ROM/BIOS/save files: " + ", ".join(map(str, leaked))
+                "refusing to package ROM/save files: " + ", ".join(map(str, leaked))
             )
 
         output.parent.mkdir(parents=True, exist_ok=True)

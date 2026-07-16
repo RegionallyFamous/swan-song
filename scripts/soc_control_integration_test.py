@@ -77,7 +77,10 @@ def validate(files: dict[str, str]) -> None:
     assert qsf.index("VHDL_FILE core/rtl/soc_control.vhd") < qsf.index(
         "VHDL_FILE core/rtl/swanTop.vhd"
     )
-    assert "const uint8_t bootstrap[] = {0xb0, 0x05, 0xe6, 0xa0, 0xea," in sim
+    assert '#include "open_ipl.hpp"' in sim
+    assert "swansong::open_ipl::make(" in sim
+    assert "top->open_ipl_word_width = open_ipl_word_width;" in sim
+    assert "--bios" not in sim
 
 
 def must_reject(files: dict[str, str], key: str, old: str, new: str, label: str) -> None:
@@ -111,7 +114,7 @@ def main() -> None:
         ("top", "color_enabled        => soc_color_enabled,", "color_enabled        => isColor,", "physical-model IRAM gate"),
         ("memory", "if (color_enabled = '0' and cpu_addr(15 downto 14) /= \"00\") then", "if (isColor = '0' and cpu_addr(15 downto 14) /= \"00\") then", "upper IRAM ignores effective Color mode"),
         ("gpu", "reg_wired_or(24) <= (others => '0');", "reg_wired_or(24) <= x\"80\";", "second 60 data owner"),
-        ("sim", "{0xb0, 0x05, 0xe6, 0xa0, 0xea,", "{0xb0, 0x01, 0xe6, 0xa0, 0xea,", "byte-ROM bootstrap"),
+        ("sim", "top->open_ipl_word_width = open_ipl_word_width;", "top->open_ipl_word_width = false;", "footer-selected Open IPL bus width"),
     ]
     for key, old, new, label in mutations:
         must_reject(files, key, old, new, label)
@@ -119,7 +122,8 @@ def main() -> None:
     print(
         "PASS soc_control production integration: sole A0/60 ownership, "
         "RegBus replay reset, mono handoff, physical/effective model split, "
-        "GPU/DMA/memory consumers, source order, bootstrap; 9 mutants rejected"
+        "GPU/DMA/memory consumers, source order, built-in Open IPL; "
+        "9 mutants rejected"
     )
 
 

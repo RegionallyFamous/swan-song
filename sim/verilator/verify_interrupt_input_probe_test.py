@@ -24,7 +24,7 @@ from generate_interrupt_input_probe import (
 )
 from verify_input_script_manifest import parse_script
 from verify_interrupt_input_probe import (
-    BIOS_FNV1A64,
+    OPEN_IPL_FNV1A64,
     CAPTURE_CYCLES,
     EXPECTED_MARKERS,
     EXPECTED_NO_INPUT_ROWS,
@@ -88,8 +88,8 @@ def make_manifest(trace: Path, rom: bytes, script: bytes | None) -> dict[str, ob
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 8192,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {"cpu": False, "bank": True, "vram": False, "mem": False, "bg_cell": False},

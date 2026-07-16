@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Generate deterministic mono WonderSwan mapper-memory probe ROMs.
 
-The generated 2 MiB ROMs and 4 KiB open simulation bootstrap are build
-artifacts, not checked-in binaries.  The ROMs share one small 80186 program
-and differ only in whether their cartridge header declares 128 KiB of SRAM or
-no SRAM.
+The ROMs boot through the core's built-in Open IPL, share one small 80186
+program, and differ only in whether their cartridge footer declares 128 KiB
+of SRAM or no SRAM.
 """
 
 from __future__ import annotations
@@ -24,27 +23,6 @@ LINEAR_MARKER = bytes((0x0D, 0xC3))
 FOOTER_SIZE = 16
 PRESENT_NAME = "mapper_memory_present.ws"
 ABSENT_NAME = "mapper_memory_absent.ws"
-BOOTSTRAP_NAME = "mapper_memory_boot.bin"
-
-BOOTSTRAP_SIZE = 4096
-BOOTSTRAP_MARKER_OFFSET = 0x100
-BOOTSTRAP_MARKER = bytes((0xC3, 0xD4))
-
-# Open mono simulation bootstrap, mapped at physical 0xFF000.  The reset
-# vector jumps to its first word, which reads a known marker through the boot
-# ROM mapping before locking that mapping out and entering the cartridge.
-# This is a focused test program, not a replacement console firmware.
-BOOTSTRAP_PROGRAM = bytes(
-    (
-        0xFA,                    # cli
-        0xB8, 0x00, 0xFF,       # mov ax, 0xff00
-        0x8E, 0xD8,             # mov ds, ax
-        0xA1, 0x00, 0x01,       # mov ax, [0x0100]
-        0xB0, 0x01,             # mov al, 1
-        0xE6, 0xA0,             # out 0xa0, al (lock boot ROM)
-        0xEA, 0x00, 0x00, 0xFF, 0xFF,  # jmp far FFFF:0000
-    )
-)
 
 # 80186 machine code, entered at F000:0000 by the reset vector.  The probe:
 #
@@ -140,25 +118,13 @@ def image(ram_type: int) -> bytes:
     return bytes(result)
 
 
-def bootstrap_image() -> bytes:
-    result = bytearray((0x90,)) * BOOTSTRAP_SIZE
-    result[: len(BOOTSTRAP_PROGRAM)] = BOOTSTRAP_PROGRAM
-    result[
-        BOOTSTRAP_MARKER_OFFSET : BOOTSTRAP_MARKER_OFFSET + len(BOOTSTRAP_MARKER)
-    ] = BOOTSTRAP_MARKER
-    result[-16:-11] = bytes((0xEA, 0x00, 0x00, 0x00, 0xFF))
-    return bytes(result)
-
-
-def generate(output_dir: Path) -> tuple[Path, Path, Path]:
+def generate(output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     present = output_dir / PRESENT_NAME
     absent = output_dir / ABSENT_NAME
-    bootstrap = output_dir / BOOTSTRAP_NAME
     present.write_bytes(image(3))
     absent.write_bytes(image(0))
-    bootstrap.write_bytes(bootstrap_image())
-    return present, absent, bootstrap
+    return present, absent
 
 
 def main() -> None:

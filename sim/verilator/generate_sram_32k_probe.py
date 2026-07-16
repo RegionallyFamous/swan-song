@@ -6,13 +6,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from generate_mapper_memory_probe import bootstrap_image
-
-
 ROM_SIZE = 2 * 1024 * 1024
 PROGRAM_OFFSET = 0x1F0000
 FOOTER_SIZE = 16
-BOOTSTRAP_NAME = "sram_32k_boot.bin"
 ROM_NAMES = {
     1: "sram_type01_32k.ws",
     2: "sram_type02_32k.ws",
@@ -66,15 +62,13 @@ def image(ram_type: int) -> bytes:
     return bytes(result)
 
 
-def generate(output_dir: Path) -> tuple[Path, Path, Path]:
+def generate(output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     type01 = output_dir / ROM_NAMES[1]
     type02 = output_dir / ROM_NAMES[2]
-    bootstrap = output_dir / BOOTSTRAP_NAME
     type01.write_bytes(image(1))
     type02.write_bytes(image(2))
-    bootstrap.write_bytes(bootstrap_image())
-    return type01, type02, bootstrap
+    return type01, type02
 
 
 def main() -> None:

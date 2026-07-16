@@ -22,7 +22,7 @@ from generate_input_replay_probe import (
     image,
 )
 from verify_input_replay_probe import (
-    BIOS_FNV1A64,
+    OPEN_IPL_FNV1A64,
     CAPTURE_CYCLES,
     EXPECTED_BANKS,
     EXPECTED_NORMALIZED,
@@ -84,8 +84,8 @@ def manifest(trace: Path, rom: bytes, script: bytes) -> dict[str, object]:
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 4096,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 4096,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "input_script": {

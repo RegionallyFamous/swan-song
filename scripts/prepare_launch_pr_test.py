@@ -316,10 +316,17 @@ class HandoffTests(unittest.TestCase):
         self.assertTrue(
             all(HANDOFF.EXPECTED_CHANGES[path] == "A" for path in added)
         )
+        deleted = {
+            "sim/rtl/apf_console_setup_tb.sv",
+            "src/fpga/core/apf_console_setup.sv",
+        }
+        self.assertTrue(
+            all(HANDOFF.EXPECTED_CHANGES[path] == "D" for path in deleted)
+        )
         self.assertTrue(
             all(
                 HANDOFF.EXPECTED_CHANGES[path] == "M"
-                for path in required - added
+                for path in required - added - deleted
             )
         )
         self.assertTrue(

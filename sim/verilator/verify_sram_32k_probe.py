@@ -14,9 +14,8 @@ from generate_sram_32k_probe import ROM_SIZE
 from verify_trace import FIELDS_V5
 
 
-BIOS_SIZE = 4096
-BIOS_SHA256 = "ed118ffbe6e80ae7de050e729ab268d8e48fdfe37a8ab19ab0ed1b7ead1dd76c"
-BIOS_FNV1A64 = "553b98e464640b11"
+OPEN_IPL_SIZE = 4096
+OPEN_IPL_FNV1A64 = "bcae6dfa69fd72ab"
 ROM_SHA256 = {
     1: "396671b3b43a7acbde3ced5730d6490567f9acdcd3595bcd4aa81e2654c8c4f1",
     2: "028c4a2686f3d73bc18ad113e57489b444e9fde00344f9df41798f026a35b7e4",
@@ -47,13 +46,13 @@ class Expected:
 
 
 EXPECTED = (
-    Expected(732, 0x10000, 0x11, "write", 1, 0x0000, 13, 0xF0006),
-    Expected(756, 0x12000, 0x22, "write", 1, 0x2000, 14, 0xF000B),
-    Expected(780, 0x17FFF, 0x33, "write", 1, 0x7FFF, 15, 0xF0010),
-    Expected(810, 0x10000, 0x11, "read", 0, 0x0000, 16, 0xF0015),
-    Expected(834, 0x12000, 0x22, "read", 0, 0x2000, 17, 0xF0018),
-    Expected(870, 0x17FFF, 0x33, "read", 0, 0x7FFF, 18, 0xF001B),
-    Expected(894, 0x18000, 0x11, "read", 0, 0x0000, 19, 0xF001E),
+    Expected(2160, 0x10000, 0x11, "write", 1, 0x0000, 53, 0xF0006),
+    Expected(2184, 0x12000, 0x22, "write", 1, 0x2000, 54, 0xF000B),
+    Expected(2208, 0x17FFF, 0x33, "write", 1, 0x7FFF, 55, 0xF0010),
+    Expected(2238, 0x10000, 0x11, "read", 0, 0x0000, 56, 0xF0015),
+    Expected(2262, 0x12000, 0x22, "read", 0, 0x2000, 57, 0xF0018),
+    Expected(2298, 0x17FFF, 0x33, "read", 0, 0x7FFF, 58, 0xF001B),
+    Expected(2322, 0x18000, 0x11, "read", 0, 0x0000, 59, 0xF001E),
 )
 
 
@@ -99,8 +98,8 @@ def verify_manifest(trace: Path, rom_type: int, rom: bytes) -> None:
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": ROM_FNV1A64[rom_type],
-        "bios_size": BIOS_SIZE,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": OPEN_IPL_SIZE,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,
@@ -172,13 +171,11 @@ def verify_trace(trace: Path, rom_type: int, rom: bytes) -> None:
 
 
 def verify(
-    bios_path: Path,
     type01_rom_path: Path,
     type01_trace: Path,
     type02_rom_path: Path,
     type02_trace: Path,
 ) -> None:
-    verify_input(bios_path, BIOS_SIZE, BIOS_SHA256, "SRAM bootstrap BIOS")
     traces: list[bytes] = []
     for rom_type, rom_path, trace in (
         (1, type01_rom_path, type01_trace),
@@ -197,7 +194,6 @@ def verify(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("bios", type=Path)
     parser.add_argument("type01_rom", type=Path)
     parser.add_argument("type01_trace", type=Path)
     parser.add_argument("type02_rom", type=Path)
@@ -205,7 +201,6 @@ def main() -> None:
     args = parser.parse_args()
     try:
         verify(
-            args.bios,
             args.type01_rom,
             args.type01_trace,
             args.type02_rom,

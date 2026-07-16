@@ -18,7 +18,7 @@ ROM_SIZE = 128 * 1024
 ROM_SHA256 = "ae3ea85cc6b5c3b32e1fac23d37dd4fce8ccb38ec2fcd80d4b80b868e59dc4b7"
 ROM_FNV1A64 = "2f63161f20bfa9fb"
 FRAME_SHA256 = (
-    "479ee01521330c5d2aaf824e16c33e1b458f9640d23765973aac472bf4a0bfd7",
+    "3b5d5bb2e0837d1687e7d5fbfcdff8c3b7ce8c27a12923b9fb98b53728cc89b1",
     "3d4dc04e7d09202bd36b2401600bdb00c4489b89888bd7e4c52520a3e7e0c10b",
 )
 FILE_SHA256 = {
@@ -40,16 +40,16 @@ FAIL_MESSAGE_OFFSET = 0x1EDD2
 
 # cycle, address, value, access, byte-enable, offset, instruction ID, origin PC
 SRAM_EVENTS = (
-    (2616, 0x10012, 0x0000, "write", 1, 0x12, 58, 0xFFF64),
-    (2634, 0x10013, 0x0000, "write", 1, 0x13, 58, 0xFFF64),
-    (3051, 0x10014, 0x00A5, "write", 1, 0x14, 70, 0xFFF59),
-    (3054, 0x10015, 0x005A, "write", 1, 0x15, 70, 0xFFF59),
-    (5226, 0x10014, 0x5AA5, "read", 0, 0x14, 124, 0xFF13E),
-    (5334, 0x10012, 0x0000, "read", 0, 0x12, 127, 0xFF174),
-    (5412, 0x10014, 0xA55A, "write", 3, 0x14, 130, 0xFF17C),
-    (5448, 0x10012, 0xC33C, "write", 3, 0x12, 131, 0xFF183),
-    (5490, 0x10014, 0xA55A, "read", 0, 0x14, 132, 0xFF18A),
-    (5574, 0x10012, 0xC33C, "read", 0, 0x12, 135, 0xFF193),
+    (4344, 0x10012, 0x0000, "write", 1, 0x12, 105, 0xFFF64),
+    (4362, 0x10013, 0x0000, "write", 1, 0x13, 105, 0xFFF64),
+    (4779, 0x10014, 0x00A5, "write", 1, 0x14, 117, 0xFFF59),
+    (4782, 0x10015, 0x005A, "write", 1, 0x15, 117, 0xFFF59),
+    (6954, 0x10014, 0x5AA5, "read", 0, 0x14, 171, 0xFF13E),
+    (7062, 0x10012, 0x0000, "read", 0, 0x12, 174, 0xFF174),
+    (7140, 0x10014, 0xA55A, "write", 3, 0x14, 177, 0xFF17C),
+    (7176, 0x10012, 0xC33C, "write", 3, 0x12, 178, 0xFF183),
+    (7218, 0x10014, 0xA55A, "read", 0, 0x14, 179, 0xFF18A),
+    (7302, 0x10012, 0xC33C, "read", 0, 0x12, 182, 0xFF193),
 )
 
 
@@ -209,8 +209,8 @@ def verify_manifest(trace: Path) -> None:
         "completed_frames": 2,
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64,
-        "bios_size": 8192,
-        "bios_fnv1a64": "ef7d73ef979bfc94",
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": "de968891eff736c1",
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {
@@ -282,7 +282,7 @@ def verify_cpu(rows: list[dict[str, str]]) -> None:
     for failure_pc in (0xFF147, 0xFF155, 0xFF167):
         if failure_pc in pcs:
             raise ValueError(f"CPU entered failure path at {failure_pc:05x}")
-    if len(pcs) != 150 or pcs[-1] != 0xFF170:
+    if len(pcs) != 180 or pcs[-1] != 0xFF170:
         raise ValueError("unexpected filtered CPU path or terminal HLT")
 
 
@@ -318,7 +318,7 @@ def verify(directory: Path, trace: Path, frames: tuple[Path, Path]) -> None:
     verify_manifest(trace)
     rows = read_trace(trace)
     counts = Counter(row["event"] for row in rows)
-    if counts != Counter(cpu=150, mem=10, bg_cell=4154):
+    if counts != Counter(cpu=180, mem=10, bg_cell=4123):
         raise ValueError(f"unexpected trace event counts: {counts}")
     verify_sram(rows)
     verify_cpu(rows)

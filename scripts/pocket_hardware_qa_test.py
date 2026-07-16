@@ -107,7 +107,8 @@ def compact_896k_rom() -> bytes:
 
 
 def synthetic_rom(
-    *, color: bool, save_type: int, marker: int, rtc: bool = False
+    *, color: bool, save_type: int, marker: int, rtc: bool = False,
+    word_width: int = 16, owner_writable: bool = False,
 ) -> bytes:
     """Return a checksummed 64 KiB inventory fixture with exact footer type."""
 
@@ -116,10 +117,10 @@ def synthetic_rom(
     footer[:5] = b"\xEA\x00\x00\x00\xF0"
     footer[7] = int(color)
     footer[8] = marker
-    footer[9] = 1
+    footer[9] = 0x81 if owner_writable else 0x01
     footer[10] = 0
     footer[11] = save_type
-    footer[12] = 4
+    footer[12] = 4 if word_width == 16 else 0
     footer[13] = int(rtc)
     result[-16:] = footer
     result[-2:] = (sum(result[:-2]) & 0xFFFF).to_bytes(2, "little")
@@ -173,25 +174,34 @@ class PocketHardwareQATest(unittest.TestCase):
                 ROOT / "src/support/chip32.bin.hex",
             )
         )
-        (self.private / "bw.rom").write_bytes(bytes(4096))
-        (self.private / "color.rom").write_bytes(bytes(8192))
         (self.private / "horizontal.ws").write_bytes(
-            synthetic_rom(color=False, save_type=0x01, marker=0x61)
+            synthetic_rom(
+                color=False, save_type=0x01, marker=0x61, word_width=8
+            )
         )
         (self.private / "vertical.wsc").write_bytes(
-            synthetic_rom(color=True, save_type=0x20, marker=0x62, rtc=True)
+            synthetic_rom(
+                color=True, save_type=0x20, marker=0x62, rtc=True,
+                word_width=8,
+            )
         )
         extra_save_roms = (
-            ("sram02.ws", False, 0x02, 0x63),
-            ("sram03.ws", False, 0x03, 0x64),
-            ("sram04.ws", False, 0x04, 0x65),
-            ("sram05.ws", False, 0x05, 0x66),
-            ("eeprom10.wsc", True, 0x10, 0x67),
-            ("eeprom50.wsc", True, 0x50, 0x68),
+            ("sram02.ws", False, 0x02, 0x63, 16, False),
+            ("sram03.ws", False, 0x03, 0x64, 16, False),
+            ("sram04.ws", False, 0x04, 0x65, 8, True),
+            ("sram05.ws", False, 0x05, 0x66, 16, True),
+            ("eeprom10.wsc", True, 0x10, 0x67, 8, True),
+            ("eeprom50.wsc", True, 0x50, 0x68, 16, True),
         )
-        for filename, color, save_type, marker in extra_save_roms:
+        for filename, color, save_type, marker, word_width, owner_writable in extra_save_roms:
             (self.private / filename).write_bytes(
-                synthetic_rom(color=color, save_type=save_type, marker=marker)
+                synthetic_rom(
+                    color=color,
+                    save_type=save_type,
+                    marker=marker,
+                    word_width=word_width,
+                    owner_writable=owner_writable,
+                )
             )
         (self.private / "sram03.ws").write_bytes(
             sram_persistence_probe.image(0x03, "ws")
@@ -227,10 +237,10 @@ class PocketHardwareQATest(unittest.TestCase):
                     "raw_rbf_path": str(self.raw_rbf),
                     "installed_bitstream_path": str(self.installed),
                 },
-                "bios": [
-                    {"id": "bw", "path": str(self.private / "bw.rom")},
-                    {"id": "color", "path": str(self.private / "color.rom")},
-                ],
+                "open_ipl": {
+                    "identity": hardware_qa.OPEN_IPL_IDENTITY,
+                    "variants": list(hardware_qa.REQUIRED_OPEN_IPL_VARIANTS),
+                },
                 "roms": [
                     {
                         "id": "horizontal-sram", "title": "Synthetic horizontal",
@@ -365,9 +375,8 @@ class PocketHardwareQATest(unittest.TestCase):
                     snapshots = []
                     for model, size in hardware_qa.CONSOLE_EEPROM_SNAPSHOT_SIZES.items():
                         for stage in hardware_qa.CONSOLE_EEPROM_SNAPSHOT_STAGES:
-                            fill = 0x31 if stage == "factory-created" else 0xA7
                             snapshots.append((
-                                f"console-eeprom {model} {stage}", bytes([fill]) * size
+                                f"console-eeprom {model} {stage}", bytes([0x31]) * size
                             ))
                 elif spec.case_id == "all_save_types_lifecycle" and need.kinds == ("save",):
                     snapshots = []
@@ -769,8 +778,6 @@ class PocketHardwareQATest(unittest.TestCase):
                     staging_dir=staging_root,
                     package=output,
                     provenance=provenance,
-                    bw_bios=None,
-                    color_bios=None,
                     verify_release=True,
                     expected_package_sha256=hashlib.sha256(
                         output.read_bytes()
@@ -851,35 +858,32 @@ class PocketHardwareQATest(unittest.TestCase):
         }
         self.assertEqual(documented_types, set(hardware_qa.SAVE_TYPE_PAYLOAD_BYTES))
 
-    def test_wrong_size_bios_inventory_and_physical_case_fail_closed(self) -> None:
-        cases = {spec.case_id: spec for spec in CASE_SPECS}
+    def test_open_ipl_inventory_identity_and_variants_fail_closed(self) -> None:
+        _metadata, environment = hardware_qa.build_environment(self.inventory)
         self.assertEqual(
-            set(cases["wrong_size_bios_negative"].checks),
+            environment["open_ipl"],
             {
-                "bw_4095_rejected", "bw_4097_rejected", "color_8191_rejected",
-                "color_8193_rejected", "no_game_execution", "exact_sizes_recover",
+                "identity": hardware_qa.OPEN_IPL_IDENTITY,
+                "variants": list(hardware_qa.REQUIRED_OPEN_IPL_VARIANTS),
             },
         )
 
-        for filename, sizes in (("bw.rom", (4095, 4097)), ("color.rom", (8191, 8193))):
-            path = self.private / filename
-            original = path.read_bytes()
-            for size in sizes:
-                with self.subTest(filename=filename, size=size):
-                    path.write_bytes(bytes(size))
-                    with self.assertRaisesRegex(ValueError, rf"{filename} with"):
-                        hardware_qa.build_environment(self.inventory)
-            path.write_bytes(original)
+        original = self.inventory.read_text(encoding="utf-8")
+        inventory = json.loads(original)
+        inventory["hardware_qa_inventory"]["open_ipl"]["identity"] = "unknown"
+        self.inventory.write_text(json.dumps(inventory), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "open_ipl identity must be"):
+            hardware_qa.build_environment(self.inventory)
 
-        document = self.accepted_fixture()
-        case = next(
-            item for item in document["hardware_qa"]["cases"]
-            if item["id"] == "wrong_size_bios_negative"
-        )
-        case["checks"].pop("color_8193_rejected")
-        self.write_manifest(document)
-        with self.assertRaisesRegex(ValueError, "checks has invalid members"):
-            verify_manifest(self.manifest, self.inventory)
+        self.inventory.write_text(original, encoding="utf-8")
+        inventory = json.loads(original)
+        inventory["hardware_qa_inventory"]["open_ipl"]["variants"].pop()
+        self.inventory.write_text(json.dumps(inventory), encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "Open IPL variants must exactly match"
+        ):
+            hardware_qa.build_environment(self.inventory)
+        self.inventory.write_text(original, encoding="utf-8")
 
     def test_all_save_types_inventory_and_snapshots_fail_closed(self) -> None:
         _metadata, environment = hardware_qa.build_environment(self.inventory)
@@ -1130,7 +1134,7 @@ class PocketHardwareQATest(unittest.TestCase):
 
     def test_settings_buffer_and_interface_catalog_mutations_fail_closed(self) -> None:
         cases = {spec.case_id: spec for spec in CASE_SPECS}
-        self.assertEqual(len(CASE_SPECS), 33)
+        self.assertEqual(len(CASE_SPECS), 31)
         _metadata, environment = hardware_qa.build_environment(self.inventory)
         self.assertEqual(
             environment["core"]["persistent_settings"],
@@ -1422,7 +1426,7 @@ class PocketHardwareQATest(unittest.TestCase):
             item for item in document["hardware_qa"]["cases"]
             if item["id"] == "console_eeprom_lifecycle"
         )
-        self.assertEqual(len(case["artifact_ids"]), 17)
+        self.assertEqual(len(case["artifact_ids"]), 13)
         self.assertEqual(
             set(case["rom_ids"]), {"horizontal-sram", "vertical-eeprom-rtc"}
         )
@@ -1462,23 +1466,6 @@ class PocketHardwareQATest(unittest.TestCase):
         artifact["sha256"] = hashlib.sha256(contents).hexdigest()
         self.write_manifest(document)
         with self.assertRaisesRegex(ValueError, "exact fixed 2048-byte image"):
-            verify_manifest(self.manifest, self.inventory)
-
-        document = self.accepted_fixture()
-        artifacts = document["hardware_qa"]["artifacts"]
-        factory = next(
-            item for item in artifacts
-            if item["label"] == "console-eeprom mono factory-created"
-        )
-        edited = next(
-            item for item in artifacts
-            if item["label"] == "console-eeprom mono setup-edited"
-        )
-        contents = (self.evidence / factory["path"]).read_bytes()
-        (self.evidence / edited["path"]).write_bytes(contents)
-        edited["sha256"] = hashlib.sha256(contents).hexdigest()
-        self.write_manifest(document)
-        with self.assertRaisesRegex(ValueError, "setup edit did not change"):
             verify_manifest(self.manifest, self.inventory)
 
     def test_controls_behavior_is_recorded_without_assuming_outcome(self) -> None:
@@ -1548,7 +1535,7 @@ class PocketHardwareQATest(unittest.TestCase):
 
         self.assertEqual(self.manifest.read_bytes(), manifest_before)
         self.assertEqual(self.inventory.read_bytes(), inventory_before)
-        self.assertIn("0 pass / 0 fail / 33 pending", report)
+        self.assertIn("0 pass / 0 fail / 31 pending", report)
         self.assertIn("Checking boxes here does not update evidence", report)
         self.assertIn("Captured times, sizes, hashes", report)
         for spec in CASE_SPECS:
@@ -1579,7 +1566,7 @@ class PocketHardwareQATest(unittest.TestCase):
         all_types_plan = hardware_qa._artifact_plan(
             hardware_qa.CASE_BY_ID["all_save_types_lifecycle"]
         )
-        self.assertEqual(len(console_plan), 17)
+        self.assertEqual(len(console_plan), 13)
         self.assertEqual(len(all_types_plan), 25)
         auto_off_plan = hardware_qa._artifact_plan(
             hardware_qa.CASE_BY_ID["auto_off_dirty_save_flush"]
@@ -1627,7 +1614,7 @@ class PocketHardwareQATest(unittest.TestCase):
         failed_report = hardware_qa.render_operator_worksheet(
             self.inventory, self.manifest
         )
-        self.assertIn("0 pass / 1 fail / 32 pending", failed_report)
+        self.assertIn("0 pass / 1 fail / 30 pending", failed_report)
         self.assertIn("01. `fresh_sd_startup` — FAIL", failed_report)
         self.assertFalse(
             document["hardware_qa"]["attestation"]["physical_hardware_observed"]

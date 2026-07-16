@@ -2,11 +2,12 @@
 """Materialize the pinned Chip32 image without a network/tool dependency.
 
 The textual image is the exact output of open-fpga/bass-chip32 v1.0.0 for
-src/support/chip32.asm, including the fixed-name console EEPROM loads added
-after agg23's released WonderSwan 1.0.1 image and the bounded post-LOADF compact
-ROM validation poll. Keeping the small compiled image as hexadecimal makes the
-package build offline and host-independent while the source and output hashes
-prevent the checked-in assembly and machine code from silently drifting apart.
+src/support/chip32.asm, including the fixed-name console EEPROM loads and the
+bounded post-LOADF compact-ROM validation poll. Open IPL is compiled into the
+FPGA, so this loader intentionally has no external BIOS slots or load path.
+Keeping the small compiled image as hexadecimal makes the package build offline
+and host-independent while the source and output hashes prevent the checked-in
+assembly and machine code from silently drifting apart.
 
 Primary sources:
 https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0
@@ -19,9 +20,9 @@ import hashlib
 import pathlib
 
 
-EXPECTED_ASM_SHA256 = "12dfd14ff66ae02aeda69083d8d793ac5a3149b84eaa7f80d319cec642fd98fe"
-EXPECTED_IMAGE_SHA256 = "962fbc405da1d119e8f189204fb942eb2368a6bf907da6c8009e491965daf030"
-EXPECTED_IMAGE_SIZE = 411
+EXPECTED_ASM_SHA256 = "848df9e3e0771a587a8a398ef32f13a85d9c7470a740d6f384ac99ea31d7a63f"
+EXPECTED_IMAGE_SHA256 = "7d39f22fed8ae8fe89573304ef78c5e61c593537b4d66bf7137871778bf6d7df"
+EXPECTED_IMAGE_SIZE = 293
 
 
 def sha256(data: bytes) -> str:

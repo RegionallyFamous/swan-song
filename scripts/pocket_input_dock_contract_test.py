@@ -216,7 +216,7 @@ def verify_contract(bundle: dict[str, object]) -> None:
         ".button_y(cont1_key_s[7])",
         ".button_trig_l(cont1_key_s[8])",
         ".button_trig_r(cont1_key_s[9])",
-        ".button_start(cont1_key_s[15]|console_setup_start_sys_s)",
+        ".button_start(cont1_key_s[15])",
         ".button_select(cont1_key_s[14])",
         ".dpad_up(cont1_key_s[0])",
         ".dpad_down(cont1_key_s[1])",

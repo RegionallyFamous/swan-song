@@ -86,7 +86,7 @@
           "MiSTer WonderSwan.sv retains the GPL-2.0-or-later program notice",
           "Pocket initial commit 8aee749 imported the RTL from MiSTer ccd8c2a",
           "Swan Song restores the complete upstream WonderSwan/MiSTer GPL-2.0-or-later program notice in src/fpga/core/wonderswan.sv",
-          "The audited set of all 18 files in this scope that differ from the pinned upstream commit carries an exact dated 2026-07-14 Swan Song modification notice enforced by scripts/license_manifest.py"
+          "The audited set of all 20 files in this scope that differ from the pinned upstream commit carries an exact dated 2026-07-14 Swan Song modification notice enforced by scripts/license_manifest.py"
         ],
         "review_status": "review_required",
         "blocker": "Record the final combined-work license and notice review now that the omitted program notice is restored."
@@ -269,7 +269,9 @@
       {
         "id": "regionally-famous-original-work",
         "scope": [
-          "Swan Song additions and modifications not covered by a retained third-party notice"
+          "Swan Song additions and modifications not covered by a retained third-party notice",
+          "scripts/generate_open_ipl.py",
+          "sim/verilator/open_ipl.hpp"
         ],
         "origin": {
           "repository": "https://github.com/RegionallyFamous/swansong-core",
@@ -283,6 +285,7 @@
           "THIRD-PARTY-NOTICES.txt"
         ],
         "evidence": [
+          "The Open IPL byte generator and its generated compact C++ header are project-authored Swan Song work and do not contain or accept a proprietary firmware image",
           "No explicit Regionally Famous contribution grant is checked in"
         ],
         "review_status": "review_required",

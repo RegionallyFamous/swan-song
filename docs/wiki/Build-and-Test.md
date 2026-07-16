@@ -85,13 +85,12 @@ The private corpus stays outside the repository in a permission-restricted
 folder. Public summaries use opaque identifiers and exclude filenames, raw
 hashes, ROM bytes, screenshots, traces, and logs.
 
-The local ZIP importer is dry-run by default, validates and deduplicates ROMs,
-and can safely install exact-size owner-supplied mono and Color BIOS archives.
-Only an explicit `--apply` writes bytes, and then only under the private lab;
-no ROM or BIOS is uploaded.
+The local ZIP importer is dry-run by default and validates and deduplicates
+`.ws` and `.wsc` ROMs. Only an explicit `--apply` writes bytes, and then only
+under the private lab; no ROM is uploaded. All runs use the built-in Open IPL.
 
-Do not upload a commercial ROM or BIOS to GitHub, DigitalOcean, Railway, CI,
-or a collaborator. The local runner's purpose, checks, privacy model, and
+Do not upload a commercial ROM to GitHub, DigitalOcean, Railway, CI, or a
+collaborator. The local runner's purpose, checks, privacy model, and
 limitations are documented in [Private local ROM-corpus
 testing](https://github.com/RegionallyFamous/swansong-core/blob/main/PRIVATE_CORPUS_TESTING.md).
 

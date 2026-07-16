@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Safely import owner-supplied WonderSwan ZIPs into the local private lab.
+"""Safely import owner-supplied WonderSwan ROM ZIPs into the local private lab.
 
-Dry-run is the default.  ROM/BIOS bytes are read only on this machine and are
+Dry-run is the default. ROM bytes are read only on this machine and are
 written only below run_private_corpus.py's private lab root after ``--apply``.
 Reports contain secret-keyed identities, never source paths, titles, or raw
 content hashes.
@@ -32,10 +32,6 @@ MAX_ARCHIVE_ENTRIES = 64
 MAX_EXPANSION_RATIO = 1000
 SUPPORTED_COMPRESSION = frozenset((zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED))
 ROM_SUFFIXES = frozenset((".ws", ".wsc"))
-BIOS_SPECS = {
-    "bios-mono": ("mono", 4096, "bw.rom"),
-    "bios-color": ("color", 8192, "color.rom"),
-}
 
 
 class ImportError(RuntimeError):
@@ -229,34 +225,6 @@ def _inspect_rom(source: SourceArchive, key: bytes) -> tuple[ImportCandidate, by
     )
 
 
-def _inspect_bios(
-    source: SourceArchive, key: bytes, kind: str
-) -> tuple[ImportCandidate, bytes]:
-    model, exact_size, destination = BIOS_SPECS[kind]
-    archive_body = _read_archive(source.path)
-    token = _archive_token(key, archive_body)
-    bios = _read_member(
-        archive_body, maximum_expanded=exact_size, required_suffixes=None
-    )
-    if len(bios) != exact_size:
-        raise ImportError("bios_wrong_size")
-    case_id = "bios-" + corpus._opaque_bytes(
-        key, b"bios-" + model.encode("ascii"), bios
-    )
-    return (
-        ImportCandidate(
-            source=source,
-            source_token=token,
-            case_id=case_id,
-            kind=kind,
-            model=model,
-            size=len(bios),
-            destination_name=destination,
-        ),
-        bios,
-    )
-
-
 def _discover_root(
     path: Path, key: bytes, root_index: int
 ) -> tuple[list[SourceArchive], list[dict[str, Any]], int]:
@@ -338,10 +306,7 @@ def _destination_state(path: Path, expected: bytes) -> str:
 
 
 def _rescan(candidate: ImportCandidate, key: bytes) -> bytes:
-    if candidate.kind == "rom":
-        rescanned, data = _inspect_rom(candidate.source, key)
-    else:
-        rescanned, data = _inspect_bios(candidate.source, key, candidate.kind)
+    rescanned, data = _inspect_rom(candidate.source, key)
     if rescanned.source_token != candidate.source_token or rescanned.case_id != candidate.case_id:
         raise ImportError("source_changed_after_scan")
     return data
@@ -351,14 +316,9 @@ def _scan(args: argparse.Namespace, key: bytes) -> ScanResult:
     discovered: list[SourceArchive] = []
     cases: list[dict[str, Any]] = []
     ignored = 0
-    bios_paths = {
-        value.expanduser().absolute()
-        for value in (args.bios_mono, args.bios_color)
-        if value is not None
-    }
     for root_index, root in enumerate(args.sources):
         found, rejected, root_ignored = _discover_root(root, key, root_index)
-        discovered.extend(item for item in found if item.path not in bios_paths)
+        discovered.extend(found)
         cases.extend(rejected)
         ignored += root_ignored
     discovered.sort(key=lambda item: item.path.as_posix().casefold())
@@ -390,27 +350,6 @@ def _scan(args: argparse.Namespace, key: bytes) -> ScanResult:
             continue
         candidates[candidate.case_id] = candidate
 
-    for kind, path in (("bios-mono", args.bios_mono), ("bios-color", args.bios_color)):
-        if path is None:
-            continue
-        source = SourceArchive(
-            path.expanduser().absolute(),
-            _source_id(key, len(args.sources) + len(candidates), kind),
-        )
-        try:
-            candidate, _data = _inspect_bios(source, key, kind)
-        except ImportError as error:
-            cases.append(
-                {
-                    "case_id": source.source_id,
-                    "kind": kind,
-                    "status": "rejected",
-                    "reason": error.code,
-                }
-            )
-            continue
-        candidates[candidate.case_id] = candidate
-
     return ScanResult(
         candidates=tuple(sorted(candidates.values(), key=lambda item: item.case_id)),
         cases=tuple(cases),
@@ -430,8 +369,7 @@ def _apply_or_plan(
     planned: list[tuple[ImportCandidate, Path]] = []
     already_present = 0
     for candidate in scan.candidates:
-        destination_root = lab.roms if candidate.kind == "rom" else lab.bios
-        destination = destination_root / candidate.destination_name
+        destination = lab.roms / candidate.destination_name
         try:
             destination_info = destination.lstat()
         except FileNotFoundError:
@@ -543,7 +481,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("sources", nargs="+", type=Path, help="ZIP file or directory root")
     result.add_argument("--lab-root", type=Path, default=corpus.DEFAULT_LAB_ROOT)
     result.add_argument(
-        "--apply", action="store_true", help="write validated ROM/BIOS bytes to the private lab"
+        "--apply", action="store_true", help="write validated ROM bytes to the private lab"
     )
     result.add_argument(
         "--select", action="append", default=[], metavar="TEXT", help="include matching ZIP paths"
@@ -552,8 +490,6 @@ def parser() -> argparse.ArgumentParser:
         "--exclude", action="append", default=[], metavar="TEXT", help="exclude matching ZIP paths"
     )
     result.add_argument("--limit", type=_positive_limit, help="inspect at most this many ROM ZIPs")
-    result.add_argument("--bios-mono", type=Path, help="explicit 4-KiB mono BIOS ZIP")
-    result.add_argument("--bios-color", type=Path, help="explicit 8-KiB Color BIOS ZIP")
     return result
 
 
@@ -581,7 +517,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "archives_selected": scan.archives_selected,
                 "valid_unique_roms": sum(item.kind == "rom" for item in scan.candidates),
                 "duplicate_roms": scan.duplicate_roms,
-                "bios_images": sum(item.kind != "rom" for item in scan.candidates),
                 "ignored_non_archives": scan.ignored_non_archives,
                 "planned_new_files": planned,
                 "already_present": already_present,

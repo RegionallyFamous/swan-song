@@ -1,12 +1,15 @@
 `timescale 1ps/1ps
 
-// Exercises the real GHDL-translated SwanTop scheduler with a project-authored
-// mono BIOS. The program performs one external ROM read, one cartridge-SRAM
-// write, and one SRAM readback, publishing the read values into IRAM. Pause is
-// asserted while each one-clk_sys request pulse is live. A deliberately slow
-// memory model completes the transaction while the console is frozen.
+// Exercises the real GHDL-translated SwanTop scheduler from the built-in mono
+// Open IPL. The IPL locks its boot ROM and enters a synthetic cartridge whose
+// program performs one external ROM read, one cartridge-SRAM write, and one
+// SRAM readback, publishing the read values into IRAM. Pause is asserted while
+// each watched one-clk_sys request pulse is live. A deliberately slow memory
+// model completes the watched transaction while the console is frozen.
 module swantop_menu_pause_tb;
   localparam [24:0] ROM_ADDRESS = 25'h0000000;
+  localparam [24:0] CARTRIDGE_PROGRAM_ADDRESS = 25'h0000100;
+  localparam [24:0] CARTRIDGE_RESET_ADDRESS = 25'h000fff0;
   localparam [24:0] SRAM_ADDRESS = 25'h1000000;
   localparam [15:0] ROM_SENTINEL = 16'h4d52;
   localparam [15:0] SRAM_INITIAL = 16'hd00d;
@@ -48,10 +51,8 @@ module swantop_menu_pause_tb;
   reg [7:0] romtype = 8'd0;
   reg [7:0] ramtype = 8'h01;
   reg hasRTC = 1'b1;
-  reg [12:0] bios_wraddr = 13'd0;
-  reg [15:0] bios_wrdata = 16'd0;
-  reg bios_wr = 1'b0;
-  reg bios_wrcolor = 1'b0;
+  reg open_ipl_word_width = 1'b1;
+  reg open_ipl_protect_owner_area = 1'b1;
   reg isColor = 1'b0;
   reg fastforward = 1'b0;
   reg turbo = 1'b0;
@@ -140,10 +141,8 @@ module swantop_menu_pause_tb;
       .romtype(romtype),
       .ramtype(ramtype),
       .hasRTC(hasRTC),
-      .bios_wraddr(bios_wraddr),
-      .bios_wrdata(bios_wrdata),
-      .bios_wr(bios_wr),
-      .bios_wrcolor(bios_wrcolor),
+      .open_ipl_word_width(open_ipl_word_width),
+      .open_ipl_protect_owner_area(open_ipl_protect_owner_area),
       .pixel_out_addr(pixel_out_addr),
       .pixel_out_data(pixel_out_data),
       .pixel_out_we(pixel_out_we),
@@ -206,87 +205,60 @@ module swantop_menu_pause_tb;
     end
   endtask
 
-  task automatic write_bios_word(
-      input [11:0] byte_address,
-      input [15:0] value
-  );
+  // A 64 KiB cartridge image. The footer reset vector jumps from FFFF:0000 to
+  // 2000:0100, keeping offset 0000 free for the watched ROM data read. Words
+  // are little-endian, exactly as they appear on the 16-bit cartridge bus.
+  function automatic [15:0] cartridge_word(input [24:0] byte_address);
     begin
-      @(negedge clk);
-      bios_wraddr = {1'b0, byte_address};
-      bios_wrdata = value;
-      bios_wr = 1'b1;
-      tick;
-      @(negedge clk);
-      bios_wr = 1'b0;
+      case (byte_address)
+        ROM_ADDRESS: cartridge_word = ROM_SENTINEL;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h00: cartridge_word = 16'hb8fa;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h02: cartridge_word = 16'h2000;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h04: cartridge_word = 16'hd88e;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h06: cartridge_word = 16'h00a1;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h08: cartridge_word = 16'h8900;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h0a: cartridge_word = 16'hb8c3;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h0c: cartridge_word = 16'h0000;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h0e: cartridge_word = 16'hd88e;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h10: cartridge_word = 16'h1e89;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h12: cartridge_word = 16'h0100;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h14: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h16: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h18: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h1a: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h1c: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h1e: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h20: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h22: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h24: cartridge_word = 16'h00b8;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h26: cartridge_word = 16'h8e10;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h28: cartridge_word = 16'hb8d8;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h2a: cartridge_word = 16'ha55a;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h2c: cartridge_word = 16'h00a3;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h2e: cartridge_word = 16'h9000;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h30: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h32: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h34: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h36: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h38: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h3a: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h3c: cartridge_word = 16'h9090;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h3e: cartridge_word = 16'ha190;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h40: cartridge_word = 16'h0000;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h42: cartridge_word = 16'hc389;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h44: cartridge_word = 16'h00b8;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h46: cartridge_word = 16'h8e00;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h48: cartridge_word = 16'h89d8;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h4a: cartridge_word = 16'h021e;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h4c: cartridge_word = 16'hf401;
+        CARTRIDGE_PROGRAM_ADDRESS + 25'h4e: cartridge_word = 16'hfeeb;
+        CARTRIDGE_RESET_ADDRESS + 25'h0: cartridge_word = 16'h00ea;
+        CARTRIDGE_RESET_ADDRESS + 25'h2: cartridge_word = 16'h0001;
+        CARTRIDGE_RESET_ADDRESS + 25'h4: cartridge_word = 16'h9020;
+        default: cartridge_word = 16'h9090;
+      endcase
     end
-  endtask
-
-  integer bios_index;
-  task automatic load_clean_bios;
-    begin
-      // Initialize every mono BIOS word so instruction prefetch never depends
-      // on simulator X-state choices, then install the small transaction probe.
-      @(negedge clk);
-      bios_wr = 1'b1;
-      bios_wrdata = 16'h9090;
-      for (bios_index = 0; bios_index < 2048; bios_index = bios_index + 1) begin
-        bios_wraddr = {1'b0, bios_index[10:0], 1'b0};
-        tick;
-      end
-      @(negedge clk);
-      bios_wr = 1'b0;
-
-      // CLI; read DS:0000 from ROM0; publish at IRAM 0100; write A55A to
-      // cartridge SRAM; read it back; publish at IRAM 0102; halt. NOP runs
-      // leave time for the test to arm the next transaction in fast-forward.
-      write_bios_word(12'h000, 16'hb8fa);
-      write_bios_word(12'h002, 16'h2000);
-      write_bios_word(12'h004, 16'hd88e);
-      write_bios_word(12'h006, 16'h00a1);
-      write_bios_word(12'h008, 16'h8900);
-      write_bios_word(12'h00a, 16'hb8c3);
-      write_bios_word(12'h00c, 16'h0000);
-      write_bios_word(12'h00e, 16'hd88e);
-      write_bios_word(12'h010, 16'h1e89);
-      write_bios_word(12'h012, 16'h0100);
-      write_bios_word(12'h014, 16'h9090);
-      write_bios_word(12'h016, 16'h9090);
-      write_bios_word(12'h018, 16'h9090);
-      write_bios_word(12'h01a, 16'h9090);
-      write_bios_word(12'h01c, 16'h9090);
-      write_bios_word(12'h01e, 16'h9090);
-      write_bios_word(12'h020, 16'h9090);
-      write_bios_word(12'h022, 16'h9090);
-      write_bios_word(12'h024, 16'h00b8);
-      write_bios_word(12'h026, 16'h8e10);
-      write_bios_word(12'h028, 16'hb8d8);
-      write_bios_word(12'h02a, 16'ha55a);
-      write_bios_word(12'h02c, 16'h00a3);
-      write_bios_word(12'h02e, 16'h9000);
-      write_bios_word(12'h030, 16'h9090);
-      write_bios_word(12'h032, 16'h9090);
-      write_bios_word(12'h034, 16'h9090);
-      write_bios_word(12'h036, 16'h9090);
-      write_bios_word(12'h038, 16'h9090);
-      write_bios_word(12'h03a, 16'h9090);
-      write_bios_word(12'h03c, 16'h9090);
-      write_bios_word(12'h03e, 16'ha190);
-      write_bios_word(12'h040, 16'h0000);
-      write_bios_word(12'h042, 16'hc389);
-      write_bios_word(12'h044, 16'h00b8);
-      write_bios_word(12'h046, 16'h8e00);
-      write_bios_word(12'h048, 16'h89d8);
-      write_bios_word(12'h04a, 16'h021e);
-      write_bios_word(12'h04c, 16'hf401);
-      write_bios_word(12'h04e, 16'hfeeb);
-
-      // Reset starts at FFFF:0000 (physical FFFF0). Jump to FF00:0000, the
-      // first byte of the 4 KiB mono BIOS window at physical FF000.
-      write_bios_word(12'hff0, 16'h00ea);
-      write_bios_word(12'hff2, 16'h0000);
-      write_bios_word(12'hff4, 16'h90ff);
-    end
-  endtask
+  endfunction
 
   // External requests are single clk_sys pulses. Capture their edge in the
   // independent RAM domain, then delay service well beyond nominal SDRAM M3
@@ -329,7 +301,12 @@ module swantop_menu_pause_tb;
         if (read_pending)
           $fatal(1, "external memory accepted an overlapping read");
         captured_read_addr <= EXTRAM_addr;
-        read_delay <= 6'd14;
+        // Cartridge instruction fetches use normal memory timing. The two
+        // watched reads are delayed so their return arrives during pause.
+        if (EXTRAM_addr == ROM_ADDRESS || EXTRAM_addr == SRAM_ADDRESS)
+          read_delay <= 6'd14;
+        else
+          read_delay <= 6'd3;
         read_pending <= 1'b1;
       end
       if (EXTRAM_write && !prev_write_ram) begin
@@ -346,14 +323,16 @@ module swantop_menu_pause_tb;
         if (read_delay != 0) begin
           read_delay <= read_delay - 1'b1;
         end else begin
-          if (captured_read_addr == ROM_ADDRESS)
-            EXTRAM_dataread <= ROM_SENTINEL;
+          if (captured_read_addr[24] == 1'b0)
+            EXTRAM_dataread <= cartridge_word(captured_read_addr);
           else if (captured_read_addr == SRAM_ADDRESS)
             EXTRAM_dataread <= sram_word;
           else
             $fatal(1, "delayed read used unexpected address %07x", captured_read_addr);
           read_pending <= 1'b0;
-          memory_read_completions <= memory_read_completions + 1;
+          if (captured_read_addr == ROM_ADDRESS ||
+              captured_read_addr == SRAM_ADDRESS)
+            memory_read_completions <= memory_read_completions + 1;
         end
       end
 
@@ -396,7 +375,7 @@ module swantop_menu_pause_tb;
           rom_read_episodes <= rom_read_episodes + 1;
         else if (EXTRAM_addr == SRAM_ADDRESS)
           sram_read_episodes <= sram_read_episodes + 1;
-        else
+        else if (EXTRAM_addr[24] != 1'b0)
           $fatal(1, "unexpected external read address %07x", EXTRAM_addr);
       end
       if (EXTRAM_write && !prev_write_sys) begin
@@ -450,11 +429,13 @@ module swantop_menu_pause_tb;
     reg response_seen;
     begin
       timeout = 0;
-      while (!(expected_write ? EXTRAM_write : EXTRAM_read) && timeout < 12000) begin
+      while (!((expected_write ? EXTRAM_write : EXTRAM_read) &&
+               EXTRAM_addr == expected_address) && timeout < 12000) begin
         tick;
         timeout = timeout + 1;
       end
-      if (!(expected_write ? EXTRAM_write : EXTRAM_read))
+      if (!((expected_write ? EXTRAM_write : EXTRAM_read) &&
+            EXTRAM_addr == expected_address))
         $fatal(1, "%s request did not arrive", label_text);
       if ((expected_write ? EXTRAM_read : EXTRAM_write) ||
           EXTRAM_addr != expected_address || EXTRAM_be != expected_be)
@@ -541,8 +522,6 @@ module swantop_menu_pause_tb;
         while (((result_marker == 1) ? rom_marker_count : sram_marker_count) == 0 &&
                timeout < 12000) begin
           tick;
-          if (EXTRAM_dataread != expected_read_data)
-            $fatal(1, "%s returned data changed before CPU consumption", label_text);
           timeout = timeout + 1;
         end
         if (((result_marker == 1) ? rom_marker_count : sram_marker_count) != 1)
@@ -605,7 +584,6 @@ module swantop_menu_pause_tb;
     if (fastforward_case != 0 && fastforward_case != 1)
       $fatal(1, "fastforward case must be 0 or 1");
 
-    load_clean_bios();
     repeat (12) tick;
     @(negedge clk);
     fastforward = fastforward_case[0];
@@ -632,7 +610,7 @@ module swantop_menu_pause_tb;
     final_idle_pause_contract();
 
     $display(
-        "PASS real SwanTop pause external transactions exactly once mode=%s ram_phase_ps=%0d; console/DMA/GPU/audio gated, refresh+RTC continue, frame/sample hold, 3-cycle resume",
+        "PASS built-in Open IPL SwanTop pause external transactions exactly once mode=%s ram_phase_ps=%0d; console/DMA/GPU/audio gated, refresh+RTC continue, frame/sample hold, 3-cycle resume",
         (fastforward_case != 0) ? "fast-forward" : "normal",
         ram_phase_ps
     );

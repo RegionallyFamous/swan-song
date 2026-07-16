@@ -23,6 +23,8 @@ entity memorymux is
       -- the upper 48 KiB of Color work RAM is currently accessible.
       color_enabled        : in  std_logic := '1';
       boot_rom_locked      : in  std_logic := '0';
+      open_ipl_word_width  : in  std_logic := '0';
+      open_ipl_protect_owner_area : in std_logic := '1';
       preserve_internal_eeprom : in std_logic;
       
       maskAddr             : in  std_logic_vector(23 downto 0);
@@ -62,11 +64,6 @@ entity memorymux is
       
       Color_addr           : in  std_logic_vector(7 downto 0);
       Color_dataread       : out std_logic_vector(15 downto 0);    
-      
-      bios_wraddr          : in  std_logic_vector(12 downto 0);
-      bios_wrdata          : in  std_logic_vector(15 downto 0);
-      bios_wr              : in  std_logic;
-      bios_wrcolor         : in  std_logic;
       
       RegBus_Din           : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr           : in  std_logic_vector(BUS_busadr-1 downto 0);
@@ -190,9 +187,7 @@ begin
    -- inherited C0-C3 path exact for Bandai 2001 and only expose the extended
    -- interface when the cartridge footer selects the 2003 mapper.
    -- romtype carries footer RTC byte -3, despite its inherited name. Existing
-   -- ROM metadata uses canonical value 01 as the Bandai 2003 selector. Keep
-   -- this signal name stable because the checked-in SignalTap setup refers to
-   -- it hierarchically.
+   -- ROM metadata uses canonical value 01 as the Bandai 2003 selector.
    mapper_2003_selected <= '1' when romtype = x"01" else '0';
    mapper_RegBus_Adr <= x"C0" when mapper_2003_selected = '1' and RegBus_Adr = x"CF" else
                         x"C1" when mapper_2003_selected = '1' and RegBus_Adr = x"D0" else
@@ -441,9 +436,8 @@ begin
       clk         => clk,
       address     => BIOS_address,
       data        => BIOS_data,
-      bios_wraddr => bios_wraddr(11 downto 1),
-      bios_wrdata => bios_wrdata,
-      bios_wr     => bios_wr
+      word_width  => open_ipl_word_width,
+      protect_owner_area => open_ipl_protect_owner_area
    );
    
    BIOS_addressColor <= std_logic_vector(cpu_addr(12 downto 1));
@@ -453,9 +447,8 @@ begin
       clk         => clk,
       address     => BIOS_addressColor,
       data        => BIOS_dataColor,
-      bios_wraddr => bios_wraddr(12 downto 1),
-      bios_wrdata => bios_wrdata,
-      bios_wr     => bios_wrcolor
+      word_width  => open_ipl_word_width,
+      protect_owner_area => open_ipl_protect_owner_area
    );
       
    cpu_dataread <= cpu_dataread_16 when cpu_unaligned = '0' else x"00" & cpu_dataread_16(15 downto 8);

@@ -25,18 +25,18 @@ EXPECTED_BANKS = (
     (0xC3, 0x50, MARKER_ORIGIN_PCS[2]),
 )
 EXPECTED_ROWS = (
-    (1247, 0xC0, 0x49, 30, MARKER_ORIGIN_PCS[0]),
-    (1343, 0xC2, 0x4E, 32, MARKER_ORIGIN_PCS[1]),
-    (5279, 0xC3, 0x50, 160, MARKER_ORIGIN_PCS[2]),
+    (2447, 0xC0, 0x49, 61, MARKER_ORIGIN_PCS[0]),
+    (2543, 0xC2, 0x4E, 63, MARKER_ORIGIN_PCS[1]),
+    (5183, 0xC3, 0x50, 149, MARKER_ORIGIN_PCS[2]),
 )
 EXPECTED_NORMALIZED = b"1000 0002\n5000 0000\n"
 FRAME_SIZE = 224 * 144 * 3
 ROM_SHA256 = "7a9b26d93e6cf7a056dfc0ab60baed180e67974a62645d7b275081b8466c8f15"
 SCRIPT_SHA256 = "a6bb22586076045d1e827d5d8221cd460c71a43d9c8ee8fc6f62c8d1bba95fd3"
-TRACE_SHA256 = "c7d21e24e4a60a84b265f45d8876a5dfcd3c650d4c89b5132099fc70f8ec5ad8"
+TRACE_SHA256 = "9ea58fe18e1aa23dc35bc1997f69b36245c9e029d274da5406edf063550538e1"
 FRAME_SHA256 = "b404fb94d84fa4bd527d8eabaf2d13393f5c43f03d838c4aa2a8c95855aef511"
 CAPTURE_CYCLES = 445_313
-BIOS_FNV1A64 = "5e1a15a782d2bc94"
+OPEN_IPL_FNV1A64 = "bcae6dfa69fd72ab"
 
 POPULATED_BANK_FIELDS = {
     "cycle",
@@ -180,8 +180,8 @@ def verify_no_input_trace(path: Path) -> None:
         "completed_frames": 1,
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": fnv1a64(image()),
-        "bios_size": 4096,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 4096,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {
@@ -231,8 +231,8 @@ def verify_manifest(
         "completed_frames",
         "rom_size",
         "rom_fnv1a64",
-        "bios_size",
-        "bios_fnv1a64",
+        "open_ipl_size",
+        "open_ipl_fnv1a64",
         "iram_initial_state",
         "savestate_inputs_asserted",
         "input_script",
@@ -261,8 +261,8 @@ def verify_manifest(
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 4096,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 4096,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {

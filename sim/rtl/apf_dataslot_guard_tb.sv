@@ -90,14 +90,12 @@ module apf_dataslot_guard_tb;
         policy_max_size = 48'd16777216;
       end
       16'd9: begin
-        // Mono BIOS: exact host-to-core image.
-        policy_size_mode = 2'd1;
-        policy_exact_size = 48'd4096;
+        // Retired external monochrome BIOS slot: permanently disallowed.
+        policy_allow_write = 1'b0;
       end
       16'd10: begin
-        // Color BIOS: exact host-to-core image.
-        policy_size_mode = 2'd1;
-        policy_exact_size = 48'd8192;
+        // Retired external Color BIOS slot: permanently disallowed.
+        policy_allow_write = 1'b0;
       end
       16'd11: begin
         // Save: both directions, exact bound supplied after ROM footer decode.
@@ -237,11 +235,11 @@ module apf_dataslot_guard_tb;
     issue_request(1'b1, 16'hbeef, 48'd4096, RESULT_NOT_ALLOWED, 1'b0);
     issue_request(1'b0, 16'd0, 48'd0, RESULT_NOT_ALLOWED, 1'b0);
 
-    // Exact-size slots reject both truncation and oversize, then accept exact.
+    // Retired firmware IDs fail closed for every former image size.
     issue_request(1'b1, 16'd9, 48'd4095, RESULT_NOT_ALLOWED, 1'b0);
     issue_request(1'b1, 16'd9, 48'd4097, RESULT_NOT_ALLOWED, 1'b0);
-    issue_request(1'b1, 16'd9, 48'd4096, RESULT_READY, 1'b0);
-    issue_request(1'b1, 16'd10, 48'd8192, RESULT_READY, 1'b0);
+    issue_request(1'b1, 16'd9, 48'd4096, RESULT_NOT_ALLOWED, 1'b0);
+    issue_request(1'b1, 16'd10, 48'd8192, RESULT_NOT_ALLOWED, 1'b0);
 
     // Console-owned EEPROM slots are bidirectional and exact. They are not
     // captured as cartridge-save lengths and reject either truncation or
@@ -266,9 +264,9 @@ module apf_dataslot_guard_tb;
     // A legal request whose policy or loader is not ready must return the
     // official retry/check-later result (2), then succeed when retried.
     write_loader_ready = 1'b0;
-    issue_request(1'b1, 16'd9, 48'd4096, RESULT_CHECK_LATER, 1'b0);
+    issue_request(1'b1, 16'd12, 48'd128, RESULT_CHECK_LATER, 1'b0);
     write_loader_ready = 1'b1;
-    issue_request(1'b1, 16'd9, 48'd4096, RESULT_READY, 1'b0);
+    issue_request(1'b1, 16'd12, 48'd128, RESULT_READY, 1'b0);
     force_bounds_not_ready = 1'b1;
     // Even a currently mismatched size is retryable until dynamic bounds exist.
     issue_request(1'b1, 16'd11, 48'd139, RESULT_CHECK_LATER, 1'b1);
@@ -303,8 +301,8 @@ module apf_dataslot_guard_tb;
     // Inputs may change while a request is in flight; the latched first request
     // remains authoritative, and the changed level is not treated as a second.
     request_write = 1'b1;
-    request_id = 16'd9;
-    request_size = 48'd4096;
+    request_id = 16'd12;
+    request_size = 48'd128;
     request_valid = 1'b1;
     @(posedge clk);
     #1;

@@ -4,7 +4,7 @@
 The default operation is a read-only plan.  ``--apply`` atomically creates a
 private directory outside the repository, materializes the reviewed inventory
 template, and generates the open 896 KiB compact-ROM probe.  It never copies,
-searches for, or downloads BIOS, firmware, commercial ROM, save, or capture
+searches for, or downloads firmware, commercial ROM, save, or capture
 bytes.
 """
 
@@ -32,13 +32,12 @@ TEMPLATE = ROOT / "hardware-qa-inventory.example.json"
 SIMULATOR_TOOLS = ROOT / "sim" / "verilator"
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 UTC_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
-EXPECTED_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V2"
+EXPECTED_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V3"
+OPEN_IPL_IDENTITY = "open-bootstrap-v3"
 EXPECTED_PROBE_SHA256 = (
     "b4a2c985906ac04c6622080bb1f1f3ac4b3895784c5594f4ba97cd45e6935979"
 )
 EXPECTED_PERSISTENCE_OUTPUT_SHA256 = {
-    "sram_persistence_boot_color.bin": "a0721e517f41a503351bbbfda064b79885d14cf7f6a235265d245a023755ed43",
-    "sram_persistence_boot_mono.bin": "01048b2f2f4e512eea6859842b943405f2f897361437018316ac53de98c97324",
     "sram_type03_persistence.ws": "1c04f468ac445616e9613b08dd874aadc83bc214f9b192f777e845019b4c4ccb",
     "sram_type03_persistence.wsc": "1ea9323cf4300d5667eb10bde448c7b013e82d39d2e92757d792377bb6a856a1",
     "sram_type04_persistence.ws": "e44785c8c117bd10519a96a699512c16bd23889f206b763f95f1c1e40c7b36c9",
@@ -258,7 +257,7 @@ def _next_steps(output: Path) -> bytes:
     return f"""# Swan Song physical QA workspace
 
 This directory is private working material. Do not add it to Git or upload its
-firmware, BIOS, ROM, device-ID, save, or capture files.
+firmware, ROM, device-ID, save, or capture files.
 
 Already prepared:
 
@@ -274,8 +273,10 @@ Next:
 2. Put the official Pocket 2.6.0 update at `private/pocket_firmware.bin`.
 3. Put stable device identifiers in `private/pocket-device-id.txt` and
    `private/dock-device-id.txt`.
-4. Put your own 4 KiB `bw.rom`, 8 KiB `color.rom`, and selected `.ws`/`.wsc`
-   files at the paths named by `inventory.json`.
+4. No external firmware file is required for game startup. The core uses the
+   built-in `open-bootstrap-v3` Open IPL; put only your selected `.ws`/`.wsc`
+   files at the paths named by `inventory.json`. If their footer policy differs
+   from the template, update `open_ipl.variants` to the exact derived variants.
 5. Put the exact raw Quartus output at `build/output_files/ap_core.rbf` and
    stage the matching package under `sd/`.
 6. Materialize the reviewed QA-only stuck-pending Chip32 diagnostic. It is for

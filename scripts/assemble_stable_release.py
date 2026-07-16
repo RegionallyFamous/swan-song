@@ -959,8 +959,8 @@ Pocket, by Regionally Famous. This verified release was published on
 3. Merge the ZIP's `Assets`, `Cores`, and `Platforms` folders into the matching
    folders at the root of the SD card. Do not replace the entire top-level
    folders on macOS.
-4. Supply your own legally obtained `bw.rom`, `color.rom`, `.ws`, and `.wsc`
-   files; they are not included.
+4. Add your legally obtained `.ws` and `.wsc` games. Swan Song uses its
+   built-in Open IPL, so no external BIOS file is required.
 5. Start Swan Song from **openFPGA**.
 
 Read the [installation, update, rollback, and uninstall guide](https://github.com/RegionallyFamous/swansong-core/wiki/Install-Swan-Song)
@@ -990,9 +990,9 @@ update. Replacing only the core files does not roll back saves or settings.
 The package was assembled only after two distinct signed Quartus workflow
 executions produced byte-identical FPGA outputs and the exact package passed
 the required Pocket and Dock hardware protocol. The signed records establish
-distinct workflow executions, not distinct physical build hosts. BIOS files,
-games, saves, device identity, and private test captures are not included in
-these public downloads.
+distinct workflow executions, not distinct physical build hosts. Games, saves,
+device identity, and private test captures are not included in these public
+downloads; the built-in Open IPL is part of the core package.
 """
 
 
@@ -1215,8 +1215,6 @@ def assemble_release(
             staging_dir=stage,
             package=package,
             provenance=provenance,
-            bw_bios=None,
-            color_bios=None,
             verify_release=True,
             expected_package_sha256=package_digest,
             expected_provenance_sha256=provenance_digest,
@@ -1228,8 +1226,6 @@ def assemble_release(
             staging_dir=stage,
             package=package,
             provenance=provenance,
-            bw_bios=None,
-            color_bios=None,
             verify_release=True,
             expected_package_sha256=package_digest,
             expected_provenance_sha256=provenance_digest,

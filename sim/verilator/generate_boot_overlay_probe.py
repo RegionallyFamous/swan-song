@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate open mono/color boot-overlay stimuli and a tiny carrier ROM.
+"""Generate carrier ROMs for all eight built-in Open IPL footer variants.
 
-The generated boot images are simulation-only test programs, not WonderSwan
-firmware.  All outputs stay under the caller's build directory.
+The ROMs cover mono/color, 8/16-bit bus, and protected/writable owner-area
+policy through normal cartridge footers. No boot image or firmware input is
+generated.
 """
 
 from __future__ import annotations
@@ -14,76 +15,84 @@ from pathlib import Path
 ROM_SIZE = 128 * 1024
 ROM_PROGRAM_OFFSET = 0x10000
 FOOTER_SIZE = 16
-ROM_NAME = "boot_overlay_carrier.ws"
-MONO_BIOS_NAME = "boot_overlay_mono.bin"
-COLOR_BIOS_NAME = "boot_overlay_color.bin"
+VARIANTS = tuple(
+    (
+        f"{model}-word{16 if word_width else 8}-owner-"
+        f"{'protected' if protect_owner_area else 'writable'}",
+        color,
+        word_width,
+        protect_owner_area,
+    )
+    for model, color in (("mono", False), ("color", True))
+    for word_width in (False, True)
+    for protect_owner_area in (False, True)
+)
 
-# The cartridge reset vector lands here after the test boot image locks itself
-# out.  Display timing continues normally while the CPU remains in this loop.
+
+def rom_name(variant: str, color: bool, word_width: bool, protect_owner_area: bool) -> str:
+    if word_width and protect_owner_area:
+        return f"boot_overlay_{'color' if color else 'mono'}.{ 'wsc' if color else 'ws'}"
+    return f"boot_overlay_{variant.replace('-', '_')}.{ 'wsc' if color else 'ws'}"
+
+
+ROM_NAMES = {
+    variant: rom_name(variant, color, word_width, protect_owner_area)
+    for variant, color, word_width, protect_owner_area in VARIANTS
+}
+
+# The cartridge reset vector lands here after Open IPL locks itself out.
+# Display timing continues normally while the CPU remains in this loop.
 ROM_PROGRAM = bytes((0xFA, 0xEB, 0xFE))  # cli; hang: jmp hang
 
 
-def cartridge_footer() -> bytes:
+def cartridge_footer(
+    *, color: bool, word_width: bool, protect_owner_area: bool
+) -> bytes:
     return bytes(
         (
             0xEA, 0x00, 0x00, 0x00, 0xF0,  # jmp far F000:0000
             0x00,                          # maintenance / no splash bypass
             0x00,                          # developer/publisher ID
-            0x00,                          # mono cartridge
+            0x01 if color else 0x00,       # minimum system
             0x00,                          # game ID
-            0x00,                          # game version
+            0x00 if protect_owner_area else 0x80,  # owner-area policy
             0x00,                          # 1 Mbit / 128 KiB ROM
             0x00,                          # no cartridge save
-            0x04,                          # 16-bit ROM bus flag
+            0x04 if word_width else 0x00,  # ROM bus-width flag
             0x00,                          # Bandai 2001 mapper
             0x00, 0x00,                    # checksum, filled below
         )
     )
 
 
-def carrier_rom() -> bytes:
+def carrier_rom(
+    *, color: bool, word_width: bool = True, protect_owner_area: bool = True
+) -> bytes:
     image = bytearray((0xFF,)) * ROM_SIZE
     image[ROM_PROGRAM_OFFSET : ROM_PROGRAM_OFFSET + len(ROM_PROGRAM)] = ROM_PROGRAM
-    image[-FOOTER_SIZE:] = cartridge_footer()
+    image[-FOOTER_SIZE:] = cartridge_footer(
+        color=color,
+        word_width=word_width,
+        protect_owner_area=protect_owner_area,
+    )
     image[-2:] = (sum(image[:-2]) & 0xFFFF).to_bytes(2, "little")
     return bytes(image)
 
 
-def boot_image(size: int, segment: int, marker: int) -> bytes:
-    """Build a test image that reads its low-window marker then locks out."""
-
-    if (size, segment) not in ((4096, 0xFF00), (8192, 0xFE00)):
-        raise ValueError(f"unsupported test boot layout: {size}, {segment:#06x}")
-
-    image = bytearray((0x90,)) * size
-    program = bytes(
-        (
-            0xFA,                          # cli
-            0xB8, segment & 0xFF, segment >> 8,  # mov ax, segment
-            0x8E, 0xD8,                    # mov ds, ax
-            0xA1, 0x00, 0x01,              # mov ax, [0x0100]
-            0xB0, 0x01,                    # mov al, 1
-            0xE6, 0xA0,                    # out 0xa0, al (boot lockout)
-            0xEA, 0x00, 0x00, 0xFF, 0xFF,  # jmp far FFFF:0000
-        )
-    )
-    image[: len(program)] = program
-    image[0x100:0x102] = marker.to_bytes(2, "little")
-    image[-FOOTER_SIZE : -FOOTER_SIZE + 5] = bytes(
-        (0xEA, 0x00, 0x00, segment & 0xFF, segment >> 8)
-    )
-    return bytes(image)
-
-
-def generate(output_dir: Path) -> tuple[Path, Path, Path]:
+def generate(output_dir: Path) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    rom = output_dir / ROM_NAME
-    mono = output_dir / MONO_BIOS_NAME
-    color = output_dir / COLOR_BIOS_NAME
-    rom.write_bytes(carrier_rom())
-    mono.write_bytes(boot_image(4096, 0xFF00, 0xB007))
-    color.write_bytes(boot_image(8192, 0xFE00, 0xC007))
-    return rom, mono, color
+    paths: dict[str, Path] = {}
+    for variant, color, word_width, protect_owner_area in VARIANTS:
+        path = output_dir / ROM_NAMES[variant]
+        path.write_bytes(
+            carrier_rom(
+                color=color,
+                word_width=word_width,
+                protect_owner_area=protect_owner_area,
+            )
+        )
+        paths[variant] = path
+    return paths
 
 
 def main() -> None:
@@ -94,7 +103,7 @@ def main() -> None:
         paths = generate(args.output_dir)
     except (OSError, ValueError) as error:
         raise SystemExit(f"cannot generate boot-overlay probe: {error}") from error
-    for path in paths:
+    for path in paths.values():
         print(f"generated {path} ({path.stat().st_size} bytes)")
 
 

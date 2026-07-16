@@ -127,7 +127,7 @@ reserved, stale, and held gamepad packets remain blocked; only a fresh valid
 neutral type-1, type-2, or type-3 gamepad packet rearms input. The same guarded
 level crosses into the system clock through a fail-closed synchronizer and
 clears every Fast Forward latch, counter, and edge-history state. Host reset,
-Reset Core/Console Setup reset, and a new title load clear that state too.
+Reset Core, and a new title load clear that state too.
 
 Swan Song treats that same held `00B0` level as a product-level pause policy.
 A dedicated three-register level synchronizer pauses the emulated console while
@@ -135,12 +135,9 @@ PocketOS owns focus; cartridge RTC wall time and the SDRAM refresh watchdog keep
 running. Menu exit releases the console independently of the physical-input
 guard, which can remain blocked until its later neutral packet. Analogue permits
 cores to ignore `00B0` for compatibility, so pausing is Swan Song's product
-choice rather than an APF requirement. The internally injected **Console Setup**
-gesture remains armed while menu focus is held; its bounded reset/Start windows
-begin only after menu exit, and forced Start remains separate from physical PAD
-filtering. Physical hardware
-must still prove `00B0`/PAD ordering, pause/resume, audio, and display behavior on
-current firmware, including the Select + Down fallback.
+choice rather than an APF requirement. Physical hardware must still prove
+`00B0`/PAD ordering, pause/resume, audio, and display behavior on current
+firmware, including the Select + Down fallback.
 
 There is no supported openFPGA metadata mechanism for:
 

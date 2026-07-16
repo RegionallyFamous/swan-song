@@ -11,8 +11,8 @@ from pathlib import Path
 
 from generate_sdma_probe import PROGRAM, generate
 from verify_sdma_probe import (
-    DEFAULT_COLOR_BIOS_FNV1A64,
-    DEFAULT_COLOR_BIOS_SIZE,
+    DEFAULT_COLOR_OPEN_IPL_FNV1A64,
+    DEFAULT_COLOR_OPEN_IPL_SIZE,
     EXPECTED,
     EXPECTED_EVENTS,
     fnv1a64,
@@ -66,8 +66,8 @@ def write_case(
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": DEFAULT_COLOR_BIOS_SIZE,
-        "bios_fnv1a64": DEFAULT_COLOR_BIOS_FNV1A64,
+        "open_ipl_size": DEFAULT_COLOR_OPEN_IPL_SIZE,
+        "open_ipl_fnv1a64": DEFAULT_COLOR_OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,
@@ -151,7 +151,7 @@ def main() -> None:
 
         for name, updates, expected in (
             ("rom-binding", {"rom_fnv1a64": "0" * 16}, "rom_fnv1a64 mismatch"),
-            ("bios-binding", {"bios_fnv1a64": "0" * 16}, "bios_fnv1a64 mismatch"),
+            ("bios-binding", {"open_ipl_fnv1a64": "0" * 16}, "open_ipl_fnv1a64 mismatch"),
             (
                 "filter-authority",
                 {"memory_filters_active": False},

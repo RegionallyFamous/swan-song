@@ -451,9 +451,9 @@ def _validate_data(document: dict[str, Any], relative: str, platform_count: int)
         if slot.get("nonvolatile", False) and "size_maximum" not in slot:
             raise ValueError(f"{where} nonvolatile slot requires size_maximum")
     _unique(ids, f"{relative}.data.data_slots ids")
-    if sorted(ids) != [0, 9, 10, 11, 12, 13]:
+    if sorted(ids) != [0, 11, 12, 13]:
         raise ValueError(
-            f"{relative}.data.data_slots must define exactly IDs 0, 9, 10, 11, 12, 13"
+            f"{relative}.data.data_slots must define exactly IDs 0, 11, 12, 13"
         )
 
     slots_by_id = {_integer(slot["id"], f"{relative}.data.data_slots id"): slot

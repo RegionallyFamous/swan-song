@@ -25,8 +25,6 @@ release is published.
   page;
 - `signed-quartus-provenance.tar` and `release-manifest.json` when independently
   checking the two signed build origins;
-- your own legally obtained original WonderSwan and WonderSwan Color BIOS
-  dumps; and
 - your own legally obtained `.ws` and `.wsc` game images.
 
 Normal players will not need Quartus, Docker, Verilator, a virtual machine, or
@@ -61,19 +59,6 @@ and release-policy authorization before offering an explicit merge. The command
 currently refuses installation because no release is authorized. See the [Pocket SD staging
 guide](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_SD_STAGING.md).
 
-## Add the required BIOS files
-
-Swan Song does not provide or download firmware. Place your own dumps at these
-exact paths on the SD card:
-
-| System | Path | Exact size | MD5 |
-| --- | --- | ---: | --- |
-| WonderSwan | `/Assets/wonderswan/common/bw.rom` | 4,096 bytes | `54B915694731CC22E07D3FB8A00EE2DB` |
-| WonderSwan Color | `/Assets/wonderswan/common/color.rom` | 8,192 bytes | `880893BD5A7D53FFF826BD76A83D566E` |
-
-Both files are required even if you initially plan to play only one model.
-These checksums help identify the expected files; they are not download links.
-
 ## Add games
 
 Place legally obtained `.ws` and `.wsc` images anywhere below:
@@ -91,7 +76,8 @@ Swan Song installs as `/Cores/RegionallyFamous.SwanSong`, so it can remain next
 to `/Cores/agg23.WonderSwan`. Do not rename one core folder into the other.
 Pocket derives settings and console-data paths from the core identity.
 
-Games and BIOS files remain in the shared `wonderswan/common` asset folder.
+Games remain in the shared `wonderswan/common` asset folder. Swan Song uses a
+built-in open IPL and does not require an external BIOS file.
 Cartridge saves use Swan Song's core-specific namespace. Older shared saves do
 not appear automatically; back up the card and use the ROM-aware migration
 helper rather than copying them by hand. See [Saves and
@@ -144,7 +130,7 @@ update for a verified release.
 5. Start one familiar game and confirm that its save and controls behave as
    expected before continuing normal play.
 
-Swan Song updates must not delete games, BIOS files, or the core-specific
+Swan Song updates must not delete games or the core-specific
 `Saves`, `Settings`, and `Presets` folders. If a release note calls for a data
 migration, use only the documented preview-first helper for that release.
 
@@ -164,8 +150,7 @@ backup instead.
 
 1. Power off the Pocket and back up the SD card.
 2. Remove only `/Cores/RegionallyFamous.SwanSong`.
-3. Keep `/Assets/wonderswan/common/` if another WonderSwan core uses your games
-   or BIOS files.
+3. Keep `/Assets/wonderswan/common/` if another WonderSwan core uses your games.
 4. Keep `/Platforms/wonderswan.json` and `/Platforms/_images/wonderswan.bin` if
    another installed core uses the WonderSwan platform.
 5. Keep the Swan Song folders below `/Saves`, `/Settings`, and `/Presets` if

@@ -55,7 +55,7 @@ class HardwareQaWorkspaceTests(unittest.TestCase):
         self.assertIn("build_chip32_pending_diagnostic.py", text)
         self.assertIn(str(self.output / "chip32-pending-diagnostic"), text)
         self.assertIn("must never replace the signed release package", text)
-        self.assertEqual(len(persistence_probes), 10)
+        self.assertEqual(len(persistence_probes), 8)
         for name, expected in workspace.EXPECTED_PERSISTENCE_OUTPUT_SHA256.items():
             relative = Path("private/sram-persistence-probes") / name
             self.assertEqual(hashlib.sha256(persistence_probes[relative]).hexdigest(), expected)
@@ -78,8 +78,6 @@ class HardwareQaWorkspaceTests(unittest.TestCase):
             "private/sram-persistence-probes/sram_type04_persistence.wsc",
             "private/sram-persistence-probes/sram_type05_persistence.ws",
             "private/sram-persistence-probes/sram_type05_persistence.wsc",
-            "private/sram-persistence-probes/sram_persistence_boot_mono.bin",
-            "private/sram-persistence-probes/sram_persistence_boot_color.bin",
             "private/sram-persistence-probes/sram_persistence_probes.manifest.json",
             "private/sram-persistence-probes/sram_persistence_probes.sha256",
             "NEXT_STEPS.md",
@@ -94,9 +92,17 @@ class HardwareQaWorkspaceTests(unittest.TestCase):
             for path in destination.rglob("*")
             if path.is_file()
         }
-        self.assertNotIn("private/bw.rom", private_files)
-        self.assertNotIn("private/color.rom", private_files)
         self.assertNotIn("private/pocket_firmware.bin", private_files)
+        inventory = json.loads(
+            (destination / "inventory.json").read_text(encoding="utf-8")
+        )["hardware_qa_inventory"]
+        self.assertNotIn("bios", inventory)
+        self.assertEqual(
+            inventory["open_ipl"]["identity"], workspace.OPEN_IPL_IDENTITY
+        )
+        next_steps = (destination / "NEXT_STEPS.md").read_text(encoding="utf-8")
+        self.assertIn("No external firmware file is required", next_steps)
+        self.assertIn("open-bootstrap-v3", next_steps)
         generated_roms = {
             "private/compact-896k.wsc",
             *{

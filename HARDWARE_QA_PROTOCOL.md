@@ -77,7 +77,7 @@ gap for this run.
 
 ## Safety and privacy boundary
 
-- Keep the inventory, firmware update, BIOSes, ROMs, device-ID source files,
+- Keep the inventory, firmware update, ROMs, device-ID source files,
   and evidence bundle private. Do not add them to Git.
 - Use only personally dumped or openly licensed ROMs. This repository neither
   supplies nor validates ownership of test assets.
@@ -98,7 +98,7 @@ The read-only-first scaffold creates the private directory layout, stamps the
 run/operator identity into the reviewed inventory template, and generates the
 open 896 KiB compact-ROM probe plus mono/Color SRAM persistence probes for
 footer save types `03`, `04`, and `05` in one command. It does not search for or copy
-firmware, BIOS, commercial ROM, save, device-ID, or capture bytes. The target
+firmware, commercial ROM, save, device-ID, or capture bytes. The target
 must be outside this repository and must not already exist.
 
 Preview the exact plan, then add `--apply` after reviewing it:
@@ -142,7 +142,9 @@ relative to the inventory file. The inventory binds:
   catalogue: all
   seven core JSON files, core icon/info, platform definition/art, installed
   `.rev` bitstream, and installed Chip32 image, plus the raw Quartus RBF;
-- exact mono and color BIOS bytes;
+- the built-in `open-bootstrap-v3` Open IPL identity and all eight mono/Color,
+  8/16-bit bus-width, and owner-protection variants derived from the selected
+  ROM footers;
 - every test ROM's SHA-256, model, native orientation, footer-derived exact
   save type/capacity, declared save-media class, and RTC flag;
 - built-in, wired Dock, wireless Dock, keyboard, and mouse identities and modes.
@@ -155,7 +157,7 @@ valid Cyclone V bitstream or a replacement for Quartus build evidence.
 The public installed-payload manifest contains exactly the canonical allowlist;
 symlinks, missing members, or a `core_json_path`, `interact_json_path`,
 or `installed_bitstream_path` that points outside that tree fail. Legal text,
-private ROM/BIOS/save bytes, raw RBF, QA artifacts, and package provenance are
+private ROM/save bytes, raw RBF, QA artifacts, and package provenance are
 not in this public catalogue, avoiding private-data disclosure and circular
 evidence. The installed `interact.json` identity is included in the public
 environment, and generation rejects any persistent-variable list other than
@@ -179,8 +181,8 @@ probe so the lower `0xff` prefix, reset vector, footer, and `0x0fffff` mask can
 be checked without third-party ROM content. The compact case accepts only that
 deterministic repository-generator identity, SHA-256
 `b4a2c985906ac04c6622080bb1f1f3ac4b3895784c5594f4ba97cd45e6935979`,
-not an arbitrary valid 896 KiB image. BIOS filenames and sizes must be exactly
-`bw.rom`/4096 and `color.rom`/8192.
+not an arbitrary valid 896 KiB image. Game startup uses the Open IPL embedded
+in the reviewed core; no external firmware image is part of the inventory.
 
 Install FFmpeg on the operator Mac before recording evidence (`brew install
 ffmpeg` if it is absent). The verifier decodes at least one real frame or audio
@@ -232,7 +234,7 @@ python3 scripts/pocket_hardware_qa.py generate \
   --output /private/swan-song-qa/evidence/manifest.json
 ```
 
-The command hashes the inventory files and writes the complete 33-case
+The command hashes the inventory files and writes the complete 31-case
 catalogue. It refuses to overwrite an existing manifest. Every generated case
 has `status: "pending"`, false checks, no attachments, and no timestamps. The
 physical attestation is also false. This output is intentionally not accepted.
@@ -258,7 +260,7 @@ python3 scripts/pocket_hardware_qa.py worksheet \
 
 This command first runs the same inventory, environment, schema, and artifact
 validation as the verifier, while allowing the generated pending cases. It
-then writes a human-readable status page with all 33 cases, every physical
+then writes a human-readable status page with all 31 cases, every physical
 check, one strict-valid ROM/controller selection from the bound inventory, and
 a deterministic minimum artifact plan beneath `evidence/files/<case-id>/`.
 The plan supplies exact suggested artifact IDs, filenames, extensions, and
@@ -397,7 +399,7 @@ On the first launch, create a photo or video labeled exactly
 X3, B = Horz B/Vert X4, X = Horz Y3/Vert X2, Y = Horz Y4/Vert X1, L = Horz
 Y1/Vert A, R = Horz Y2/Vert B, Start = Start, and Select = Fast Forward. Create
 a second photo or video labeled exactly `fresh-sd bound interact defaults`
-showing Reset core and Console Setup as actions plus all nine initial values:
+showing Reset core as the momentary action plus all nine initial values:
 System Type Auto, CPU Turbo Off, Triple Buffer On, Motion / LCD Response Off,
 Display Orientation Auto, Landscape 180° Off, Color Profile Raw RGB444, Control Layout
 Auto, and Audio in Fast Forward On. The case requires seven visual artifacts in
@@ -407,25 +409,18 @@ the run; mark the case failed rather than normalizing the menu by hand.
 
 For `console_eeprom_lifecycle`, begin with both fixed files absent at
 `/Saves/wonderswan/RegionallyFamous.SwanSong/mono.eeprom` and
-`color.eeprom`. Use one `.ws` and one `.wsc` title plus the operator's original
-4 KiB/8 KiB BIOS dumps.
-Make a visible setup edit through each original BIOS, then capture both exact
-files after factory creation, setup edit, quit/relaunch, model switch, title
-switch, ordinary reset, and full Pocket power cycle. The 14 `save` artifact
+`color.eeprom`. Use one `.ws` and one `.wsc` title whose footer policies select
+protected-owner Open IPL variants selected for this lifecycle case. Capture
+both exact files after
+factory creation, quit/relaunch, model switch, title switch, ordinary reset,
+and full Pocket power cycle. The 12 `save` artifact
 labels are exactly `console-eeprom {mono|color} {stage}`, where stage is
-`factory-created`, `setup-edited`, `quit-relaunch`, `model-switch`,
+`factory-created`, `quit-relaunch`, `model-switch`,
 `title-switch`, `ordinary-reset`, or `power-cycle`. The verifier requires every
-mono snapshot to be 128 bytes, every Color snapshot to be 2,048 bytes, each
-setup hash to differ from its factory hash, and every later hash to match the
-edited image. For each model, enter the flow through **Core Settings > Console
-Setup**; confirm that the original BIOS owner screen appears as though Start
-were held at power-on, and that the action does not change Display Orientation
-or the native control matrix. To exercise the **menu focus** hold, deliberately
-remain in the PocketOS menu for at
-least two seconds after selecting the action, then exit and prove the armed
-gesture still reaches the owner screen; this distinguishes menu-focus hold from
-the shorter reset/Start counters. Capture at least two visual records showing the
-original BIOS flows and a UTF-8 log that records absent-file checks, both shutdown/flush
+mono snapshot to be 128 bytes, every Color snapshot to be 2,048 bytes, and
+every later hash to reproduce the Open IPL factory image. Confirm both factory
+images contain the documented defaults and the owner area remains protected.
+Capture a UTF-8 log that records absent-file checks, both shutdown/flush
 boundaries, exact SD paths, device/model/title transitions, and hashes.
 
 For `all_save_types_lifecycle`, select exactly one ROM for each of the nine
@@ -495,7 +490,7 @@ Orientation, Landscape 180°, Color Profile, Control Layout, and Audio in Fast
 Forward—and prove their UI and runtime effects survive ordinary reset,
 quit/relaunch, title switch, Dock transition, and full power cycle. Then run
 **Reset all to defaults** and prove every setting returns to its declared
-default. Reset core and Console Setup are actions and must remain momentary.
+default. Reset core is a momentary action and must remain so.
 
 Use the fresh-SD baseline—not a copied settings file—as the origin of that
 persistence test. After the first clean launch/quit, confirm that APF created
@@ -547,11 +542,6 @@ for the full minimum 120 minutes, include physically observed Pocket and Dock
 segments, and record Statistics before and after the soak. The existing video,
 audio, save, input, crash, resync, and drift checks remain mandatory.
 
-For `wrong_size_bios_negative`, try exact one-byte boundary mutations on both
-required files: 4,095 and 4,097-byte `bw.rom`, and 8,191 and 8,193-byte
-`color.rom`. Each must be rejected before game execution; restoring exact
-4,096/8,192-byte files must recover without reinstalling the core.
-
 For `unused_hardware_interfaces`, use a documented non-invasive measurement
 method and record the instrument/setup in the log. Across boot, gameplay, and
 shutdown, confirm the framework `cartridge_adapter: -1` power policy; Bank
@@ -568,7 +558,7 @@ The fixed catalogue covers:
 |---|---|
 | Startup and launcher | `agg23.WonderSwan` side-by-side install, Swan Song update/uninstall/reinstall isolation, predecessor save/tree preservation, Fresh SD, prelaunch Swan Song Presets/Settings namespaces absent, packaged Input and Interact/default menus physically observed, no Presets introduced during the run, Swan Wake platform art/About legibility, centering, contrast, and clipping, core icon legibility and centering in positive/negative Core List and Core Boot Screen contexts, Startup Action to openFPGA, Recent creation/relaunch, last-title reuse, Reset all to defaults |
 | Compact ROM | Generated 896 KiB probe, `0xff` lower-prefix behavior, right-aligned reset vector/footer, 1 MiB aperture and `0x0fffff` mask, power-of-two regression |
-| Negative boot | Missing mono/color BIOS; 4,095/4,097-byte mono and 8,191/8,193-byte Color BIOS rejection; too-small/misaligned/oversized ROM; invalid compact footer/checksum with visible **ROM footer/checksum rejected** error; target-firmware stuck-pending fault injection with diagnostic Chip32/source-delta identity, visible timeout before the host cycle limit, exact release-package restoration, and recovery with corrected inputs |
+| Negative boot | Too-small/misaligned/oversized ROM; invalid compact footer/checksum with visible **ROM footer/checksum rejected** error; target-firmware stuck-pending fault injection with diagnostic Chip32/source-delta identity, visible timeout before the host cycle limit, exact release-package restoration, and recovery with corrected inputs |
 | Disabled features | Memories and quick-load actions unavailable or rejected without game-state mutation |
 | Pocket input | Complete horizontal and vertical matrices, simultaneous directions, Start, held and latched Fast Forward, observed Controls behavior without assuming editability or persistence; repeated menu pause/resume during visible action, Fast Forward cleared, resume independent of neutral PAD rearm, no held-chord leak or duplicate memory/DMA action |
 | Presentation | Auto/forced horizontal/vertical, 180-degree landscape, no input remap, transition-frame integrity |
@@ -592,12 +582,12 @@ for the wired-Dock case, or a non-RTC ROM for RTC lifecycle is rejected.
 ## 4. Evidence schema
 
 The manifest envelope is `hardware_qa` with magic
-`SWAN_SONG_HARDWARE_QA_EVIDENCE_V2`. Unknown or missing members fail. Its
+`SWAN_SONG_HARDWARE_QA_EVIDENCE_V3`. Unknown or missing members fail. Its
 top-level members are:
 
 - `run_id`, `created_at`, and `operator`, copied exactly from the private
   inventory;
-- `environment`, regenerated and compared byte-for-data from all inventory
+- `environment`, regenerated and compared byte-for-byte from all inventory
   inputs on every verification;
 - `artifacts`, the hashed evidence registry;
 - `cases`, exactly one of every current catalogue case with no additions or
@@ -634,9 +624,9 @@ verifier establishes the files' identity and timing, while the reviewer remains
 responsible for confirming that the logs and visible menus support the checks.
 
 The console-EEPROM case adds content relationships to those generic checks:
-its 14 exact-size, exact-label snapshots must prove that the original-BIOS edit
-changed each factory image and that quit/relaunch, model/title switching,
-ordinary reset, and power cycle reproduced the edited SHA-256 without cross-bank
+its 12 exact-size, exact-label snapshots must prove that quit/relaunch,
+model/title switching, ordinary reset, and power cycle reproduced each Open IPL
+factory SHA-256 without cross-bank
 replacement. The attested log and visual evidence remain necessary because a
 hash alone cannot prove how a state transition was performed.
 
@@ -679,11 +669,11 @@ python3 scripts/pocket_hardware_qa.py verify \
 ```
 
 Success prints `VALID evidence schema, hashes, and human attestation`, the run
-ID, 33 required cases, artifact count, and the SHA-256 of the exact manifest
+ID, 31 required cases, artifact count, and the SHA-256 of the exact manifest
 bytes that were parsed. It also prints that this is not mechanical proof.
 Archive the private inventory and complete evidence directory together. The
 manifest is not independently reproducible without the exact private firmware,
-device-ID source files, core artifacts, BIOSes, and ROMs. A successful command
+device-ID source files, core artifacts, and ROMs. A successful command
 means the evidence record is internally consistent, not that hardware QA has
 been independently certified.
 
@@ -698,7 +688,7 @@ executions, not physical hosts; they do not replace this hardware protocol.
 
 Release Evidence V2 requires exact filename/size/SHA-256 identities for both
 this accepted manifest and its private inventory. Packaging reruns the strict
-hardware verifier, requires all 33 cases plus the physical/evidence-review
+hardware verifier, requires all 31 cases plus the physical/evidence-review
 attestations, and records the run, case, artifact, firmware, and device/core
 facts in package provenance. It also binds the normalized signed build pair and
 requires the tested raw RBF, version, date, complete nine-setting persistence

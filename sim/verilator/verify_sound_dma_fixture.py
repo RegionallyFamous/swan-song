@@ -70,7 +70,7 @@ TERMINAL_IP = 0x08AA
 MIN_TERMINAL_TAIL = 128
 CAPTURE_CYCLES = 7_283_585
 CAPTURE_FRAMES = 15
-DEFAULT_COLOR_BIOS_FNV1A64 = "ef7d73ef979bfc94"
+DEFAULT_COLOR_OPEN_IPL_FNV1A64 = "de968891eff736c1"
 EXPECTED_EVENTS = {
     "cpu": True,
     "bank": False,
@@ -345,8 +345,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames",
         "rom_size",
         "rom_fnv1a64",
-        "bios_size",
-        "bios_fnv1a64",
+        "open_ipl_size",
+        "open_ipl_fnv1a64",
         "iram_initial_state",
         "savestate_inputs_asserted",
         "events",
@@ -375,8 +375,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames": CAPTURE_FRAMES,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 8192,
-        "bios_fnv1a64": DEFAULT_COLOR_BIOS_FNV1A64,
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": DEFAULT_COLOR_OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,

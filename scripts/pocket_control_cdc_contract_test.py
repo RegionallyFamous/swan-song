@@ -148,8 +148,8 @@ def verify_contract(core_top_source: str, wonderswan_source: str) -> None:
         core_top,
         "download_system_s",
         [
-            "{external_reset,ext_cart_download,bios_download}",
-            "{external_reset_sys_s,ext_cart_download_sys_s,bios_download_sys_s}",
+            "{external_reset,ext_cart_download}",
+            "{external_reset_sys_s,ext_cart_download_sys_s}",
             "clk_sys_36_864",
         ],
         "system download synchronizer",
@@ -160,10 +160,9 @@ def verify_contract(core_top_source: str, wonderswan_source: str) -> None:
         {
             "reset_n": "reset_n_mem_s",
             "reset_n_sys": "reset_n_sys_s",
-            "external_reset": "external_reset_sys_s|console_setup_reset_sys_s",
+            "external_reset": "external_reset_sys_s",
             "ext_cart_download": "ext_cart_download_mem_s",
             "ext_cart_download_sys": "ext_cart_download_sys_s",
-            "bios_download": "bios_download_sys_s",
         },
         "WonderSwan domain controls",
     )
@@ -248,11 +247,8 @@ def verify_contract(core_top_source: str, wonderswan_source: str) -> None:
         "system RTC save loader",
     )
 
-    ioctl_match = re.search(r"\bwire\s+ioctl_download\s*=\s*([^;]+);", wonderswan)
-    if ioctl_match is None or compact(ioctl_match.group(1)) != (
-        "cart_download_sys|||bios_download"
-    ):
-        raise ValueError("ioctl_download does not use system-domain download controls")
+    if re.search(r"\b(?:ioctl_download|bios_download)\b", wonderswan):
+        raise ValueError("retired external BIOS download control remains")
 
     system_blocks = clocked_blocks(wonderswan, "clk_sys_36_864")
     if not system_blocks:
@@ -310,11 +306,10 @@ def main() -> None:
         ("core_top", "apf_reset_sync core_reset_memory (\n      .clk(clk_mem_110_592)", "apf_reset_sync core_reset_memory (\n      .clk(clk_sys_36_864)", "memory reset synchronizer"),
         ("core_top", ".reset_n_sync(reset_n_sys_s)", ".reset_n_sync(reset_n_mem_s)", "system reset synchronizer"),
         ("core_top", "ext_cart_download_mem_s,\n      clk_mem_110_592", "ext_cart_download_sys_s,\n      clk_mem_110_592", "memory cartridge-download synchronizer"),
-        ("core_top", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_sys_36_864", ") download_system_s (\n      {external_reset, ext_cart_download, bios_download},\n      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},\n      clk_mem_110_592", "system download synchronizer"),
+        ("core_top", ") download_system_s (\n      {external_reset, ext_cart_download},\n      {external_reset_sys_s, ext_cart_download_sys_s},\n      clk_sys_36_864", ") download_system_s (\n      {external_reset, ext_cart_download},\n      {external_reset_sys_s, ext_cart_download_sys_s},\n      clk_mem_110_592", "system download synchronizer"),
         ("core_top", ".reset_n_sys(reset_n_sys_s)", ".reset_n_sys(reset_n_mem_s)", "WonderSwan domain controls"),
-        ("core_top", ".external_reset(external_reset_sys_s | console_setup_reset_sys_s)", ".external_reset(external_reset | console_setup_reset_sys_s)", "WonderSwan domain controls"),
+        ("core_top", ".external_reset(external_reset_sys_s)", ".external_reset(external_reset)", "WonderSwan domain controls"),
         ("core_top", ".ext_cart_download_sys(ext_cart_download_sys_s)", ".ext_cart_download_sys(ext_cart_download_mem_s)", "WonderSwan domain controls"),
-        ("core_top", ".bios_download(bios_download_sys_s)", ".bios_download(bios_download)", "WonderSwan domain controls"),
         ("wonderswan", "~reset_n_sys | cart_download_sys", "~reset_n | cart_download_sys", "system reset expression"),
         ("wonderswan", "cart_download_sys | clearing_save_sys", "cart_download | clearing_save_sys", "system reset expression"),
         ("wonderswan", "clearing_save_sys | external_reset", "clearing_save | external_reset", "system reset expression"),
@@ -322,7 +317,7 @@ def main() -> None:
         ("wonderswan", "clearing_save_sys_sync = 3'b111", "clearing_save_sys_sync = 3'b000", "power-up does not match"),
         ("wonderswan", "SYNCHRONIZER_IDENTIFICATION FORCED", "ASYNC_REG = \"TRUE\"", "supported Quartus staging assignment"),
         ("wonderswan", ".reset_title         (cart_download_sys)", ".reset_title         (cart_download)", "system RTC save loader"),
-        ("wonderswan", "wire ioctl_download = cart_download_sys", "wire ioctl_download = cart_download", "ioctl_download"),
+        ("wonderswan", "wire cart_download_sys = cart_download_sys_external || rom_prepare_busy_sys;", "wire cart_download_sys = cart_download_sys_external || rom_prepare_busy_sys;\n  wire bios_download = 1'b0;", "retired external BIOS"),
         ("wonderswan", "if (cart_download_sys) begin\n      // Do not carry", "if (cart_download) begin\n      // Do not carry", "clk_sys logic consumes"),
     ]
     for mutation in mutations:

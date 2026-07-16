@@ -50,6 +50,8 @@ MODIFIED_WONDERSWAN_PATHS = (
     pathlib.PurePosixPath("src/fpga/core/rtl/savestates.vhd"),
     pathlib.PurePosixPath("src/fpga/core/rtl/sprites.vhd"),
     pathlib.PurePosixPath("src/fpga/core/rtl/swanTop.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/swanbios.vhd"),
+    pathlib.PurePosixPath("src/fpga/core/rtl/swanbioscolor.vhd"),
 )
 MODIFIED_SDRAM_PATH = pathlib.PurePosixPath("src/fpga/core/rtl/sdram.sv")
 MODIFIED_GPL_NOTICES = {
@@ -75,6 +77,10 @@ MODIFIED_GPL_NOTICES = {
     pathlib.PurePosixPath("src/fpga/core/rtl/savestates.vhd"): VHDL_MODIFICATION_NOTICE,
     pathlib.PurePosixPath("src/fpga/core/rtl/sprites.vhd"): VHDL_MODIFICATION_NOTICE,
     pathlib.PurePosixPath("src/fpga/core/rtl/swanTop.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath("src/fpga/core/rtl/swanbios.vhd"): VHDL_MODIFICATION_NOTICE,
+    pathlib.PurePosixPath(
+        "src/fpga/core/rtl/swanbioscolor.vhd"
+    ): VHDL_MODIFICATION_NOTICE,
     MODIFIED_SDRAM_PATH: SV_MODIFICATION_NOTICE,
 }
 MODIFIED_GPL_PATHS = tuple(MODIFIED_GPL_NOTICES)

@@ -113,13 +113,12 @@ The expected setup will be:
 
 1. Update the Analogue Pocket to a supported firmware version.
 2. Install the Swan Song release package on the Pocket SD card.
-3. Add your own legally obtained WonderSwan and WonderSwan Color BIOS files.
-4. Add your own `.ws` and `.wsc` game images.
-5. Open **openFPGA**, choose the **WonderSwan** platform, then select **Swan
+3. Add your own `.ws` and `.wsc` game images.
+4. Open **openFPGA**, choose the **WonderSwan** platform, then select **Swan
    Song** and a game.
 
-The BIOS files will be named `bw.rom` and `color.rom`; BIOS and game files will
-live in `/Assets/wonderswan/common/`. A normal player will **not** need Quartus,
+Game files live in `/Assets/wonderswan/common/`. Swan Song uses its built-in open IPL
+and does not require external BIOS files. A normal player will **not** need Quartus,
 Docker, a virtual machine, or a cloud server. Those are development tools, not
 installation requirements.
 
@@ -135,11 +134,11 @@ Mac installation path. Swan Song's read-only-first staging tool already has an
 explicit release-verification mode, but the checked-in release policy currently
 blocks installation because distribution and licensing are not authorized yet.
 
-## Bring your own games and BIOS
+## Bring your own games
 
-Swan Song does not include, download, or provide links to commercial games,
-Bandai BIOS files, or WonderWitch firmware. Use dumps you are legally entitled
-to use in your country. Please do not upload ROMs or BIOS files to GitHub, an
+Swan Song does not include, download, or provide links to commercial games or
+WonderWitch firmware. Use dumps you are legally entitled
+to use in your country. Please do not upload ROMs to GitHub, an
 issue report, or a public testing service.
 
 ## Help and documentation
@@ -170,11 +169,10 @@ python3 scripts/swan_song_doctor.py --sd-root "/Volumes/POCKET"
 
 Replace `/Volumes/POCKET` with the card's actual path. By default Swan Song
 Doctor performs no content or namespace writes (filesystem reads may update
-access times). It checks the complete player-visible installation, BIOS
-filenames and sizes, valid whole-bank game sizes and per-game settings
-locations, older WonderSwan data, and unsafe SD-card paths. It never uploads
-ROMs, BIOS files, or saves. BIOS identification is available only when you
-explicitly add `--identify-bios`; game contents are never read. See the
+access times). It checks the complete player-visible installation, valid
+whole-bank game sizes and per-game settings locations, older WonderSwan data,
+and unsafe SD-card paths. It never uploads ROMs or saves, and game contents are
+never read. See the
 player-friendly [troubleshooting guide](https://github.com/RegionallyFamous/swansong-core/wiki/Troubleshooting-and-Bug-Reports)
 or the [complete Doctor reference](SWAN_SONG_DOCTOR.md) for help reading the
 result and for carefully previewing optional repairs.
@@ -184,7 +182,7 @@ Found a problem? Open an
 game title and region, Pocket firmware, Swan Song version or commit, selected
 system type, and whether you were playing on Pocket or Dock. If practical, say
 whether the same behavior appears in the earlier Pocket or MiSTer core. Never
-attach copyrighted game or BIOS data.
+attach copyrighted game data.
 
 ## Credits
 

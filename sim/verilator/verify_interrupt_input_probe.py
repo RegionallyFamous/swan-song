@@ -27,16 +27,16 @@ from verify_trace import FIELDS_V5
 
 # cycle, address, value, retired instruction ID, exact OUT origin PC
 EXPECTED_ROWS = (
-    (899, 0xC0, ord("B"), 17, 983070),
-    (3311, 0xC0, ord("D"), 66, 983113),
-    (11399, 0xC0, ord("V"), 214, 983166),
-    (12071, 0xC0, ord("I"), 222, 983329),
-    (24683, 0xC0, ord("H"), 457, 983213),
-    (28379, 0xC0, ord("R"), 525, 983229),
-    (28895, 0xC0, ord("P"), 535, 983255),
-    (29411, 0xC0, ord("A"), 545, 983281),
-    (37235, 0xC0, ord("C"), 687, 983301),
-    (42155, 0xC0, ord("Z"), 776, 983311),
+    (2627, 0xC0, ord("B"), 64, 983070),
+    (3323, 0xC0, ord("D"), 80, 983113),
+    (11411, 0xC0, ord("V"), 228, 983166),
+    (12083, 0xC0, ord("I"), 236, 983329),
+    (24695, 0xC0, ord("H"), 471, 983213),
+    (28391, 0xC0, ord("R"), 539, 983229),
+    (28907, 0xC0, ord("P"), 549, 983255),
+    (29423, 0xC0, ord("A"), 559, 983281),
+    (37247, 0xC0, ord("C"), 701, 983301),
+    (42167, 0xC0, ord("Z"), 790, 983311),
 )
 EXPECTED_NO_INPUT_ROWS = (EXPECTED_ROWS[0],)
 EXPECTED_MARKERS = b"BDVIHRPACZ"
@@ -55,12 +55,12 @@ SCENARIOS = (
 
 ROM_SHA256 = "0cee15c78f49b1ae32b32eff90c3efdd29a904c6637d4c800885fe948c97acb2"
 SCRIPT_SHA256 = "0e35059c6aea64aea1c056de0947336d1e603812a9aae9ebd67b8ef830a316ec"
-TRACE_SHA256 = "fdaabc37f4733dbc7caba902693259f21919f61351da9e595644d74f5224096c"
-NO_INPUT_TRACE_SHA256 = "2c8fcfebf915ed26d401392a5c27323723ca940808cf08d0752f872190ff31e1"
+TRACE_SHA256 = "30ad769c39896cf14a23015a4c3711d75c1127720dbfb0532513b1173eadcc85"
+NO_INPUT_TRACE_SHA256 = "2417d8737d6e0b6c8b9e10077f243d1b012e5d879247ac1e94555b4c82f1fb6e"
 FRAME_SHA256 = "b404fb94d84fa4bd527d8eabaf2d13393f5c43f03d838c4aa2a8c95855aef511"
 FRAME_SIZE = 224 * 144 * 3
 CAPTURE_CYCLES = 445_313
-BIOS_FNV1A64 = "ef7d73ef979bfc94"
+OPEN_IPL_FNV1A64 = "de968891eff736c1"
 
 EXPECTED_SCRIPT_IDENTITY = ScriptIdentity(
     source_size_bytes=142,
@@ -94,8 +94,8 @@ MANIFEST_FIELDS = {
     "completed_frames",
     "rom_size",
     "rom_fnv1a64",
-    "bios_size",
-    "bios_fnv1a64",
+    "open_ipl_size",
+    "open_ipl_fnv1a64",
     "iram_initial_state",
     "savestate_inputs_asserted",
     "input_script",
@@ -303,8 +303,8 @@ def verify_manifest(
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 8192,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {"cpu": False, "bank": True, "vram": False, "mem": False, "bg_cell": False},

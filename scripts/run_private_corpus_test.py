@@ -18,16 +18,20 @@ import unittest
 import run_private_corpus as corpus
 
 
-def synthetic_rom(*, color: bool, marker: int = 0x41, valid_checksum: bool = True) -> bytes:
+def synthetic_rom(
+    *, color: bool, marker: int = 0x41, valid_checksum: bool = True,
+    word_width: int = 16, owner_writable: bool = False,
+) -> bytes:
     image = bytearray(64 * 1024)
     image[0x100] = marker
     footer = len(image) - 16
     image[footer + 0] = 0xEA
     image[footer + 5] = 0x00
     image[footer + 7] = int(color)
+    image[footer + 9] = 0x80 if owner_writable else 0x00
     image[footer + 10] = 0x00
     image[footer + 11] = 0x00
-    image[footer + 12] = 0x04
+    image[footer + 12] = 0x04 if word_width == 16 else 0x00
     image[footer + 13] = 0x00
     checksum = sum(image[:-2]) & 0xFFFF
     image[-2:] = checksum.to_bytes(2, "little")
@@ -42,10 +46,6 @@ class PrivateCorpusTest(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.lab_root = self.base / "Private Lab With Spaces"
         self.lab, _warnings = corpus.initialize_lab(self.lab_root)
-        (self.lab.bios / "bw.rom").write_bytes(bytes([0xB0]) * 4096)
-        (self.lab.bios / "color.rom").write_bytes(bytes([0xC0]) * 8192)
-        (self.lab.bios / "bw.rom").chmod(0o600)
-        (self.lab.bios / "color.rom").chmod(0o600)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -70,12 +70,10 @@ class PrivateCorpusTest(unittest.TestCase):
                 return sys.argv[index + 1]
 
             rom = pathlib.Path(value("--rom")).read_bytes()
-            bios = pathlib.Path(value("--bios")).read_bytes()
             frames = int(value("--frames"))
             int(value("--max-cycles"))
             output = pathlib.Path(value("--out"))
-            expected_bios = 8192 if rom[-9] == 1 else 4096
-            if len(bios) != expected_bios:
+            if "--bios" in sys.argv:
                 raise SystemExit(21)
             counter_path = pathlib.Path(__file__).with_suffix(".count")
             count = int(counter_path.read_text()) + 1 if counter_path.exists() else 1
@@ -133,7 +131,11 @@ class PrivateCorpusTest(unittest.TestCase):
         )
 
         self.assertEqual(status_code, 0)
-        self.assertTrue(document["bios_ready"])
+        self.assertEqual(document["open_ipl"]["identity"], "open-bootstrap-v3")
+        self.assertEqual(
+            document["open_ipl"]["variants"],
+            ["color-word16-owner-protected"],
+        )
         self.assertEqual(document["counts"]["valid_unique_cases"], 1)
         self.assertEqual(document["model_counts"], {"mono": 0, "color": 1})
         self.assertRegex(document["cases"][0]["case_id"], r"^rom-[0-9a-f]{64}$")
@@ -146,7 +148,7 @@ class PrivateCorpusTest(unittest.TestCase):
         report_mode = (self.lab.reports / "corpus-inventory.json").stat().st_mode
         self.assertEqual(stat.S_IMODE(report_mode), 0o600)
 
-    def test_color_footer_selects_color_bios_even_with_ws_extension(self) -> None:
+    def test_color_footer_selects_color_open_ipl_even_with_ws_extension(self) -> None:
         self.write_rom("Misleading Mono Extension.ws", synthetic_rom(color=True))
         simulator = self.mock_simulator()
 
@@ -156,8 +158,30 @@ class PrivateCorpusTest(unittest.TestCase):
 
         self.assertEqual(status_code, 0)
         self.assertEqual(document["counts"]["passed"], 1)
+        self.assertEqual(
+            document["configuration"]["open_ipl_identity"],
+            "open-bootstrap-v3",
+        )
         self.assertNotIn("Misleading Mono Extension", output)
         self.assertNotIn(str(self.lab_root), output)
+
+    def test_word8_owner_writable_footer_is_inventory_supported(self) -> None:
+        self.write_rom(
+            "Eight Bit Homebrew.ws",
+            synthetic_rom(
+                color=False, word_width=8, owner_writable=True
+            ),
+        )
+
+        status_code, document, _output, _stderr = self.invoke(
+            ["inventory", "--lab-root", str(self.lab_root)]
+        )
+
+        self.assertEqual(status_code, 0)
+        self.assertEqual(
+            document["open_ipl"]["variants"],
+            ["mono-word8-owner-writable"],
+        )
 
     def test_repeat_is_deterministic_and_second_invocation_resumes(self) -> None:
         rom = synthetic_rom(color=False, marker=0x52)
@@ -216,10 +240,6 @@ class PrivateCorpusTest(unittest.TestCase):
 
         second_lab = self.base / "Second Private Lab"
         second_paths, _warnings = corpus.initialize_lab(second_lab)
-        (second_paths.bios / "bw.rom").write_bytes(bytes(4096))
-        (second_paths.bios / "color.rom").write_bytes(bytes(8192))
-        (second_paths.bios / "bw.rom").chmod(0o600)
-        (second_paths.bios / "color.rom").chmod(0o600)
         rom_path = second_paths.roms / "Missing Frame.wsc"
         rom_path.write_bytes(synthetic_rom(color=True))
         rom_path.chmod(0o600)

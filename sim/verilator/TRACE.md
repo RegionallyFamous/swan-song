@@ -61,14 +61,12 @@ cartridge SRAM capacity declared by footer types `0x01` through `0x05`:
 ```sh
 build/sim/obj_dir/VSwanTop \
   --rom build/open-probes/sram_type03_persistence.ws \
-  --bios build/open-probes/sram_persistence_boot_mono.bin \
   --max-cycles 20000 \
   --expect-iram-byte 0x0400=0x11 \
   --sram-out build/open-probes/type03.sav
 
 build/sim/obj_dir/VSwanTop \
   --rom build/open-probes/sram_type03_persistence.ws \
-  --bios build/open-probes/sram_persistence_boot_mono.bin \
   --max-cycles 20000 \
   --expect-iram-byte 0x0400=0x22 \
   --sram-in build/open-probes/type03.sav \
@@ -80,7 +78,7 @@ short, oversized, symlinked, hard-linked, or footer-incompatible inputs fail.
 `--sram-out` is published only after the requested frame or exact IRAM write
 and any controller replay have completed successfully. Import and output may
 name the same save because the input is fully read before atomic replacement.
-An output may not alias ROM, BIOS, controller script, trace, trace manifest,
+An output may not alias ROM, controller script, trace, trace manifest,
 VCD, or generated frame paths.
 
 Trace manifest v1 does not bind imported SRAM identity, so `--sram-in` and
@@ -157,7 +155,7 @@ For a successful event trace, `FILE.manifest.json` contains an optional
 digest, normalized schedule digest, declared and applied event counts,
 completion state, and released final state. The raw binding detects changes to
 comments and formatting; the normalized binding records parsed cycles and full
-button masks. As with the ROM, boot-image, and trace digests, these are
+button masks. As with the ROM, built-in Open IPL, and trace digests, these are
 deterministic stale-artifact checks rather than cryptographic authentication.
 
 Before treating a private route and trace as one evidence bundle, verify that
@@ -190,8 +188,8 @@ reach a readable text surface reproducibly. Then repeat that same reset-to-scree
 route with unfiltered `mem`, `vram`, and the relevant `bg_cell`/`sprite_row`
 events before running the provenance correlators below. Complete provenance
 depends on history from reset release, so do not replace it with a late trace
-start. Keep the ROM, optional legally obtained firmware, input script, raw
-frames, traces, glyph tables, and other title-derived artifacts private; this
+start. Keep the ROM, input script, raw frames, traces, glyph tables, and other
+title-derived artifacts private; this
 repository needs only reusable code, open fixtures, and privacy-safe notes.
 
 Build confirmation-grade reports for every completed display read and every
@@ -552,7 +550,7 @@ Every successful event capture also writes `FILE.manifest.json`. The manifest
 records whether capture began at reset release, reached its requested frame
 target, included unfiltered `mem` and `vram` history, included `bg_cell` or
 `sprite_row` when requested, avoided save-state input, and can therefore use the defined zero
-power-up state of IRAM. ROM and boot-image byte sizes and FNV-1a digests bind
+power-up state of IRAM. ROM and built-in Open IPL byte sizes and FNV-1a digests bind
 the stimulus identity, while the trace byte length and digest bind the
 certificate to the exact output file. These digests detect accidental or stale
 artifact substitution; they are deterministic bindings, not cryptographic
@@ -714,12 +712,14 @@ Paired generated 2 MiB mapper
 probes add complete-from-reset CPU coverage of all eight trace-space labels:
 `iram`, `cart_sram`, `absent_sram`, `cart_rom0`, `cart_rom1`,
 `cart_rom_linear`, `boot_rom`, and mono `unmapped`. The verifier binds the ROM
-and boot-image inputs, requires the complete 37,073-event memory history plus
-five exact bank writes in each trace, and checks resolved offsets, masks,
-values, aliases, instruction IDs, and origin PCs. Separate mono and Color boot
-probes execute from byte zero and prove A0 lockout changes physical addresses
-`0xffff0..0xffffe` from mono offsets `0xff0..0xffe` or Color offsets
-`0x1ff0..0x1ffe` to carrier-ROM offsets `0x1fff0..0x1fffe`.
+and generated Open IPL identities, requires the complete 37,035-event memory
+history plus five exact bank writes in each trace, and checks resolved offsets,
+masks, values, aliases, instruction IDs, and origin PCs. The eight Open IPL
+carrier probes enter through the exact mono/Color reset vectors, bind contiguous
+startup-tail execution for both bus widths and owner-area policies, and prove A0
+lockout changes physical addresses `0xffff0..0xffffe` from mono offsets
+`0xff0..0xffe` or Color offsets `0x1ff0..0x1ffe` to carrier-ROM offsets
+`0x1fff0..0x1fffe`.
 An additional generated pair declares SRAM types `0x01` and `0x02` and requires
 byte-identical seven-row CPU traces: offsets `0x0000`, `0x2000`, and `0x7fff`
 remain distinct, while address `0x18000` resolves to mirrored SRAM offset zero.
@@ -749,20 +749,20 @@ the corrected, research-consistent 32 KiB `0x01`/`0x02` interpretation.
 Generated ROMs remain under `build/` and are never checked in.
 
 Display provenance is now locked by four independent workload families. The
-extended-range fixture requires 16,281/16,281 exact reads, the Shift-JIS
-fixture 25,610/25,610, and each generated planar/packed 4bpp capture
-26,168/26,168. Each inside/outside window capture adds 26,296/26,296 Screen 2
+extended-range fixture requires 16,190/16,190 exact reads, the Shift-JIS
+fixture 25,612/25,612, and each generated planar/packed 4bpp capture
+26,170/26,170. Each inside/outside window capture adds 26,205/26,205 Screen 2
 reads. Every run has zero value mismatch and collision and records the
 expected exact CPU, initialized, and GDMA-ROM sources. All report zero
 CPU-ROM-MOVSB display classifications; the separate generated REP probe proves
 its two 2 KiB CPU copies directly instead of coupling CPU-copy correctness to
 a display workload.
-The atomic-cell gate validates 5,177 extended-range Screen 1 cells and 8,308
+The atomic-cell gate validates 5,146 extended-range Screen 1 cells and 8,308
 Shift-JIS cells. Of the latter, 96 records are the two complete promotions of
 all 48 manifest-bound glyph rows. Each generated 4bpp capture adds 8,494
 Screen 1 cells; 64 are the two complete promotions of the four diagnostic
 placements, with both raw words and all four GDMA/ROM byte provenances exact.
-Each window capture adds 8,494 provenance-complete Screen 2 cells and separately
+Each window capture adds 8,463 provenance-complete Screen 2 cells and separately
 locks the final Screen 2 and sprite-window pixels. Focused correlator fixtures
 also cover simultaneous Screen 1/2 promotion.
 The focused unit test locks 2bpp/4bpp

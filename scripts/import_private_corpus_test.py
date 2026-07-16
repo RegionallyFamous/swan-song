@@ -204,65 +204,10 @@ class PrivateCorpusImporterTest(unittest.TestCase):
         self.assertNotIn("Expansion Bomb", output)
         self.assertNotIn("Alias.zip", output)
 
-    def test_explicit_bios_archives_are_exact_dry_run_then_apply(self) -> None:
-        mono_name = "Private Mono BIOS"
-        color_name = "Private Color BIOS"
-        mono = bytes((index * 11) & 0xFF for index in range(4096))
-        color = bytes((index * 13) & 0xFF for index in range(8192))
-        mono_zip = self.archive(f"{mono_name}.zip", [("boot.rom", mono)])
-        color_zip = self.archive(f"{color_name}.zip", [("boot.rom", color)])
-        arguments = [
-            *self.base_arguments(),
-            "--select",
-            "does-not-select-roms",
-            "--bios-mono",
-            str(mono_zip),
-            "--bios-color",
-            str(color_zip),
-        ]
-
-        status, dry, output, _stderr = self.invoke(*arguments)
-        self.assertEqual(status, 0)
-        assert dry is not None
-        self.assertEqual(dry["counts"]["bios_images"], 2)
-        lab, _warnings = corpus.initialize_lab(self.lab_root)
-        self.assertEqual(list(lab.bios.iterdir()), [])
-
-        status, applied, output, _stderr = self.invoke(*arguments, "--apply")
-        self.assertEqual(status, 0)
-        assert applied is not None
-        self.assertEqual((lab.bios / "bw.rom").read_bytes(), mono)
-        self.assertEqual((lab.bios / "color.rom").read_bytes(), color)
-        self.assertEqual(stat.S_IMODE((lab.bios / "bw.rom").stat().st_mode), 0o600)
-        for secret in (mono_name, color_name, str(self.source)):
-            self.assertNotIn(secret, output)
-        report = (lab.reports / importer.REPORT_NAME).read_text(encoding="utf-8")
-        self.assertNotIn(hashlib.sha256(mono).hexdigest(), report)
-        self.assertNotIn(hashlib.sha256(color).hexdigest(), report)
-
-    def test_bad_bios_size_and_multiple_members_fail_without_writes(self) -> None:
-        mono = self.archive("Wrong Mono.zip", [("boot.rom", bytes(4095))])
-        color = self.archive(
-            "Multiple Color.zip", [("one.rom", bytes(8192)), ("two.rom", bytes(8192))]
-        )
-        status, document, _output, _stderr = self.invoke(
-            *self.base_arguments(),
-            "--select",
-            "none",
-            "--bios-mono",
-            str(mono),
-            "--bios-color",
-            str(color),
-            "--apply",
-        )
-        self.assertEqual(status, 1)
-        assert document is not None
-        self.assertEqual(
-            {item["reason"] for item in document["cases"]},
-            {"bios_wrong_size", "archive_member_count_invalid"},
-        )
-        lab, _warnings = corpus.initialize_lab(self.lab_root)
-        self.assertEqual(list(lab.bios.iterdir()), [])
+    def test_import_surface_is_rom_only(self) -> None:
+        help_text = importer.parser().format_help()
+        self.assertNotIn("--bios-mono", help_text)
+        self.assertNotIn("--bios-color", help_text)
 
 
 if __name__ == "__main__":

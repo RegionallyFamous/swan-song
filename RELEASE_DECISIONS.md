@@ -22,7 +22,7 @@ legal advice and does not replace the evidence gates in the repository.
   `YYYY-MM-DD` form only in the final reviewed release change.
 - [ ] **Firmware floor.** Decide whether the public support floor is Analogue
   [OS 2.6.0](https://www.analogue.co/support/pocket/firmware/2.6.0), which is the
-  exact version required by the 33-case hardware-QA
+  exact version required by the 31-case hardware-QA
   protocol, or whether older firmware will receive a separately evidenced
   support tier. Do not imply that framework `2.3` alone proves the tested host
   experience.
@@ -44,7 +44,7 @@ legal advice and does not replace the evidence gates in the repository.
 - [ ] **Build the final commit.** Build the final commit with pinned Quartus
   Lite 21.1.1, pass the strict fit/TimeQuest/IP-license audit, and reproduce the
   exact RBF and build ID in two distinct signed workflow executions.
-- [ ] Test the exact final package on physical Pocket and Dock hardware. All 33
+- [ ] Test the exact final package on physical Pocket and Dock hardware. All 31
   cases and their evidence artifacts must pass, including the dedicated
   undocked PocketOS 2.6 Auto Off dirty-save flush/reload case with no manual
   power, menu, input, Dock, or USB SD intervention; no
