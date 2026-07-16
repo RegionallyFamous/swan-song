@@ -100,6 +100,12 @@ by the protected `0x01080000..0x010fffff` guard gap.
 | `0xac..0xf7` | 76 | zero |
 | `0xf8` | 8 | header CRC64 |
 
+> `active_bios` and the three `BIOS CRC64` labels are frozen legacy ABI names.
+> They identify Swan Song's built-in project-authored Open IPL variant bytes;
+> they do not refer to, accept, or require an external BIOS file. Renaming
+> these serialized fields would break format compatibility, so readers and
+> writers must preserve the existing names and offsets.
+
 Feature bits are: SRAM `0`, cartridge EEPROM `1`, cartridge RTC `2`, flash
 overlay `3`, effective Color model `4`, and valid wall clock `5`. All other
 bits are zero. SRAM and cartridge EEPROM are mutually exclusive; flash requires

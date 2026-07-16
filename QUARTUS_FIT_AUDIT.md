@@ -139,51 +139,55 @@ preserving the artifact hashes. These files identify the environment for one
 candidate; they are not a second fit and do not prove that Quartus emits a
 reproducible RBF.
 
-## Current exact-source engineering evidence
+## Current exact-source signed-candidate evidence
 
-A trusted DigitalOcean lab run completed a fresh synthesis, fit, assembly, and
-TimeQuest analysis of temporary non-public source commit
-`1e32ff6a01ea37bbe290ec7d32ec981652ad9c03` at epoch `1784047383`. The retained
-`ap_core.rbf` has SHA-256
-`fde228ce80fb43e6155cd64dd51022216121cd3f4ae8ac9623da78d20655a580`.
-The fit reports 11,761/18,480 ALMs (64%), 13,827 registers,
-2,622,848/3,153,920 memory bits (83%), 289/308 RAM blocks, 23/66 DSP blocks,
+Two distinct signed DigitalOcean workflow executions completed fresh
+synthesis, fit, assembly, and TimeQuest analysis of protected-main commit
+`a897ecbf2838fe6997628406b23de2020c04772e`: runs `29503168418` and
+`29505865127`, with job nonces `698e689a7a6c4a00880bd50b557f88dc` and
+`ec28d23786ea409b98f1327be79c9183`. Both candidate audits pass. Their
+2,037,952-byte `ap_core.rbf` files are byte-identical with SHA-256
+`951e114b1ed2e70ed11628bcfac9bc6138922cbfe45250ab56981fcdf971c03d`;
+their generated build-ID MIFs are byte-identical with SHA-256
+`8d1c9fb08f2a1ff95de1b326b7ef6b66952f8dc2986c2aec9c0aec32cc544a17`.
+The fit reports 12,974/18,480 ALMs (70%), 16,174 registers,
+2,524,544/3,153,920 memory bits (80%), 277/308 M10K blocks, 23/66 DSP blocks,
 and 1/4 PLLs.
 
 Strict post-fit signoff passed with these exact worst setup and hold slacks:
 
 | Operating corner | Worst setup | Worst hold | Worst SDRAM DQ setup | Worst SDRAM DQ hold |
 | --- | ---: | ---: | ---: | ---: |
-| slow 85 C, 1100 mV | +0.477 ns | +0.340 ns | +1.115 ns | +3.139 ns |
-| slow 0 C, 1100 mV | +0.220 ns | +0.331 ns | +1.208 ns | +3.056 ns |
-| fast 85 C, 1100 mV | +1.745 ns | +0.080 ns | +4.308 ns | +0.592 ns |
-| fast 0 C, 1100 mV | +1.757 ns | +0.010 ns | +4.521 ns | +0.409 ns |
+| slow 85 C, 1100 mV | +0.255 ns | +0.308 ns | +1.115 ns | +3.121 ns |
+| slow 0 C, 1100 mV | +0.338 ns | +0.287 ns | +1.208 ns | +3.054 ns |
+| fast 85 C, 1100 mV | +1.745 ns | +0.140 ns | +4.320 ns | +0.592 ns |
+| fast 0 C, 1100 mV | +1.757 ns | +0.083 ns | +4.523 ns | +0.409 ns |
 
 Recovery, removal, and minimum-pulse-width results are positive at all four
-corners. The eight `check_timing` checks report zero findings, unconstrained
-path counts are zero, and the timing and minimum-pulse gates report no negative
-paths. The report contains these four exact SDRAM markers, each proving all 16
-setup and all 16 hold paths rather than only the single worst bit:
+corners, with minima of `+5.037`, `+0.272`, and `+0.753 ns`. All total negative
+slack values are zero. The eight `check_timing` checks report zero findings,
+unconstrained-path counts are zero, and the timing and minimum-pulse gates
+report no negative paths. Each report contains these four exact SDRAM markers,
+proving all 16 setup and all 16 hold paths rather than only the single worst bit:
 
 ```text
-SWAN_SONG_SDRAM_DQ_V1 corner slow|85|1100 setup_paths 16 setup_worst 1.115 hold_paths 16 hold_worst 3.139
-SWAN_SONG_SDRAM_DQ_V1 corner slow|0|1100 setup_paths 16 setup_worst 1.208 hold_paths 16 hold_worst 3.056
-SWAN_SONG_SDRAM_DQ_V1 corner fast|85|1100 setup_paths 16 setup_worst 4.308 hold_paths 16 hold_worst 0.592
-SWAN_SONG_SDRAM_DQ_V1 corner fast|0|1100 setup_paths 16 setup_worst 4.521 hold_paths 16 hold_worst 0.409
+SWAN_SONG_SDRAM_DQ_V1 corner slow|85|1100 setup_paths 16 setup_worst 1.115 hold_paths 16 hold_worst 3.121
+SWAN_SONG_SDRAM_DQ_V1 corner slow|0|1100 setup_paths 16 setup_worst 1.208 hold_paths 16 hold_worst 3.054
+SWAN_SONG_SDRAM_DQ_V1 corner fast|85|1100 setup_paths 16 setup_worst 4.320 hold_paths 16 hold_worst 0.592
+SWAN_SONG_SDRAM_DQ_V1 corner fast|0|1100 setup_paths 16 setup_worst 4.523 hold_paths 16 hold_worst 0.409
 ```
 
 Warning 15069 and the unnumbered `RST port on the PLL is not properly
-connected` warning are absent. The surrounding build command nevertheless
-returned 1 after the successful compile because the source-bound connectivity
-policy still binds older source. That fail-closed policy result is the only
-reason this run did not produce an accepted candidate audit; it is not a fit,
-assembly, RBF-generation, or timing failure.
+connected` warning are absent. Critical warnings, constraint-replacement
+warnings, and PLL reset/self-reset warnings are zero. The exact source-bound
+connectivity policy is accepted in both audits.
 
-This evidence is not a public final-commit build, a second byte-identical RBF,
-Release Evidence V2, or physical Pocket/Dock proof. Release closure still
-requires a reviewed source-current connectivity manifest, a clean accepted
-build of the exact final public commit, a second identical RBF/build ID, and the
-separately recorded physical QA matrix.
+This is an accepted, reproducible FPGA development-candidate pair for that
+exact commit, not physical Pocket/Dock proof or distribution authorization.
+Both audits correctly record `release_eligible: false`. Release closure still
+requires the exact final public commit and epoch to match the pair (or a fresh
+pair after any release-facing change), Release Evidence V2, licensing approval,
+and the separately recorded physical QA matrix.
 
 ## Basis and current limitation
 

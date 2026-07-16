@@ -26,10 +26,15 @@ does not rotate.
 | Select (`-`) | Fast Forward | Fast Forward |
 
 Pocket's built-in controls and a Dock controller use this same Player 1 digital
-mapping. Controllers in P2-P4, keyboards, and mice are not gameplay inputs for
-this single-player core. Analog-capable Dock controllers are accepted, but
-Swan Song consumes only the digital button word; PocketOS decides whether a
-particular analog stick is translated into D-pad input.
+mapping. Swan Song consumes APF's host-normalized Pocket, digital Dock, and
+analog Dock gamepad packets; it does not enumerate USB HID devices itself.
+Therefore, a wired or wireless gamepad must first be supported and recognized
+by Analogue OS and the Dock. The core cannot truthfully promise compatibility
+with every USB gamepad. Controllers in P2-P4, keyboards, and mice are not
+gameplay inputs for this single-player core. For analog-capable Dock packets,
+Swan Song consumes only the digital button word; Analogue OS decides whether a
+particular analog stick is translated into D-pad input. Representative wired
+and wireless Dock-controller coverage remains a physical acceptance gate.
 
 The documentation boundary is preserved here in the wording used by the
 project's technical contract.
@@ -60,8 +65,8 @@ is independent from Swan Song's menu-pause path: the held `00B0` focus level
 pauses the emulated console, then menu exit resumes it even if controls are still
 waiting for neutral rearm. Cartridge RTC wall time continues while paused. This
 is a Swan Song product choice—Analogue permits a core to ignore `00B0` for
-compatibility—not a requirement imposed on every openFPGA core. The internally
-Exact notification/PAD ordering, audio, display, and resume behavior on current
+compatibility—not a requirement imposed on every openFPGA core. The exact
+notification/PAD ordering, audio, display, and resume behavior on current
 firmware remain physical Pocket/Dock tests.
 
 ## System settings

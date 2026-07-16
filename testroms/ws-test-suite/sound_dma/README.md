@@ -54,10 +54,11 @@ before claiming physical SRAM coverage.
 ## Simulation acceptance and scope
 
 `make regression` performs two independent 15-frame captures from reset
-release with the default deterministic Color BIOS, complete CPU/background
-history, and memory filtered only to the Sound-DMA initiator. The manifest is
-bound to 7,283,585 cycles, 15 completed frames, the exact ROM and BIOS
-identities, zeroed initial IRAM, and the exact event/filter configuration.
+release with the default deterministic built-in Color Open IPL, complete
+CPU/background history, and memory filtered only to the Sound-DMA initiator.
+The manifest is bound to 7,283,585 cycles, 15 completed frames, the exact ROM
+and Open IPL identities, zeroed initial IRAM, and the exact event/filter
+configuration.
 
 The dedicated verifier requires:
 

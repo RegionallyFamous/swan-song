@@ -39,11 +39,14 @@ legal advice and does not replace the evidence gates in the repository.
 ## Evidence that must be newly produced
 
 - [ ] Run the complete regression on the final commit in the pinned Linux
-  toolchain. The protected-main `f0345ee4` result predates newer release-gate
-  and test-probe changes.
-- [ ] **Build the final commit.** Build the final commit with pinned Quartus
-  Lite 21.1.1, pass the strict fit/TimeQuest/IP-license audit, and reproduce the
-  exact RBF and build ID in two distinct signed workflow executions.
+  toolchain. The signed Quartus pair for development commit `a897ecbf` does not
+  replace an exact-final-commit regression.
+- [ ] **Build the final commit.** Development commit `a897ecbf` already passes
+  the strict fit/TimeQuest/IP-license audit in signed workflow runs
+  `29503168418` and `29505865127`; both produce byte-identical RBF and build-ID
+  files. If the exact public commit or epoch changes after source,
+  documentation, policy, version, or date review, reproduce that final commit
+  in two new distinct signed workflow executions.
 - [ ] Test the exact final package on physical Pocket and Dock hardware. All 31
   cases and their evidence artifacts must pass, including the dedicated
   undocked PocketOS 2.6 Auto Off dirty-save flush/reload case with no manual
@@ -69,6 +72,8 @@ legal advice and does not replace the evidence gates in the repository.
 
 ## Current truth
 
-The development package is useful for controlled testing, but no stable public
-release is authorized. The six unresolved licensing IDs and their evidence are
-authoritative in `dist/Cores/RegionallyFamous.SwanSong/LICENSE-MANIFEST.json`.
+The `a897ecbf` development package has a valid byte-identical signed Quartus
+candidate pair and is useful for controlled testing, but both audits correctly
+record `release_eligible: false` and no public release is authorized. The six
+unresolved licensing IDs and their evidence are authoritative in
+`dist/Cores/RegionallyFamous.SwanSong/LICENSE-MANIFEST.json`.

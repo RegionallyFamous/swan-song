@@ -117,6 +117,7 @@ input-to-photon latency, or subjective smoothness without physical measurement.
   integer/Fraction arithmetic; its unit test locks every possible 36-cycle
   reset/event residue and explicitly prevents a false buffered-latency claim.
 
-The current source still needs fresh Quartus 21.1.1 timing closure. Standard
+Protected-main commit `a897ecbf` passes the signed Quartus 21.1.1 fit and
+four-corner timing audit in two byte-identical workflow candidates. Standard
 and optional-mode measurements on physical Pocket and Dock remain required
-hardware gates.
+hardware gates, and the exact final public commit must be rebuilt if it differs.

@@ -4,9 +4,11 @@ Swan Song is a simulation-first WonderSwan core for the Analogue Pocket. This
 wiki summarizes the developer path; the repository Markdown, source, tests,
 and machine-readable policies remain the exact reviewable evidence.
 
-> No verified release exists. A green simulation run is necessary, but it is
-> not a substitute for an accepted Quartus fit, timing closure, package audit,
-> or the physical Pocket and Dock matrix.
+> No verified release exists. Protected-main commit `a897ecbf` now has two
+> distinct signed, audit-passing Quartus candidates with byte-identical RBF and
+> build-ID files. That closes fit, timing, and reproduction evidence for that
+> exact development commit; it is not a substitute for licensing authorization,
+> final package review, or the physical Pocket and Dock matrix.
 
 ## Start here
 
