@@ -659,8 +659,9 @@ require complete unfiltered memory history, exact values and resolved offsets,
 issued write lane masks plus the CPU-read zero convention, and exact
 instruction origins for probe-owned accesses across the paired trace-space
 coverage.
-The boot probes bind both input images and prove the overlay-to-cartridge
-transition at identical physical addresses.
+The boot probes bind each generated carrier ROM and built-in Open IPL identity
+and prove the overlay-to-cartridge transition at identical physical addresses
+for all eight footer-selected variants.
 
 The checked-in
 `testroms/ws-test-suite/80186_quirks/80186_quirks.ws` regression runs twice
