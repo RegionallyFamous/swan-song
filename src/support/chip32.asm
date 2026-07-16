@@ -5,17 +5,12 @@ output "chip32.bin", create
 constant rambuf = 0x1b00
 
 constant rom_dataslot = 0
-constant bw_bios_dataslot = 9
-constant color_bios_dataslot = 10
 constant save_dataslot = 11
 constant mono_eeprom_dataslot = 12
 constant color_eeprom_dataslot = 13
 
 constant cart_download_addr = 0x0
 constant is_color_cart_addr = 0x4
-
-constant bw_bios_download_addr = 0x8
-constant color_bios_download_addr = 0xC
 
 constant save_download_addr = 0x10
 constant rom_validation_status_addr = 0x14
@@ -44,16 +39,6 @@ macro load_asset(variable ioctl_download_addr, variable dataslot_id, variable er
   // ld r1,#ioctl_download_addr // Set address for write
   ld r2,#0 // Downloading end
   pmpw r1,r2 // Write ioctl_download = 0
-}
-
-macro load_bios_asset(variable ioctl_download_addr, variable dataslot_id, variable error_msg) {
-  ld r3,#dataslot_id
-  ld r14,#error_msg
-  queryslot r3 // Check if BIOS exists
-
-  jp nz,print_error_and_exit
-
-  load_asset(ioctl_download_addr, dataslot_id, error_msg)
 }
 
 macro load_rom_asset(variable ioctl_download_addr, variable dataslot_id) {
@@ -121,10 +106,6 @@ pmpw r1,r3 // Write is_color_cart = r3
 // Load cart
 load_rom_asset(cart_download_addr, rom_dataslot)
 
-// Load BIOS
-load_bios_asset(bw_bios_download_addr, bw_bios_dataslot, bw_bios_err_msg)
-load_bios_asset(color_bios_download_addr, color_bios_dataslot, color_bios_err_msg)
-
 // Load save
 // Console EEPROM is fixed-name, core-specific machine state. Load both models
 // before the cartridge save and before HOST 4002 releases execution.
@@ -162,9 +143,3 @@ db "ROM footer/checksum rejected",0
 
 rom_validation_timeout_msg:
 db "ROM validation timed out",0
-
-color_bios_err_msg:
-db "No Color BIOS found",0
-
-bw_bios_err_msg:
-db "No B&W BIOS found",0

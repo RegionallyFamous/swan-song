@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run a privacy-preserving, local-only WonderSwan ROM smoke corpus.
 
-The runner deliberately keeps ROMs, BIOS images, framebuffers, simulator
-output, and filesystem paths below a private lab root outside this repository.
+The runner deliberately keeps ROMs, framebuffers, simulator output, and
+filesystem paths below a private lab root outside this repository.
 Only secret-key HMAC identifiers and coarse results enter its public summary.
 """
 
@@ -35,6 +35,7 @@ DEFAULT_SIMULATOR = ROOT / "build" / "sim" / "obj_dir" / "VSwanTop"
 INVENTORY_SCHEMA = "SWAN_SONG_PRIVATE_CORPUS_INVENTORY_V1"
 RESULT_SCHEMA = "SWAN_SONG_PRIVATE_CORPUS_RESULT_V1"
 SUMMARY_SCHEMA = "SWAN_SONG_PRIVATE_CORPUS_SUMMARY_V1"
+OPEN_IPL_IDENTITY = "open-bootstrap-v3"
 KEY_SIZE = 32
 FRAME_SIZE = 224 * 144 * 3
 MIN_ROM_SIZE = 64 * 1024
@@ -68,7 +69,6 @@ class LabPaths:
     root: Path
     private: Path
     roms: Path
-    bios: Path
     work: Path
     results: Path
     reports: Path
@@ -84,6 +84,7 @@ class RomCase:
     mapper: int
     rtc: bool
     size: int
+    open_ipl_variant: str
 
 
 @dataclass(frozen=True)
@@ -100,13 +101,6 @@ class Inventory:
     duplicates: int
     ignored_filesystem_metadata: int
     permission_warnings: int
-
-
-@dataclass(frozen=True)
-class BiosImage:
-    model: str
-    data: bytes
-    opaque_id: str
 
 
 @dataclass(frozen=True)
@@ -189,7 +183,6 @@ def initialize_lab(root: Path) -> tuple[LabPaths, int]:
         root=root,
         private=root / "private",
         roms=root / "private" / "roms",
-        bios=root / "private" / "bios",
         work=root / "private" / "work",
         results=root / "private" / "results",
         reports=root / "reports",
@@ -200,7 +193,6 @@ def initialize_lab(root: Path) -> tuple[LabPaths, int]:
         paths.root,
         paths.private,
         paths.roms,
-        paths.bios,
         paths.work,
         paths.results,
         paths.reports,
@@ -320,8 +312,6 @@ def inspect_rom_bytes(data: bytes, key: bytes) -> tuple[str, str, int, int, bool
         raise CorpusError("rom_footer_color_invalid")
     if footer[11] not in SUPPORTED_SAVE_TYPES:
         raise CorpusError("rom_footer_save_unsupported")
-    if not (footer[12] & 0x04):
-        raise CorpusError("rom_footer_bus_unsupported")
     if footer[13] not in (0, 1):
         raise CorpusError("rom_footer_mapper_unsupported")
     if footer[10] not in DECLARED_ROM_SIZES:
@@ -348,7 +338,16 @@ def inspect_rom_bytes(data: bytes, key: bytes) -> tuple[str, str, int, int, bool
 def inspect_rom(path: Path, key: bytes) -> tuple[RomCase, bytes]:
     data = _read_regular(path, maximum=MAX_ROM_SIZE)
     case_id, model, save_type, mapper, rtc = inspect_rom_bytes(data, key)
-    return RomCase(path, case_id, model, save_type, mapper, rtc, len(data)), data
+    footer = data[-16:]
+    word_width = bool(footer[12] & 0x04)
+    protect_owner_area = not bool(footer[9] & 0x80)
+    variant = (
+        f"{model}-{'word16' if word_width else 'word8'}-"
+        f"owner-{'protected' if protect_owner_area else 'writable'}"
+    )
+    return RomCase(
+        path, case_id, model, save_type, mapper, rtc, len(data), variant
+    ), data
 
 
 def _is_ignored_macos_metadata(name: str) -> bool:
@@ -436,23 +435,6 @@ def _walk_rom_tree(
         ignored_filesystem_metadata,
         permission_warnings,
     )
-
-
-def load_bios(paths: LabPaths, key: bytes) -> tuple[dict[str, BiosImage], int]:
-    result: dict[str, BiosImage] = {}
-    warnings = 0
-    for model, filename, size in (
-        ("mono", "bw.rom", 4096),
-        ("color", "color.rom", 8192),
-    ):
-        path = paths.bios / filename
-        data = _read_regular(path, exact_size=size)
-        if _mode_is_broad(_lstat(path).st_mode):
-            warnings += 1
-        result[model] = BiosImage(
-            model, data, "bios-" + _opaque_bytes(key, b"bios-" + model.encode(), data)
-        )
-    return result, warnings
 
 
 def _atomic_write_json(path: Path, document: Any) -> None:
@@ -569,7 +551,6 @@ def _frame_chain(output: Path, frames: int, key: bytes) -> tuple[str, int]:
 def _run_attempt(
     case: RomCase,
     rom_data: bytes,
-    bios: BiosImage,
     simulator: Path,
     lab: LabPaths,
     key: bytes,
@@ -584,18 +565,14 @@ def _run_attempt(
             temporary = Path(temporary_name)
             temporary.chmod(0o700)
             rom_path = temporary / ("cartridge.wsc" if case.model == "color" else "cartridge.ws")
-            bios_path = temporary / "bios.rom"
             output = temporary / "frames"
             output.mkdir(mode=0o700)
             _write_private_input(rom_path, rom_data)
-            _write_private_input(bios_path, bios.data)
             reason, _return_code = _run_process(
                 (
                     str(simulator),
                     "--rom",
                     str(rom_path),
-                    "--bios",
-                    str(bios_path),
                     "--frames",
                     str(frames),
                     "--max-cycles",
@@ -691,7 +668,6 @@ def _public_case_result(document: dict[str, Any], resumed: bool) -> dict[str, An
 
 def _execute_case(
     case: RomCase,
-    bios_images: dict[str, BiosImage],
     simulator: Path,
     lab: LabPaths,
     key: bytes,
@@ -742,7 +718,6 @@ def _execute_case(
     first = _run_attempt(
         case,
         rom_data,
-        bios_images[case.model],
         simulator,
         lab,
         key,
@@ -757,7 +732,6 @@ def _execute_case(
         second = _run_attempt(
             case,
             rom_data,
-            bios_images[case.model],
             simulator,
             lab,
             key,
@@ -791,7 +765,6 @@ def _execute_case(
 
 def _inventory_document(
     inventory: Inventory,
-    bios_ready: bool,
     permission_warnings: int,
 ) -> dict[str, Any]:
     model_counts = {"mono": 0, "color": 0}
@@ -805,7 +778,10 @@ def _inventory_document(
     return {
         "schema": INVENTORY_SCHEMA,
         "generated_at": _utc_now(),
-        "bios_ready": bios_ready,
+        "open_ipl": {
+            "identity": OPEN_IPL_IDENTITY,
+            "variants": sorted({case.open_ipl_variant for case in inventory.cases}),
+        },
         "counts": {
             "files_seen": inventory.files_seen,
             "valid_unique_cases": len(inventory.cases),
@@ -818,7 +794,12 @@ def _inventory_document(
         "model_counts": model_counts,
         "save_type_counts": dict(sorted(save_type_counts.items())),
         "cases": [
-            {"case_id": case.case_id, "status": "ready"} for case in inventory.cases
+            {
+                "case_id": case.case_id,
+                "status": "ready",
+                "open_ipl_variant": case.open_ipl_variant,
+            }
+            for case in inventory.cases
         ]
         + [
             {"case_id": item.case_id, "status": "rejected", "reason": item.reason}
@@ -858,55 +839,45 @@ def _lab_argument(value: str) -> Path:
 
 def _prepare_inventory(
     root: Path,
-) -> tuple[LabPaths, bytes, Inventory, dict[str, BiosImage], int, bool]:
+) -> tuple[LabPaths, bytes, Inventory, int]:
     lab, lab_warnings = initialize_lab(root)
     key, key_warnings = load_or_create_key(lab.key)
     inventory = _walk_rom_tree(lab.roms, key, lab_warnings + key_warnings)
-    bios_images: dict[str, BiosImage] = {}
-    bios_warnings = 0
-    bios_ready = True
-    try:
-        bios_images, bios_warnings = load_bios(lab, key)
-    except CorpusError:
-        bios_ready = False
-    total_warnings = inventory.permission_warnings + bios_warnings
-    return lab, key, inventory, bios_images, total_warnings, bios_ready
+    return lab, key, inventory, inventory.permission_warnings
 
 
 def inventory_command(args: argparse.Namespace) -> int:
-    lab, _key, inventory, _bios, warnings, bios_ready = _prepare_inventory(args.lab_root)
-    document = _inventory_document(inventory, bios_ready, warnings)
+    lab, _key, inventory, warnings = _prepare_inventory(args.lab_root)
+    document = _inventory_document(inventory, warnings)
     _print_and_store(document, lab.reports / "corpus-inventory.json")
     if warnings:
         print(
             f"WARNING: {warnings} private input or lab item(s) permit group/other access",
             file=sys.stderr,
         )
-    return int(not bios_ready or not inventory.cases or bool(inventory.rejections))
+    return int(not inventory.cases or bool(inventory.rejections))
 
 
 def run_command(args: argparse.Namespace) -> int:
-    lab, key, inventory, bios_images, warnings, bios_ready = _prepare_inventory(args.lab_root)
+    lab, key, inventory, warnings = _prepare_inventory(args.lab_root)
     if args.dry_run:
-        document = _inventory_document(inventory, bios_ready, warnings)
+        document = _inventory_document(inventory, warnings)
         _print_and_store(document, lab.reports / "corpus-inventory.json")
-        return int(not bios_ready or not inventory.cases or bool(inventory.rejections))
-    if not bios_ready:
-        document = _inventory_document(inventory, False, warnings)
-        _print_and_store(document, lab.reports / "corpus-summary.json")
-        return 1
+        return int(not inventory.cases or bool(inventory.rejections))
     try:
         simulator, simulator_sha256 = _validate_simulator(args.simulator)
     except CorpusError as error:
-        document = _inventory_document(inventory, True, warnings)
+        document = _inventory_document(inventory, warnings)
         document["readiness_error"] = error.code
         _print_and_store(document, lab.reports / "corpus-summary.json")
         return 1
 
     contract = {
         "simulator_sha256": simulator_sha256,
-        "mono_bios_id": bios_images["mono"].opaque_id,
-        "color_bios_id": bios_images["color"].opaque_id,
+        "open_ipl_identity": OPEN_IPL_IDENTITY,
+        "open_ipl_variants": sorted(
+            {case.open_ipl_variant for case in inventory.cases}
+        ),
         "frames": args.frames,
         "max_cycles": args.max_cycles,
         "wall_timeout_seconds": args.wall_timeout,
@@ -921,7 +892,6 @@ def run_command(args: argparse.Namespace) -> int:
             executor.submit(
                 _execute_case,
                 case,
-                bios_images,
                 simulator,
                 lab,
                 key,
@@ -970,6 +940,8 @@ def run_command(args: argparse.Namespace) -> int:
         "generated_at": _utc_now(),
         "contract_id": contract_id,
         "configuration": {
+            "open_ipl_identity": OPEN_IPL_IDENTITY,
+            "open_ipl_variants": contract["open_ipl_variants"],
             "frames": args.frames,
             "max_cycles": args.max_cycles,
             "wall_timeout_seconds": args.wall_timeout,

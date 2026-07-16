@@ -10,8 +10,8 @@
 1. Open **openFPGA** on the Pocket.
 2. Choose **Swan Song**.
 3. Select a `.ws` or `.wsc` file from `/Assets/wonderswan/common/`.
-4. If Pocket asks for either BIOS, select the correctly named file from that
-   same folder.
+
+Swan Song uses its built-in open IPL and does not ask for an external BIOS.
 
 Swan Song asks Pocket to remember the last selected cartridge. Use **Core
 Settings > Cartridge** to change games. Selecting a new title performs a full
@@ -28,13 +28,6 @@ Swan Song cannot add itself or individual ROMs to Analogue's first-party
 Library. That is a PocketOS boundary, not missing core artwork. The detailed
 research is in the [Pocket launcher and Library
 audit](https://github.com/RegionallyFamous/swansong-core/blob/main/POCKET_LAUNCHER_LIBRARY.md).
-
-## Enter the original console setup
-
-Choose **Core Settings > Console Setup** to recreate the original console's
-Start-held power-on gesture. With your legally obtained BIOS, this should open
-the mono or Color firmware owner-registration screen. It does not edit your
-profile itself, rotate the picture, or change controls.
 
 Swan Song keeps the mono and Color owner data in separate persistent console
 EEPROM files. Their final quit, relaunch, model-switch, title-switch, and
@@ -77,6 +70,6 @@ guide](https://github.com/RegionallyFamous/swansong-core/blob/main/PER_GAME_PRES
 
 ## Resetting remembered choices
 
-Pocket's **Reset all to defaults** action clears remembered browser choices
-along with core settings. If a title or BIOS choice appears to have been
-forgotten after that action, select it again normally.
+Pocket's **Reset all to defaults** action clears the remembered cartridge
+choice along with core settings. If a title appears to have been forgotten
+after that action, select it again normally.

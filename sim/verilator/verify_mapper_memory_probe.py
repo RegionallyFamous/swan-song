@@ -7,27 +7,35 @@ import argparse
 import csv
 import hashlib
 import json
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from verify_trace import FIELDS_V5
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from generate_open_ipl import make_open_ipl  # noqa: E402
+
 
 ROM_SIZE = 2 * 1024 * 1024
-BIOS_SIZE = 4096
+OPEN_IPL_SIZE = 4096
+OPEN_IPL_FNV1A64 = "bcae6dfa69fd72ab"
+OPEN_IPL = make_open_ipl(
+    color=False, word_width=True, protect_owner_area=True
+)
 PRESENT_SHA256 = "c65deea47f2e05671c27c07b8d4180e758bfaa94a9f38ca9114dbadf937b083f"
 ABSENT_SHA256 = "ffe265c47d79621f76708b9e9b2ed85f8d1a9f5f8c460e11b46fc1b507e575b5"
-BIOS_SHA256 = "ed118ffbe6e80ae7de050e729ab268d8e48fdfe37a8ab19ab0ed1b7ead1dd76c"
 EXPECTED_EVENTS = {"cpu": False, "bank": True, "vram": False, "mem": True, "bg_cell": False}
-EXPECTED_COUNTS = Counter({"mem": 37073, "bank": 5})
+EXPECTED_COUNTS = Counter({"mem": 37035, "bank": 5})
 EXPECTED_SPACES = Counter(
     {
-        "cart_rom_linear": 37038,
-        "boot_rom": 22,
+        "cart_rom_linear": 36917,
+        "boot_rom": 83,
         "sram_variant": 5,
         "unmapped": 4,
-        "iram": 2,
+        "iram": 24,
         "cart_rom0": 1,
         "cart_rom1": 1,
     }
@@ -57,49 +65,59 @@ class BankEvent:
     origin_pc: int
 
 
-BOOT_EVENTS = (
-    MemEvent(21, "read", 0xFFFF0, 0x00EA, 0, "boot_rom", 0xFF0, None, None, "unattributed"),
-    MemEvent(33, "read", 0xFFFF2, 0x0000, 0, "boot_rom", 0xFF2, None, None, "unattributed"),
-    MemEvent(45, "read", 0xFFFF4, 0x90FF, 0, "boot_rom", 0xFF4, None, None, "unattributed"),
-    MemEvent(57, "read", 0xFFFF6, 0x9090, 0, "boot_rom", 0xFF6, None, None, "unattributed"),
-    MemEvent(69, "read", 0xFFFF8, 0x9090, 0, "boot_rom", 0xFF8, None, None, "unattributed"),
-    MemEvent(81, "read", 0xFFFFA, 0x9090, 0, "boot_rom", 0xFFA, None, None, "unattributed"),
-    MemEvent(93, "read", 0xFFFFC, 0x9090, 0, "boot_rom", 0xFFC, None, None, "unattributed"),
-    MemEvent(129, "read", 0xFFFFE, 0x9090, 0, "boot_rom", 0xFFE, None, None, "unattributed"),
-    MemEvent(189, "read", 0xFF000, 0xB8FA, 0, "boot_rom", 0x000, None, None, "unattributed"),
-    MemEvent(201, "read", 0xFF002, 0xFF00, 0, "boot_rom", 0x002, None, None, "unattributed"),
-    MemEvent(213, "read", 0xFF004, 0xD88E, 0, "boot_rom", 0x004, None, None, "unattributed"),
-    MemEvent(225, "read", 0xFF006, 0x00A1, 0, "boot_rom", 0x006, None, None, "unattributed"),
-    MemEvent(237, "read", 0xFF008, 0xB001, 0, "boot_rom", 0x008, None, None, "unattributed"),
-    MemEvent(249, "read", 0xFF00A, 0xE601, 0, "boot_rom", 0x00A, None, None, "unattributed"),
-    MemEvent(261, "read", 0xFF00C, 0xEAA0, 0, "boot_rom", 0x00C, None, None, "unattributed"),
-    MemEvent(273, "read", 0xFF00E, 0x0000, 0, "boot_rom", 0x00E, None, None, "unattributed"),
-    MemEvent(285, "read", 0xFF010, 0xFFFF, 0, "boot_rom", 0x010, None, None, "unattributed"),
-    MemEvent(297, "read", 0xFF012, 0x9090, 0, "boot_rom", 0x012, None, None, "unattributed"),
-    MemEvent(318, "read", 0xFF100, 0xD4C3, 0, "boot_rom", 0x100, 5, 0xFF006, "exact"),
-    MemEvent(333, "read", 0xFF014, 0x9090, 0, "boot_rom", 0x014, None, None, "unattributed"),
-    MemEvent(345, "read", 0xFF016, 0x9090, 0, "boot_rom", 0x016, None, None, "unattributed"),
-    MemEvent(357, "read", 0xFF018, 0x9090, 0, "boot_rom", 0x018, None, None, "unattributed"),
+def open_ipl_word(offset: int) -> int:
+    return OPEN_IPL[offset] | (OPEN_IPL[offset + 1] << 8)
+
+
+_RESET_CYCLES = (21, 33, 45, 57, 69, 81, 93, 129)
+BOOT_EVENTS = tuple(
+    MemEvent(
+        cycle,
+        "read",
+        0xFFFF0 + index * 2,
+        open_ipl_word(0xFF0 + index * 2),
+        0,
+        "boot_rom",
+        0xFF0 + index * 2,
+        None,
+        None,
+        "unattributed",
+    )
+    for index, cycle in enumerate(_RESET_CYCLES)
+) + tuple(
+    MemEvent(
+        189 + index * 12,
+        "read",
+        0xFFF00 + index * 2,
+        open_ipl_word(0xF00 + index * 2),
+        0,
+        "boot_rom",
+        0xF00 + index * 2,
+        None,
+        None,
+        "unattributed",
+    )
+    for index in range(75)
 )
 
 BANK_EVENTS = (
-    BankEvent(755, 0xC0, 0x01, 12, 0xF0003),
-    BankEvent(851, 0xC1, 0x01, 14, 0xF0007),
-    BankEvent(947, 0xC2, 0x15, 16, 0xF000B),
-    BankEvent(1043, 0xC3, 0x16, 18, 0xF000F),
-    BankEvent(1235, 0xC1, 0x03, 27, 0xF0029),
+    BankEvent(2183, 0xC0, 0x01, 52, 0xF0003),
+    BankEvent(2279, 0xC1, 0x01, 54, 0xF0007),
+    BankEvent(2375, 0xC2, 0x15, 56, 0xF000B),
+    BankEvent(2471, 0xC3, 0x16, 58, 0xF000F),
+    BankEvent(2663, 0xC1, 0x03, 67, 0xF0029),
 )
 
 COMMON_PROBE_EVENTS = (
-    MemEvent(1323, "write", 0x04000, 0x3CC3, 3, "unmapped", None, 32, 0xF0036, "exact"),
-    MemEvent(1338, "read", 0x04000, 0x9090, 0, "unmapped", None, 33, 0xF0039, "exact"),
-    MemEvent(1368, "write", 0x04001, 0x007D, 1, "unmapped", None, 34, 0xF003C, "exact"),
-    MemEvent(1398, "read", 0x04001, 0x0090, 0, "unmapped", None, 35, 0xF0041, "exact"),
-    MemEvent(1458, "read", 0x21234, 0xA10F, 0, "cart_rom0", 0x151234, 38, 0xF0049, "exact"),
-    MemEvent(1518, "read", 0x31234, 0xB20E, 0, "cart_rom1", 0x161234, 41, 0xF0051, "exact"),
-    MemEvent(1578, "read", 0x51234, 0xA10F, 0, "cart_rom_linear", 0x151234, 44, 0xF0059, "exact"),
-    MemEvent(1638, "read", 0x61234, 0xB20E, 0, "cart_rom_linear", 0x161234, 47, 0xF0061, "exact"),
-    MemEvent(1698, "read", 0x71234, 0xC30D, 0, "cart_rom_linear", 0x171234, 50, 0xF0069, "exact"),
+    MemEvent(2751, "write", 0x04000, 0x3CC3, 3, "unmapped", None, 72, 0xF0036, "exact"),
+    MemEvent(2766, "read", 0x04000, 0x9090, 0, "unmapped", None, 73, 0xF0039, "exact"),
+    MemEvent(2796, "write", 0x04001, 0x007D, 1, "unmapped", None, 74, 0xF003C, "exact"),
+    MemEvent(2826, "read", 0x04001, 0x0090, 0, "unmapped", None, 75, 0xF0041, "exact"),
+    MemEvent(2886, "read", 0x21234, 0xA10F, 0, "cart_rom0", 0x151234, 78, 0xF0049, "exact"),
+    MemEvent(2946, "read", 0x31234, 0xB20E, 0, "cart_rom1", 0x161234, 81, 0xF0051, "exact"),
+    MemEvent(3006, "read", 0x51234, 0xA10F, 0, "cart_rom_linear", 0x151234, 84, 0xF0059, "exact"),
+    MemEvent(3066, "read", 0x61234, 0xB20E, 0, "cart_rom_linear", 0x161234, 87, 0xF0061, "exact"),
+    MemEvent(3126, "read", 0x71234, 0xC30D, 0, "cart_rom_linear", 0x171234, 90, 0xF0069, "exact"),
 )
 
 
@@ -110,11 +128,11 @@ def sram_events(present: bool) -> tuple[MemEvent, ...]:
     read_byte = 0x7E if present else 0
     alias_word = 0x7E5A if present else 0
     return (
-        MemEvent(1119, "write", 0x11234, 0xA55A, 3, space, offset(0x11234), 22, 0xF0019, "exact"),
-        MemEvent(1134, "read", 0x11234, read_word, 0, space, offset(0x11234), 23, 0xF001C, "exact"),
-        MemEvent(1164, "write", 0x11235, 0x007E, 1, space, offset(0x11235), 24, 0xF001F, "exact"),
-        MemEvent(1182, "read", 0x11235, read_byte, 0, space, offset(0x11235), 25, 0xF0024, "exact"),
-        MemEvent(1266, "read", 0x11234, alias_word, 0, space, offset(0x11234), 28, 0xF002B, "exact"),
+        MemEvent(2547, "write", 0x11234, 0xA55A, 3, space, offset(0x11234), 62, 0xF0019, "exact"),
+        MemEvent(2562, "read", 0x11234, read_word, 0, space, offset(0x11234), 63, 0xF001C, "exact"),
+        MemEvent(2592, "write", 0x11235, 0x007E, 1, space, offset(0x11235), 64, 0xF001F, "exact"),
+        MemEvent(2610, "read", 0x11235, read_byte, 0, space, offset(0x11235), 65, 0xF0024, "exact"),
+        MemEvent(2694, "read", 0x11234, alias_word, 0, space, offset(0x11234), 68, 0xF002B, "exact"),
     )
 
 
@@ -141,7 +159,7 @@ def positive_integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def verify_manifest(trace: Path, rom: Path, bios: Path) -> None:
+def verify_manifest(trace: Path, rom: Path) -> None:
     manifest_path = Path(f"{trace}.manifest.json")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -157,8 +175,8 @@ def verify_manifest(trace: Path, rom: Path, bios: Path) -> None:
         "capture_completed": True,
         "rom_size": rom.stat().st_size,
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": bios.stat().st_size,
-        "bios_fnv1a64": fnv1a64(bios),
+        "open_ipl_size": OPEN_IPL_SIZE,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,
@@ -290,7 +308,7 @@ def footer_events(rom: Path) -> tuple[MemEvent, ...]:
     base = len(data) - 16
     return tuple(
         MemEvent(
-            489 + index * 12,
+            1917 + index * 12,
             "read",
             0xFFFF0 + index * 2,
             int.from_bytes(
@@ -307,8 +325,22 @@ def footer_events(rom: Path) -> tuple[MemEvent, ...]:
     )
 
 
-def verify_one(rom: Path, bios: Path, trace: Path, present: bool) -> None:
-    verify_manifest(trace, rom, bios)
+def verify_open_ipl_events(events: tuple[MemEvent, ...]) -> None:
+    if len(events) != 83:
+        raise ValueError(f"unexpected Open IPL event count: {len(events)}")
+    for item in events:
+        if (
+            item.access != "read"
+            or item.byte_enable != 0
+            or item.mapped_offset is None
+            or item.address != 0xFF000 + item.mapped_offset
+            or item.value != open_ipl_word(item.mapped_offset)
+        ):
+            raise ValueError(f"unexpected Open IPL event: {item!r}")
+
+
+def verify_one(rom: Path, trace: Path, present: bool) -> None:
+    verify_manifest(trace, rom)
     mem, banks = read_trace(trace)
     counts = Counter({"mem": len(mem), "bank": len(banks)})
     if counts != EXPECTED_COUNTS:
@@ -322,8 +354,7 @@ def verify_one(rom: Path, bios: Path, trace: Path, present: bool) -> None:
         raise ValueError(f"unexpected memory-space counts: {spaces}")
 
     observed_boot = tuple(item for item in mem if item.space == "boot_rom")
-    if observed_boot != BOOT_EVENTS:
-        raise ValueError("unexpected boot-ROM sequence")
+    verify_open_ipl_events(observed_boot)
     if tuple(banks) != BANK_EVENTS:
         raise ValueError(f"unexpected bank sequence: {banks!r}")
 
@@ -335,34 +366,38 @@ def verify_one(rom: Path, bios: Path, trace: Path, present: bool) -> None:
     if observed_footer != footer_events(rom):
         raise ValueError("unexpected cartridge reset-footer sequence")
 
-    wanted_exact = (BOOT_EVENTS[18], *sram_events(present), *COMMON_PROBE_EVENTS)
-    observed_exact = tuple(item for item in mem if item.origin_status == "exact")
+    wanted_exact = (*sram_events(present), *COMMON_PROBE_EVENTS)
+    observed_exact = tuple(
+        item
+        for item in mem
+        if item.origin_status == "exact"
+        and item.origin_pc is not None
+        and item.origin_pc < 0xFF000
+    )
     if observed_exact != wanted_exact:
         raise ValueError(f"unexpected exact-origin memory sequence: {observed_exact!r}")
 
 
-def verify(bios: Path, present_rom: Path, present_trace: Path, absent_rom: Path, absent_trace: Path) -> None:
-    verify_input(bios, BIOS_SIZE, BIOS_SHA256, "mapper bootstrap BIOS")
+def verify(present_rom: Path, present_trace: Path, absent_rom: Path, absent_trace: Path) -> None:
     verify_input(present_rom, ROM_SIZE, PRESENT_SHA256, "SRAM-present mapper ROM")
     verify_input(absent_rom, ROM_SIZE, ABSENT_SHA256, "SRAM-absent mapper ROM")
-    verify_one(present_rom, bios, present_trace, True)
-    verify_one(absent_rom, bios, absent_trace, False)
+    verify_one(present_rom, present_trace, True)
+    verify_one(absent_rom, absent_trace, False)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("bios", type=Path)
     parser.add_argument("present_rom", type=Path)
     parser.add_argument("present_trace", type=Path)
     parser.add_argument("absent_rom", type=Path)
     parser.add_argument("absent_trace", type=Path)
     args = parser.parse_args()
     try:
-        verify(args.bios, args.present_rom, args.present_trace, args.absent_rom, args.absent_trace)
+        verify(args.present_rom, args.present_trace, args.absent_rom, args.absent_trace)
     except (OSError, ValueError, KeyError) as error:
         raise SystemExit(f"mapper-memory probe: {error}") from error
     print(
-        "PASS mapper-memory probe boot=22 bank=5 sram=5 absent=5 "
+        "PASS mapper-memory probe open_ipl=83 bank=5 sram=5 absent=5 "
         "unmapped=4 rom0=1 rom1=1 linear_exact=3 inputs=bound"
     )
 

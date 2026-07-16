@@ -77,7 +77,6 @@ python3 "$ROOT/scripts/apf_a0_prefetch_service_model_test.py"
 "$ROOT/sim/rtl/run_apf_menu_focus_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_menu_focus_pause_tb.sh"
 "$ROOT/sim/rtl/run_apf_fast_forward_control_tb.sh"
-"$ROOT/sim/rtl/run_apf_console_setup_tb.sh"
 "$ROOT/sim/rtl/run_apf_settings_cdc_tb.sh"
 "$ROOT/sim/rtl/run_apf_interact_readback_tb.sh"
 "$ROOT/sim/rtl/run_apf_control_layout_tb.sh"
@@ -551,8 +550,8 @@ python3 "$ROOT/sim/verilator/verify_sdma_modes_probe.py" \
 
 # Exercise every memory-space classification that can be reached with open,
 # generated stimuli. The paired ROMs differ only in their unambiguous 128 KiB
-# SRAM declaration; both use the same generated mono boot image and complete,
-# unfiltered mem+bank capture. The dedicated verifier binds all three inputs,
+# SRAM declaration; both boot through the built-in mono Open IPL and use
+# complete, unfiltered mem+bank capture. The verifier binds both ROM inputs,
 # both traces, exact mapper origins, bank masks, lane masks, and resolved
 # offsets without treating the core's absent-SRAM value as a hardware oracle.
 MAPPER_OUT="$BUILD/mapper-memory-probe"
@@ -562,7 +561,6 @@ python3 "$ROOT/sim/verilator/generate_mapper_memory_probe.py" "$MAPPER_OUT" \
 for variant in present absent; do
   "$SIM" \
     --rom "$MAPPER_OUT/mapper_memory_${variant}.ws" \
-    --bios "$MAPPER_OUT/mapper_memory_boot.bin" \
     --frames 1 --max-cycles 1000000 \
     --out "$MAPPER_OUT/${variant}-frames" \
     --event-trace "$MAPPER_OUT/${variant}.csv" \
@@ -575,7 +573,6 @@ for variant in present absent; do
     --require-origin-statuses exact,unattributed
 done
 python3 "$ROOT/sim/verilator/verify_mapper_memory_probe.py" \
-  "$MAPPER_OUT/mapper_memory_boot.bin" \
   "$MAPPER_OUT/mapper_memory_present.ws" "$MAPPER_OUT/present.csv" \
   "$MAPPER_OUT/mapper_memory_absent.ws" "$MAPPER_OUT/absent.csv"
 
@@ -590,7 +587,6 @@ python3 "$ROOT/sim/verilator/generate_sram_32k_probe.py" \
 for sram_type in 01 02; do
   "$SIM" \
     --rom "$SRAM_32K_OUT/sram_type${sram_type}_32k.ws" \
-    --bios "$SRAM_32K_OUT/sram_32k_boot.bin" \
     --frames 1 --max-cycles 1000000 \
     --out "$SRAM_32K_OUT/type${sram_type}-frames" \
     --event-trace "$SRAM_32K_OUT/type${sram_type}.csv" \
@@ -601,35 +597,48 @@ for sram_type in 01 02; do
     --require-mem-initiators cpu --require-origin-statuses exact
 done
 python3 "$ROOT/sim/verilator/verify_sram_32k_probe.py" \
-  "$SRAM_32K_OUT/sram_32k_boot.bin" \
   "$SRAM_32K_OUT/sram_type01_32k.ws" "$SRAM_32K_OUT/type01.csv" \
   "$SRAM_32K_OUT/sram_type02_32k.ws" "$SRAM_32K_OUT/type02.csv"
 
-# Independently cover both boot-ROM sizes. The open test images execute from
-# byte zero, read a low-window marker, lock port A0, and prove that physical
-# FFFF0-FFFFE then resolves to the generated cartridge footer. This also
-# regression-locks the simulator's initial low-clock evaluation, which is
-# required for BIOS bytes 0/1 to be programmed.
+# Independently cover all eight built-in Open IPL variants. Normal mono/color
+# cartridge footers select every 8/16-bit and protected/writable-owner policy
+# without any BIOS input. Complete trace provenance binds each reset-vector and
+# sequential IPL startup fetch to open-bootstrap-v3, then proves that the RAM
+# handoff locks port A0 and physical FFFF0-FFFFE resolves to the cartridge footer.
 BOOT_OUT="$BUILD/boot-overlay-probe"
 rm -rf "$BOOT_OUT"
 python3 "$ROOT/sim/verilator/generate_boot_overlay_probe.py" "$BOOT_OUT" \
   >/dev/null
-for model in mono color; do
+for variant in \
+  mono-word8-owner-writable mono-word8-owner-protected \
+  mono-word16-owner-writable mono-word16-owner-protected \
+  color-word8-owner-writable color-word8-owner-protected \
+  color-word16-owner-writable color-word16-owner-protected; do
+  if [[ "$variant" == mono-* ]]; then
+    extension=ws
+  else
+    extension=wsc
+  fi
+  if [[ "$variant" == "mono-word16-owner-protected" ]]; then
+    BOOT_ROM="$BOOT_OUT/boot_overlay_mono.ws"
+  elif [[ "$variant" == "color-word16-owner-protected" ]]; then
+    BOOT_ROM="$BOOT_OUT/boot_overlay_color.wsc"
+  else
+    BOOT_ROM="$BOOT_OUT/boot_overlay_${variant//-/_}.${extension}"
+  fi
   "$SIM" \
-    --rom "$BOOT_OUT/boot_overlay_carrier.ws" \
-    --bios "$BOOT_OUT/boot_overlay_${model}.bin" \
+    --rom "$BOOT_ROM" \
     --frames 1 --max-cycles 1000000 \
-    --out "$BOOT_OUT/${model}-frames" \
-    --event-trace "$BOOT_OUT/${model}.csv" \
+    --out "$BOOT_OUT/${variant}-frames" \
+    --event-trace "$BOOT_OUT/${variant}.csv" \
     --trace-events mem >/dev/null
   python3 "$ROOT/sim/verilator/verify_trace.py" \
-    "$BOOT_OUT/${model}.csv" \
+    "$BOOT_OUT/${variant}.csv" \
     --allowed mem --require mem --require-mem-initiators cpu \
     --require-origin-statuses exact,unattributed
   python3 "$ROOT/sim/verilator/verify_boot_overlay_probe.py" \
-    "$model" "$BOOT_OUT/${model}.csv" \
-    "$BOOT_OUT/boot_overlay_carrier.ws" \
-    "$BOOT_OUT/boot_overlay_${model}.bin"
+    "$variant" "$BOOT_OUT/${variant}.csv" \
+    "$BOOT_ROM"
 done
 
 # Exercise both documented WonderSwan Color 4bpp tile encodings with
@@ -659,9 +668,9 @@ for variant in planar packed; do
     "$BPP4_VARIANT_OUT/events.csv" \
     --output "$BPP4_VARIANT_OUT/provenance.csv" \
     --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-    --expect-count fetches=26168 --expect-count match=26168 \
+    --expect-count fetches=26170 --expect-count match=26170 \
     --expect-count collision=0 --expect-count cpu_exact=8494 \
-    --expect-count initial_powerup=17546 --expect-count gdma_rom=128 \
+    --expect-count initial_powerup=17548 --expect-count gdma_rom=128 \
     --expect-count cpu_rom_movsb=0 \
     --expect-count cpu_rom_movsb_bytes=0 \
     --expect-count cpu_rom_movsb_origins=0
@@ -673,7 +682,7 @@ for variant in planar packed; do
   require_bg_layers "$BPP4_BG_SUMMARY" screen1
   require_bg_counts "$BPP4_BG_SUMMARY" \
     cells=8494 screen1=8494 screen2=0 bpp2=0 bpp4=8494 \
-    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 raw_prefix_truncated=2 \
     cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
     cpu_rom_movsb_origins=0
   python3 "$ROOT/sim/verilator/report_glyphs.py" \
@@ -756,9 +765,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$SJIS_OUT/events.csv" --output "$SJIS_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=25610 --expect-count match=25610 \
+  --expect-count fetches=25612 --expect-count match=25612 \
   --expect-count collision=0 --expect-count cpu_exact=24758 \
-  --expect-count initial_powerup=660 --expect-count gdma_rom=192 \
+  --expect-count initial_powerup=662 --expect-count gdma_rom=192 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -769,7 +778,7 @@ echo "$SJIS_BG_SUMMARY"
 require_bg_layers "$SJIS_BG_SUMMARY" screen1
 require_bg_counts "$SJIS_BG_SUMMARY" \
   cells=8308 screen1=8308 screen2=0 bpp2=8308 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 raw_prefix_truncated=2 \
   cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
   cpu_rom_movsb_origins=0
 python3 "$ROOT/sim/verilator/report_glyphs.py" \
@@ -971,9 +980,9 @@ python3 "$ROOT/sim/verilator/verify_trace.py" \
 python3 "$ROOT/sim/verilator/correlate_provenance.py" \
   "$EXT_OUT/events.csv" --output "$EXT_OUT/provenance.csv" \
   --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-  --expect-count fetches=16281 --expect-count match=16281 \
-  --expect-count collision=0 --expect-count cpu_exact=15611 \
-  --expect-count initial_powerup=670 --expect-count gdma_rom=0 \
+  --expect-count fetches=16190 --expect-count match=16190 \
+  --expect-count collision=0 --expect-count cpu_exact=15518 \
+  --expect-count initial_powerup=672 --expect-count gdma_rom=0 \
   --expect-count cpu_rom_movsb=0 \
   --expect-count cpu_rom_movsb_bytes=0 \
   --expect-count cpu_rom_movsb_origins=0
@@ -983,8 +992,8 @@ EXT_BG_SUMMARY="$(python3 "$ROOT/sim/verilator/correlate_bg_cells.py" \
 echo "$EXT_BG_SUMMARY"
 require_bg_layers "$EXT_BG_SUMMARY" screen1
 require_bg_counts "$EXT_BG_SUMMARY" \
-  cells=5177 screen1=5177 screen2=0 bpp2=5177 bpp4=0 \
-  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+  cells=5146 screen1=5146 screen2=0 bpp2=5146 bpp4=0 \
+  raw_superseded=60 raw_unpromoted=2 raw_inflight=0 raw_prefix_truncated=2 \
   cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
   cpu_rom_movsb_origins=0
 python3 "$ROOT/sim/verilator/correlate_sprite_rows.py" \
@@ -1029,9 +1038,9 @@ for window_variant in inside outside; do
     "$WINDOW_OUT/${window_variant}.csv" \
     --output "$WINDOW_OUT/${window_variant}-provenance.csv" \
     --fail-on-mismatch --require-complete-coverage --require-exact-fetches \
-    --expect-count fetches=26296 --expect-count match=26296 \
-    --expect-count collision=0 --expect-count cpu_exact=8540 \
-    --expect-count initial_powerup=640 --expect-count gdma_rom=17116 \
+    --expect-count fetches=26205 --expect-count match=26205 \
+    --expect-count collision=0 --expect-count cpu_exact=8495 \
+    --expect-count initial_powerup=656 --expect-count gdma_rom=17054 \
     --expect-count cpu_rom_movsb=0 \
     --expect-count cpu_rom_movsb_bytes=0 \
     --expect-count cpu_rom_movsb_origins=0
@@ -1042,8 +1051,8 @@ for window_variant in inside outside; do
   echo "$WINDOW_BG_SUMMARY"
   require_bg_layers "$WINDOW_BG_SUMMARY" screen2
   require_bg_counts "$WINDOW_BG_SUMMARY" \
-    cells=8494 screen1=0 screen2=8494 bpp2=0 bpp4=8494 \
-    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 \
+    cells=8463 screen1=0 screen2=8463 bpp2=0 bpp4=8463 \
+    raw_superseded=60 raw_unpromoted=2 raw_inflight=0 raw_prefix_truncated=2 \
     cpu_rom_movsb_cells=0 cpu_rom_movsb_bytes=0 \
     cpu_rom_movsb_origins=0
   python3 "$ROOT/sim/verilator/verify_window_boundary_probe.py" \

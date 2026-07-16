@@ -55,10 +55,6 @@ module footer_snapshot_tb;
         .rom_plan_valid_sys(1'b0),
         .ext_cart_download(ext_cart_download),
         .ext_cart_download_sys(ext_cart_download_sys),
-        .bios_download(2'b00),
-        .bios_wr(1'b0),
-        .bios_addr(13'd0),
-        .bios_dout(16'd0),
         .rtc_epoch_seconds(32'd0),
         .rtc_epoch_valid(1'b0),
         .menu_focus_paused(1'b0),
@@ -115,7 +111,9 @@ module footer_snapshot_tb;
             };
             expected_eeprom = ram_type inside {8'h10, 8'h20, 8'h50};
 
-            ext_cart_download = color_model ? 2'b10 : 2'b01;
+            // Deliberately use the opposite filename-extension hint. Auto
+            // model and Open IPL selection must come from the footer alone.
+            ext_cart_download = color_model ? 2'b01 : 2'b10;
             ext_cart_download_sys = ext_cart_download;
 
             // Five final little-endian words cover footer bytes -10 through
@@ -135,17 +133,21 @@ module footer_snapshot_tb;
 
             if (dut.footer_color_sys !== color_model ||
                 dut.footer_romtype_sys !== (rtc_present ? 8'h01 : 8'h00) ||
-                dut.footer_ramtype_sys !== ram_type) begin
+                dut.footer_ramtype_sys !== ram_type ||
+                dut.open_ipl_word_width_sys !== 1'b1 ||
+                dut.open_ipl_protect_owner_area_sys !== 1'b1) begin
                 $fatal(
                     1,
-                    "torn footer snapshot phase=%0d ram=%02x rtc=%0d color=%0d got=%0d:%02x:%02x",
+                    "torn footer snapshot phase=%0d ram=%02x rtc=%0d color=%0d got=%0d:%02x:%02x width=%0d protect=%0d",
                     sys_phase_ps,
                     ram_type,
                     rtc_present,
                     color_model,
                     dut.footer_color_sys,
                     dut.footer_romtype_sys,
-                    dut.footer_ramtype_sys
+                    dut.footer_ramtype_sys,
+                    dut.open_ipl_word_width_sys,
+                    dut.open_ipl_protect_owner_area_sys
                 );
             end
 

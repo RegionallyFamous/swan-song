@@ -56,11 +56,10 @@ entity SwanTop is
       ramtype                    : in  std_logic_vector(7 downto 0);
       hasRTC                     : in  std_logic;
       
-      -- bios
-      bios_wraddr                : in  std_logic_vector(12 downto 0);
-      bios_wrdata                : in  std_logic_vector(15 downto 0);
-      bios_wr                    : in  std_logic;
-      bios_wrcolor               : in  std_logic;
+      -- Built-in Open IPL variant selected from the cartridge footer while
+      -- reset is asserted. Boot memory is executable but not host-writable.
+      open_ipl_word_width        : in  std_logic := '0';
+      open_ipl_protect_owner_area : in std_logic := '1';
       
       -- video
       vertical                   : out std_logic;
@@ -805,6 +804,8 @@ begin
       isColor              => isColor,   
       color_enabled        => soc_color_enabled,
       boot_rom_locked      => soc_boot_rom_locked,
+      open_ipl_word_width  => open_ipl_word_width,
+      open_ipl_protect_owner_area => open_ipl_protect_owner_area,
       preserve_internal_eeprom => preserve_internal_eeprom,
 
       maskAddr             => maskAddr,
@@ -843,11 +844,6 @@ begin
       Color_addr           => Color_addr,    
       Color_dataread       => Color_dataread,     
          
-      bios_wraddr          => bios_wraddr,
-      bios_wrdata          => bios_wrdata,
-      bios_wr              => bios_wr, 
-      bios_wrcolor         => bios_wrcolor, 
-      
       RegBus_Din           => RegBus_Din, 
       RegBus_Adr           => RegBus_Adr, 
       RegBus_wren          => RegBus_wren,

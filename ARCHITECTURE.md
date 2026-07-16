@@ -10,7 +10,7 @@ Pocket.
 apf_top (APF pins and bridge)
 └── core_top (Pocket integration)
     ├── core_bridge_cmd (host commands, RTC, data-table, Memories protocol)
-    ├── data_loader ×3 (cartridge, BIOS, nonvolatile save)
+    ├── data_loader ×4 (cartridge, nonvolatile save, and two console EEPROMs)
     ├── data_unloader (nonvolatile save reads)
     ├── save_state_controller (APF Memories ↔ MiSTer save-state bus)
     ├── mf_pllbase (74.25 MHz → core/memory/video clocks)
@@ -18,7 +18,7 @@ apf_top (APF pins and bridge)
     │   ├── sdram (cartridge ROM and external SRAM)
     │   ├── SwanTop (WonderSwan system)
     │   │   ├── cpu (V30MZ-compatible CPU)
-    │   │   ├── memorymux (RAM, BIOS overlay, cart banks, EEPROM)
+    │   │   ├── memorymux (RAM, Open IPL overlay, cart banks, EEPROM)
     │   │   ├── gpu
     │   │   │   ├── gpu_bg ×2
     │   │   │   └── sprites
@@ -108,18 +108,18 @@ boundary for landscape, portrait, or landscape 180 degrees from `video.json`.
 | Slot | APF ID | Bridge region | Destination |
 | --- | ---: | --- | --- |
 | Cartridge | 0 | `0x1.......` | Pocket SDRAM channel 1 |
-| B&W BIOS | 9 | `0x3.......` | 4 KiB inferred BIOS RAM in `memorymux` |
-| Color BIOS | 10 | `0x3.......` | 8 KiB inferred BIOS RAM in `memorymux` |
 | Save | 11 | `0x2.......` | external SRAM in SDRAM or EEPROM BRAM; RTC data follows save payload |
 | Mono EEPROM | 12 | `0x5.......` | fixed 128-byte core-specific console EEPROM image |
 | Color EEPROM | 13 | `0x6.......` | fixed 2,048-byte core-specific console EEPROM image |
 | APF Memory | command protocol | `0x4.......` | `save_state_controller` and MiSTer state bus |
 
-`src/support/chip32.asm` detects `.wsc`, sequences cartridge/BIOS/save loading,
-and starts the core. The wrapper also reads cartridge metadata from the image
-footer. Extension detection and the footer color flag contribute to automatic
-color mode; footer fields provide the mapper/RAM type, ROM mask, RTC flag, and
-save size. Save size is written back to the APF data table at runtime. The
+`src/support/chip32.asm` detects `.wsc` for host cartridge-load routing,
+sequences cartridge/save loading, and starts the core. The wrapper reads the
+actual hardware model and cartridge metadata from the image footer. Auto color
+mode and all immutable mono/Color, 8/16-bit bus, and owner-area Open IPL
+variants are footer-selected; the filename extension cannot override them.
+Footer fields also provide the mapper/RAM type, ROM mask, RTC flag, and save
+size. Save size is written back to the APF data table at runtime. The
 Pocket wrapper honors the footer RTC flag: the data table and slot guard append
 the 12-byte RTC trailer only for cartridges that declare it, after the footer
 metadata has crossed atomically into the APF clock domain.
@@ -127,9 +127,10 @@ metadata has crossed atomically into the APF clock domain.
 `core.json` names that Chip32 program as `chip32.bin`; it is a required package
 dependency even though the source repository carries only its assembly and a
 canonical encoded build image. `package_core.py` materializes the verified
-411-byte binary under that declared name. It does not fetch code during a build.
+binary under that declared name. It does not fetch code during a build.
 
-No BIOS or commercial cartridge image is part of this repository.
+The generated clean-room Open IPL is part of the RTL. No proprietary firmware
+or commercial cartridge image is part of this repository.
 
 ## Controls and rotation
 
@@ -165,11 +166,11 @@ hierarchy through pinned GHDL 6.0.0, substitutes a behavioral dual-port RAM for
 Intel's `altsyncram`, and compiles the result with Verilator. It does not
 simulate the Pocket-facing `core_top`/`wonderswan.sv` wrappers or physical SDRAM
 controller. Its C++ harness models cartridge ROM reads and a zero-initialized
-1 MiB external SRAM with byte-enable writes, programs BIOS RAM, captures the
-GPU's direct RGB444 framebuffer stream, and optionally writes either a
-whole-design VCD or a filtered structured event trace. With no BIOS argument it
-uses a nine-byte simulation-only bootstrap that disables the BIOS overlay and
-jumps through the cartridge reset vector.
+1 MiB external SRAM with byte-enable writes, selects the same generated Open
+IPL variants as production, captures the GPU's direct RGB444 framebuffer
+stream, and optionally writes either a whole-design VCD or a filtered
+structured event trace. There is no external firmware argument or separate
+simulation bootstrap.
 
 ### Simulation observability
 
@@ -204,7 +205,8 @@ serialization, and the CSV verifier preserves exact v1-v5 compatibility without
 inventing fields absent from older headers. Command-line or `KEY=VALUE` config
 filters can independently select events, CPU PCs, display addresses/roles, and
 memory initiators/accesses/addresses/spaces/offsets/origins. Each successful
-capture writes a manifest that binds its ROM/boot inputs, filters, reset start,
+capture writes a manifest that binds its ROM and generated Open IPL identities,
+filters, reset start,
 requested termination, and completeness claims. A build translated without
 the observability ports remains usable for normal simulation, but the harness
 rejects a structured-trace request rather than silently producing an empty

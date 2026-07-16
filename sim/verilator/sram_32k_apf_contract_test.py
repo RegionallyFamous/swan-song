@@ -78,7 +78,7 @@ def verify_contract(
                 f"{pocket_sizes.get(ram_type)!r} != {byte_size}"
             )
 
-    # The fourth JSON data slot is the runtime-sized nonvolatile Save slot.
+    # Select the runtime-sized nonvolatile Save slot by its stable APF ID.
     # core_top writes the exact base payload plus the conditional 12-byte RTC
     # trailer to that exact table entry.
     try:
@@ -86,8 +86,8 @@ def verify_contract(
         if data["magic"] != "APF_VER_1":  # type: ignore[index]
             raise ValueError("APF data magic mismatch")
         slots = data["data_slots"]  # type: ignore[index]
-        save = slots[3]
-    except (KeyError, IndexError, TypeError) as error:
+        save = next(slot for slot in slots if slot.get("id") == 11)
+    except (KeyError, IndexError, StopIteration, TypeError) as error:
         raise ValueError("APF Save slot is missing") from error
     expected_save = {
         "name": "Save",
@@ -101,8 +101,8 @@ def verify_contract(
     }
     if save != expected_save:
         raise ValueError(f"APF Save slot mismatch: {save!r}")
-    if not re.search(r"datatable_addr\s*<=\s*10'd7\s*;", core_top):
-        raise ValueError("APF runtime size does not target Save slot index 3")
+    if not re.search(r"datatable_addr\s*<=\s*10'd3\s*;", core_top):
+        raise ValueError("APF runtime size does not target Save slot index 1")
     if not re.search(
         r"datatable_data\s*<=\s*\{12'd0\s*,\s*save_size_bytes_74a\}\s*\+\s*"
         r"\(has_rtc_74a\s*\?\s*32'd12\s*:\s*32'd0\)\s*;",
@@ -167,7 +167,9 @@ def main() -> None:
     )
 
     wrong_slot = deepcopy(data_definition)
-    wrong_slot["data"]["data_slots"][3]["parameters"] = "0x80"
+    next(
+        slot for slot in wrong_slot["data"]["data_slots"] if slot.get("id") == 11
+    )["parameters"] = "0x80"
     must_fail([*valid[:4], wrong_slot], "APF Save slot mismatch")
 
     wrong_formula = core_top.replace(

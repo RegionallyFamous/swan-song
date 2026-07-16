@@ -11,14 +11,6 @@
         "value": 1
       },
       {
-        "name": "Console Setup",
-        "id": 1,
-        "type": "action",
-        "enabled": true,
-        "address": "0x54",
-        "value": 1
-      },
-      {
         "name": "System Type (reset)",
         "id": 10,
         "type": "list",

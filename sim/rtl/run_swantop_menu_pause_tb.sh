@@ -36,8 +36,8 @@ for fastforward in 0 1; do
       exit 1
     fi
     printf '%s\n' "$output"
-    if ! grep -q '^PASS real SwanTop pause external transactions exactly once ' <<<"$output"; then
-      echo "missing real SwanTop menu-pause PASS marker" >&2
+    if ! grep -q '^PASS built-in Open IPL SwanTop pause external transactions exactly once ' <<<"$output"; then
+      echo "missing built-in Open IPL SwanTop menu-pause PASS marker" >&2
       exit 1
     fi
     passes=$((passes + 1))

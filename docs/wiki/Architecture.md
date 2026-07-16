@@ -42,13 +42,14 @@ The timing constraints analyze related video transfers while separating truly
 asynchronous clock groups. Source-level crossing tests reduce risk, but only
 the accepted Quartus report can establish the fitted hardware result.
 
-## Cartridge, BIOS, and persistent data
+## Cartridge, Open IPL, and persistent data
 
-APF data slots load cartridge ROM, mono BIOS, Color BIOS, cartridge save data,
-and two fixed console EEPROM images. The cartridge footer determines model,
-mapper, exact cartridge save size, and optional RTC trailer. Console EEPROM is
-separately banked so mono and Color owner data remain resident without aliasing
-cartridge EEPROM.
+APF data slots load cartridge ROM, cartridge save data, and two fixed console
+EEPROM images. Mono and Color clean-room Open IPL images are immutable FPGA
+ROMs selected from the cartridge footer; no external firmware slot exists. The
+footer also determines model, mapper, exact cartridge save size, and optional
+RTC trailer. Console EEPROM is separately banked so mono and Color owner data
+remain resident without aliasing cartridge EEPROM.
 
 The loader keeps the historical direct route for power-of-two ROMs. Compact
 whole-bank ROMs are validated, prefixed with `0xff`, and right-aligned into

@@ -38,14 +38,14 @@ ROM_FNV1A64 = {
     PLANAR: "8d65b6afb84cc752",
     PACKED: "8a9ca6a337b5c38e",
 }
-TRACE_SIZE = {PLANAR: 9640267, PACKED: 9640409}
-TRACE_FNV1A64 = {PLANAR: "65052fab6727adb3", PACKED: "223f6134abcc189f"}
+TRACE_SIZE = {PLANAR: 9634975, PACKED: 9635117}
+TRACE_FNV1A64 = {PLANAR: "a6af1bbaf6259270", PACKED: "8dac5f6962a77fac"}
 FRAME_SHA256 = {
-    0: "42cbd40de83feff488f8c63cfbb0bf0a160f7c96416bcb74328b9982e1d04bdb",
+    0: "420f98ac49b0253a2c18167381d6b494110758cc799574d18e3a0435c5a3f7c6",
     1: "7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d",
 }
 GLYPH_CONTACT_SHA256 = "68c7b6fefb9733ba5619b7c07a18f71fc3288f77b428ce8c5c691cf2428aac7d"
-BIOS_FNV1A64 = "ef7d73ef979bfc94"
+OPEN_IPL_FNV1A64 = "de968891eff736c1"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -94,10 +94,10 @@ class Placement:
 
 
 PLACEMENTS = (
-    Placement(0x1A14, 0x0001, 10, 0, 0, 2287, 38328, 28, 0xF002E),
-    Placement(0x1A16, 0x4001, 11, 1, 0, 2290, 38352, 29, 0xF0034),
-    Placement(0x1A18, 0x8001, 12, 0, 1, 2293, 38376, 30, 0xF003A),
-    Placement(0x1A1A, 0xC001, 13, 1, 1, 2298, 38424, 31, 0xF0040),
+    Placement(0x1A14, 0x0001, 10, 0, 0, 2386, 40056, 75, 0xF002E),
+    Placement(0x1A16, 0x4001, 11, 1, 0, 2389, 40080, 76, 0xF0034),
+    Placement(0x1A18, 0x8001, 12, 0, 1, 2392, 40104, 77, 0xF003A),
+    Placement(0x1A1A, 0xC001, 13, 1, 1, 2397, 40152, 78, 0xF0040),
 )
 
 
@@ -228,8 +228,8 @@ def verify_manifest(trace: Path, rom: bytes, variant: str) -> None:
         "completed_frames": 2,
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64[variant],
-        "bios_size": 8192,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,
@@ -555,8 +555,8 @@ def verify_cell_trace_links(cells: list[dict[str, str]], trace: TraceEvidence) -
 
 def verify_provenance(path: Path, cells: list[dict[str, str]]) -> None:
     rows = read_csv(path, PROVENANCE_FIELDS, "4bpp provenance artifact")
-    if len(rows) != 26168:
-        raise ValueError(f"provenance row count mismatch: {len(rows)} != 26168")
+    if len(rows) != 26170:
+        raise ValueError(f"provenance row count mismatch: {len(rows)} != 26170")
     keys = [(row["cycle"], row["role"], row["address"]) for row in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("provenance contains duplicate (cycle, role, address) keys")
@@ -653,7 +653,7 @@ def expected_frame(index: int) -> bytes:
     width, height = 224, 144
     data = bytearray(b"\x00\x00\x00" * (width * height))
     if index == 0:
-        data[: 58 * 3] = b"\xff\xff\xff" * 58
+        data[: 202 * 3] = b"\xff\xff\xff" * 202
     for placement in PLACEMENTS:
         rows = list(PIXELS)
         if placement.vflip:
@@ -734,7 +734,7 @@ def main() -> None:
         "PASS 4bpp probe variants=2 per_variant_frames=2 total_frames=4 "
         "per_variant_gdma_words=16 total_gdma_words=32 per_variant_placements=4 "
         "total_placements=8 per_variant_promoted_rows=64 total_promoted_rows=128 "
-        "per_variant_provenance_rows=26168 total_provenance_rows=52336 "
+        "per_variant_provenance_rows=26170 total_provenance_rows=52340 "
         "contacts=2 pixels_and_contacts=cross-format-exact"
     )
 

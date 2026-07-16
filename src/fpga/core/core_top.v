@@ -382,12 +382,9 @@ module core_top (
         32'h4: begin
           is_color_cart <= bridge_wr_data[0];
         end
-        32'h8: begin
-          bw_bios_download <= bridge_wr_data[0];
-        end
-        32'hC: begin
-          color_bios_download <= bridge_wr_data[0];
-        end
+        // 0x8/0xC were the external monochrome/Color BIOS download controls.
+        // Open IPL is built into the core, so those legacy writes are
+        // deliberately unmapped and cannot replace executable boot memory.
         // Sent by CHIP32
         // 32'h10: begin
         //   save_download <= bridge_wr_data[0];
@@ -870,21 +867,21 @@ module core_top (
           // EEPROM capacities even when their optional files did not exist.
           case (save_metadata_publish_step)
             2'd0: begin
-              // Slot index 3 is cartridge Save ID 11.
-              datatable_addr <= 10'd7;
+              // Slot index 1 is cartridge Save ID 11.
+              datatable_addr <= 10'd3;
               datatable_data <= {12'd0, save_size_bytes_74a} +
                                 (has_rtc_74a ? 32'd12 : 32'd0);
               save_metadata_publish_step <= 2'd1;
             end
             2'd1: begin
-              // Slot index 4 is fixed mono console EEPROM ID 12.
-              datatable_addr <= 10'd9;
+              // Slot index 2 is fixed mono console EEPROM ID 12.
+              datatable_addr <= 10'd5;
               datatable_data <= 32'd128;
               save_metadata_publish_step <= 2'd2;
             end
             default: begin
-              // Slot index 5 is fixed Color console EEPROM ID 13.
-              datatable_addr <= 10'd11;
+              // Slot index 3 is fixed Color console EEPROM ID 13.
+              datatable_addr <= 10'd7;
               datatable_data <= 32'd2048;
               save_metadata_publish_pending <= 1'b0;
               save_metadata_table_published <= 1'b1;
@@ -957,14 +954,14 @@ module core_top (
         dataslot_policy_bounds_ready = !rom_plan_busy_74a;
       end
       16'd9: begin
-        dataslot_policy_allow_write = 1'b1;
-        dataslot_policy_size_mode = 2'd1;
-        dataslot_policy_exact_size = 48'd4096;
+        // Retired external monochrome BIOS slot. Keep the ID explicit so old
+        // host programs receive permanent-disallow (result 1), never a false
+        // acknowledgement that discards or partially applies an upload.
+        dataslot_policy_allow_write = 1'b0;
       end
       16'd10: begin
-        dataslot_policy_allow_write = 1'b1;
-        dataslot_policy_size_mode = 2'd1;
-        dataslot_policy_exact_size = 48'd8192;
+        // Retired external Color BIOS slot; see slot 9 above.
+        dataslot_policy_allow_write = 1'b0;
       end
       16'd11: begin
         dataslot_policy_allow_read = 1'b1;
@@ -1190,30 +1187,6 @@ module core_top (
       .write_data(ioctl_dout)
   );
 
-  wire bios_wr;
-  wire [12:0] bios_addr;
-  wire [15:0] bios_dout;
-
-  data_loader #(
-      .ADDRESS_MASK_UPPER_4(4'h3),
-      .ADDRESS_SIZE(13),
-      .OUTPUT_WORD_SIZE(2),
-      .WRITE_MEM_CLOCK_DELAY(4),
-      .WRITE_MEM_EN_CYCLE_LENGTH(1)
-  ) bios_data_loader (
-      .clk_74a(clk_74a),
-      .clk_memory(clk_sys_36_864),
-
-      .bridge_wr(bridge_wr),
-      .bridge_endian_little(bridge_endian_little),
-      .bridge_addr(bridge_addr),
-      .bridge_wr_data(bridge_wr_data),
-
-      .write_en  (bios_wr),
-      .write_addr(bios_addr),
-      .write_data(bios_dout)
-  );
-
   wire [31:0] sd_read_data;
 
   wire sd_buff_wr;
@@ -1381,37 +1354,14 @@ module core_top (
   reg cart_download = 0;
   reg is_color_cart = 0;
 
-  reg bw_bios_download = 0;
-  reg color_bios_download = 0;
-
   // Unused
   // reg save_download = 0;
 
-  wire [1:0] bios_download = {color_bios_download, bw_bios_download};
   wire [1:0] ext_cart_download = is_color_cart ? {cart_download, 1'b0} : {1'b0, cart_download};
 
   // Settings
   reg [31:0] reset_delay = 0;
   wire external_reset = reset_delay > 0;
-
-  // The original console enters its owner/setup screen when Start is held
-  // across power-on.  Pocket exposes that gesture as a one-shot action at
-  // 0x54.  Its dedicated sequencer releases reset before forced Start and
-  // moves both levels safely from clk_74a into the WonderSwan system clock.
-  wire console_setup_trigger_74a =
-      bridge_wr && bridge_addr == 32'h00000054 && bridge_wr_data == 32'd1;
-  wire console_setup_reset_sys_s;
-  wire console_setup_start_sys_s;
-
-  apf_console_setup console_setup_sequencer (
-      .clk_source(clk_74a),
-      .clk_destination(clk_sys_36_864),
-      .reset_n(reset_n),
-      .trigger(console_setup_trigger_74a),
-      .menu_focus_source(osnotify_inmenu),
-      .reset_active_destination(console_setup_reset_sys_s),
-      .start_active_destination(console_setup_start_sys_s)
-  );
 
   reg [1:0] configured_system = 2'd0;
 
@@ -1460,8 +1410,6 @@ module core_top (
 
   wire [1:0] ext_cart_download_mem_s;
   wire [1:0] ext_cart_download_sys_s;
-  wire [1:0] bios_download_sys_s;
-
   wire [1:0] configured_system_s;
 
   wire use_cpu_turbo_s;
@@ -1497,10 +1445,10 @@ module core_top (
   );
 
   synch_3 #(
-      .WIDTH(5)
+      .WIDTH(3)
   ) download_system_s (
-      {external_reset, ext_cart_download, bios_download},
-      {external_reset_sys_s, ext_cart_download_sys_s, bios_download_sys_s},
+      {external_reset, ext_cart_download},
+      {external_reset_sys_s, ext_cart_download_sys_s},
       clk_sys_36_864
   );
 
@@ -1588,7 +1536,7 @@ module core_top (
       .reset_n(reset_n_mem_s),
       .reset_n_sys(reset_n_sys_s),
       .pll_core_locked(pll_core_ready_mem),
-      .external_reset(external_reset_sys_s | console_setup_reset_sys_s),
+      .external_reset(external_reset_sys_s),
 
       .ioctl_wr  (ioctl_wr),
       .ioctl_addr(ioctl_addr),
@@ -1604,11 +1552,6 @@ module core_top (
       .ext_cart_download(ext_cart_download_mem_s),
       .ext_cart_download_sys(ext_cart_download_sys_s),
 
-      .bios_wr(bios_wr),
-      .bios_addr(bios_addr),
-      .bios_dout(bios_dout),
-      .bios_download(bios_download_sys_s),
-
       .rom_write_complete(rom_write_complete),
 
       .rtc_epoch_seconds(rtc_epoch_seconds_sys),
@@ -1621,7 +1564,7 @@ module core_top (
       .button_y(cont1_key_s[7]),
       .button_trig_l(cont1_key_s[8]),
       .button_trig_r(cont1_key_s[9]),
-      .button_start(cont1_key_s[15] | console_setup_start_sys_s),
+      .button_start(cont1_key_s[15]),
       .button_select(cont1_key_s[14]),
       .dpad_up(cont1_key_s[0]),
       .dpad_down(cont1_key_s[1]),

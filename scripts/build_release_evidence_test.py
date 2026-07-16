@@ -145,8 +145,6 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
             ("firmware.bin", b"firmware"),
             ("pocket-id.txt", b"pocket"),
             ("dock-id.txt", b"dock"),
-            ("bw.rom", b"bw"),
-            ("color.rom", b"color"),
             ("game.ws", b"rom"),
         ):
             (private / name).write_bytes(payload)
@@ -181,7 +179,7 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
         self.inventory = self.qa / "inventory.json"
         inventory = {
             "hardware_qa_inventory": {
-                "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V2",
+                "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V3",
                 "run_id": "synthetic-release-evidence",
                 "created_at": "2026-07-14T12:00:00Z",
                 "operator": {"name": "Test", "organization": "Test"},
@@ -210,10 +208,10 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
                         "sd/Cores/RegionallyFamous.SwanSong/" + bitstream_name
                     ),
                 },
-                "bios": [
-                    {"id": "bw", "path": "private/bw.rom"},
-                    {"id": "color", "path": "private/color.rom"},
-                ],
+                "open_ipl": {
+                    "identity": "open-bootstrap-v3",
+                    "variants": ["mono-word16-owner-protected"],
+                },
                 "roms": [
                     {
                         "id": "test-rom",
@@ -421,6 +419,10 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
             "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
             "inventory_sha256": hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
             "firmware_version": "2.6.0",
+            "open_ipl": {
+                "identity": "open-bootstrap-v3",
+                "variants": ["mono-word16-owner-protected"],
+            },
             "core": self.hardware_core,
             "pocket": {
                 "model": "Analogue Pocket",
@@ -638,8 +640,6 @@ class BuildReleaseEvidenceTest(unittest.TestCase):
                 staging_dir=stage,
                 package=package,
                 provenance=provenance,
-                bw_bios=None,
-                color_bios=None,
                 verify_release=True,
                 expected_package_sha256=hashlib.sha256(package.read_bytes()).hexdigest(),
                 expected_provenance_sha256=hashlib.sha256(

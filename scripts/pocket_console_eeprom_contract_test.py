@@ -93,14 +93,14 @@ def contract_errors(data_document: dict, sources: dict[str, str]) -> list[str]:
         ("dataslot_policy_exact_size=48'd2048;", "slot 13 exact RTL size is missing"),
         (".address_mask_upper_4(4'h5)", "mono loader window is missing"),
         (".address_mask_upper_4(4'h6)", "Color loader window is missing"),
-        ("datatable_addr<=10'd9;datatable_data<=32'd128;", "mono unload size is not published"),
-        ("datatable_addr<=10'd11;datatable_data<=32'd2048;", "Color unload size is not published"),
+        ("datatable_addr<=10'd5;datatable_data<=32'd128;", "mono unload size is not published"),
+        ("datatable_addr<=10'd7;datatable_data<=32'd2048;", "Color unload size is not published"),
     ):
         if expression not in core_top:
             errors.append(message)
     if core_top.count("dataslot_policy_allow_read=1'b1;") < 3:
         errors.append("console EEPROM guard entries must permit shutdown reads")
-    if core_top.count("dataslot_policy_allow_write=1'b1;") < 4:
+    if core_top.count("dataslot_policy_allow_write=1'b1;") < 2:
         errors.append("console EEPROM guard entries must permit exact startup writes")
 
     for expression, message in (
@@ -198,7 +198,7 @@ def contract_errors(data_document: dict, sources: dict[str, str]) -> list[str]:
         errors.append("round-trip runner does not compile the production EEPROM RTL")
 
     docs = (sources["readme"] + sources["status"]).lower()
-    for phrase in ("mono.eeprom", "color.eeprom", "ordinary reset", "user-supplied bios"):
+    for phrase in ("mono.eeprom", "color.eeprom", "ordinary reset", "built-in open ipl"):
         if phrase not in docs:
             errors.append(f"documentation is missing {phrase!r}")
 

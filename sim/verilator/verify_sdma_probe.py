@@ -15,8 +15,8 @@ from verify_trace import FIELDS_V5
 
 
 ROM_SHA256 = "a223ce2d5a962d834adac62ecea06dcca03d026ac871f6de802237f03164d3f9"
-DEFAULT_COLOR_BIOS_SIZE = 8192
-DEFAULT_COLOR_BIOS_FNV1A64 = "ef7d73ef979bfc94"
+DEFAULT_COLOR_OPEN_IPL_SIZE = 8192
+DEFAULT_COLOR_OPEN_IPL_FNV1A64 = "de968891eff736c1"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -37,10 +37,10 @@ class Expected:
 # Current integrated RTL issues one 16-bit bus read with byte_enable=3 for each
 # byte SDMA step. Odd addresses are returned in the low byte by memorymux.
 EXPECTED = (
-    Expected(2790, 0xF0100, 0xB2A1, 0x10100),
-    Expected(4326, 0xF0101, 0x00B2, 0x10101),
-    Expected(5862, 0xF0102, 0xD4C3, 0x10102),
-    Expected(7398, 0xF0103, 0x00D4, 0x10103),
+    Expected(4518, 0xF0100, 0xB2A1, 0x10100),
+    Expected(6054, 0xF0101, 0x00B2, 0x10101),
+    Expected(7590, 0xF0102, 0xD4C3, 0x10102),
+    Expected(9126, 0xF0103, 0x00D4, 0x10103),
 )
 
 
@@ -81,8 +81,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": DEFAULT_COLOR_BIOS_SIZE,
-        "bios_fnv1a64": DEFAULT_COLOR_BIOS_FNV1A64,
+        "open_ipl_size": DEFAULT_COLOR_OPEN_IPL_SIZE,
+        "open_ipl_fnv1a64": DEFAULT_COLOR_OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,

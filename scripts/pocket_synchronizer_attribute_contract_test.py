@@ -23,10 +23,6 @@ NATIVE_ATTRIBUTE = f'(* altera_attribute = "{NATIVE_VALUE}" *)'
 # resized, reinitialized, duplicated, or incorrectly attached synchronizer is
 # rejected. Whitespace is normalized when the contract is evaluated.
 EXPECTED_DECLARATIONS: dict[str, tuple[str, ...]] = {
-    "src/fpga/core/apf_console_setup.sv": (
-        "reg [2:0] reset_sync_destination = 3'b000;",
-        "reg [2:0] start_sync_destination = 3'b000;",
-    ),
     "src/fpga/core/apf_input_blocked_cdc.sv": (
         "reg acknowledge_meta_source = 1'b0;",
         "reg acknowledge_sync_source = 1'b0;",
@@ -198,9 +194,9 @@ def must_reject(
 
 def main() -> None:
     expected_site_count = sum(map(len, EXPECTED_DECLARATIONS.values()))
-    if len(EXPECTED_DECLARATIONS) != 11 or expected_site_count != 48:
+    if len(EXPECTED_DECLARATIONS) != 10 or expected_site_count != 46:
         raise AssertionError(
-            "test inventory must enumerate exactly 48 sites across eleven RTL files"
+            "test inventory must enumerate exactly 46 sites across ten RTL files"
         )
 
     sources = load_sources()
@@ -235,7 +231,7 @@ def main() -> None:
         ("PRESERVE_REGISTER", "REMOVE_DUPLICATE_REGISTERS", "preserve option"),
         ("PRESERVE_REGISTER ON", "PRESERVE_REGISTER OFF", "preserve value"),
     )
-    token_file = "src/fpga/core/apf_console_setup.sv"
+    token_file = "src/fpga/core/apf_input_blocked_cdc.sv"
     for old, new, label in token_mutations:
         must_reject(sources, token_file, old, new, label)
         mutations += 1

@@ -713,21 +713,7 @@ class PackageCoreTest(unittest.TestCase):
             # APF_VER_1 documents size_exact and size_maximum, but has no
             # size_minimum field. Minimum ROM validation remains core-owned.
             self.assertNotIn("size_minimum", cartridge_slot)
-            self.assertEqual(
-                {
-                    slot_id: (
-                        slots_by_id[slot_id]["required"],
-                        slots_by_id[slot_id]["filename"],
-                        int(slots_by_id[slot_id]["parameters"], 0),
-                        slots_by_id[slot_id]["size_exact"],
-                    )
-                    for slot_id in (9, 10)
-                },
-                {
-                    9: (True, "bw.rom", 0x208, 4096),
-                    10: (True, "color.rom", 0x208, 8192),
-                },
-            )
+            self.assertTrue({9, 10}.isdisjoint(slots_by_id))
             self.assertEqual(
                 {
                     slot_id: (
@@ -753,6 +739,7 @@ class PackageCoreTest(unittest.TestCase):
                 int(item["id"]): item
                 for item in interact_definition["interact"]["variables"]
             }
+            self.assertNotIn(1, variables_by_id)
             self.assertEqual(
                 [(item["value"], item["name"]) for item in variables_by_id[10]["options"]],
                 [(0, "Auto"), (1, "WonderSwan"), (2, "WonderSwan Color")],

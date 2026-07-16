@@ -362,12 +362,19 @@ def correlate(
         "raw_superseded": 0,
         "raw_unpromoted": 0,
         "raw_inflight": 0,
+        "raw_prefix_truncated": 0,
         "cpu_rom_movsb_cells": 0,
         "cpu_rom_movsb_bytes": 0,
         "cpu_rom_movsb_origins": 0,
     }
     building: dict[str, FetchGroup | None] = {"screen1": None, "screen2": None}
     completed: dict[str, deque[FetchGroup]] = {"screen1": deque(), "screen2": deque()}
+    # gpu_bg has no reset input, so a reset-release capture can begin with the
+    # suffix of the tile pair that was already in flight during reset settle.
+    # Preserve strict grouping by collecting only that leading fragment and
+    # validating it as a one- or two-word suffix when the first map arrives.
+    saw_map: dict[str, bool] = {"screen1": False, "screen2": False}
+    reset_prefix: dict[str, list[FetchSnapshot]] = {"screen1": [], "screen2": []}
     source_tracker = MemorySourceTracker()
 
     with trace.open(newline="", encoding="utf-8") as source:
@@ -387,10 +394,39 @@ def correlate(
                         raise ValueError(
                             f"line {row.line}: new {layer} map before prior raw group completed"
                         )
+                    prefix = reset_prefix[layer]
+                    if prefix:
+                        valid_suffix = (
+                            len(prefix) == 1 and prefix[0].address & 3 == 2
+                        ) or (
+                            len(prefix) == 2
+                            and prefix[0].address & 3 == 0
+                            and prefix[1].address == prefix[0].address + 2
+                        )
+                        if not valid_suffix:
+                            raise ValueError(
+                                f"line {row.line}: malformed {layer} reset-boundary tile suffix"
+                            )
+                        counts["raw_prefix_truncated"] += 1
+                        prefix.clear()
+                    saw_map[layer] = True
                     building[layer] = FetchGroup(layer, snapshot, [])
                 else:
                     group = building[layer]
                     if group is None:
+                        if not saw_map[layer]:
+                            if coverage_status != "complete_from_reset":
+                                raise ValueError(
+                                    f"line {row.line}: {layer} reset-boundary tile suffix "
+                                    "requires a complete reset-release manifest"
+                                )
+                            prefix = reset_prefix[layer]
+                            if len(prefix) >= 2:
+                                raise ValueError(
+                                    f"line {row.line}: malformed {layer} reset-boundary tile suffix"
+                                )
+                            prefix.append(snapshot)
+                            continue
                         raise ValueError(f"line {row.line}: {layer} tile fetch has no preceding map")
                     group.tile_fetches.append(snapshot)
                     if len(group.tile_fetches) == 2:
@@ -488,6 +524,8 @@ def correlate(
                         )
 
     for layer in ("screen1", "screen2"):
+        if reset_prefix[layer]:
+            raise ValueError(f"{layer} reset-boundary tile suffix has no following map")
         if building[layer] is not None:
             # Starting the next fetch means every older completed buffer was
             # already advanced while no enabled cell event was emitted.

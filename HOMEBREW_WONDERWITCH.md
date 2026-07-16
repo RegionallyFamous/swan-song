@@ -3,8 +3,9 @@
 This is the source/simulation support boundary for homebrew built with the
 [Wonderful Toolchain](https://wonderful.asie.pl/docs/target/wswan/). It does not
 claim Quartus timing closure or Analogue Pocket hardware validation. Swan Song
-does not include or download a WonderSwan BIOS, WonderWitch firmware, or any
-commercial image.
+includes its clean-room Open IPL, does not accept or download an external
+WonderSwan BIOS, and does not include WonderWitch firmware or any commercial
+image.
 
 ## Recommended cartridge target
 
@@ -16,9 +17,9 @@ prefix with `0xff` and right-aligns it in the next-power-of-two aperture, as
 documented by [WSdev](https://ws.nesdev.org/wiki/ROM_header). The medium model uses far code
 pointers and permits code beyond one 64 KiB segment. Ordinary data pointers
 remain near and point into RAM; declare immutable ROM data with `__wf_rom` and
-use far-aware APIs where appropriate. The core's current Pocket package still
-requires the user to supply both `bw.rom` and `color.rom` even for a cartridge
-that only uses one model.
+use far-aware APIs where appropriate. The Pocket package boots both models
+through the built-in Open IPL; a homebrew author and player supply only the
+`.ws` or `.wsc` cartridge image.
 
 Current Wonderful has a known gcc-ia16 problem when calling through an array of
 far function pointers at `-O1` or higher. Follow the official workaround and
@@ -95,7 +96,7 @@ In Verilator it proves:
 
 Run the complete source/simulator gate with `make regression`. The narrow
 medium-SRAM command is recorded in the fixture README and intentionally uses
-only an open ROM plus the simulator's generated open boot image.
+only an open ROM plus the same generated Open IPL used by production.
 
 ## WonderWitch boundary
 

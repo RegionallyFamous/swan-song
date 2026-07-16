@@ -9,7 +9,7 @@
 Swan Song targets the supported openFPGA asset-launch path:
 
 - `.ws` and `.wsc` images loaded from the Pocket SD card;
-- user-supplied original WonderSwan and WonderSwan Color BIOS files;
+- a built-in open IPL with no external BIOS-file requirement;
 - `Auto`, `WonderSwan`, and `WonderSwan Color` machine choices;
 - Pocket and Dock Player 1 digital controls;
 - APF video, 48 kHz audio, settings, cartridge saves, and fixed console EEPROM;
@@ -68,7 +68,7 @@ The project has a hardware acceptance matrix for historically difficult title
 scenarios, but every commercial case is still pending physical execution. A
 passing simulator fixture is not proof that a named commercial game works.
 
-Commercial ROMs, commercial ROM hashes, BIOS files, saves, and private
+Commercial ROMs, commercial ROM hashes, saves, and private
 captures are not bundled. Testers use their own legally obtained dumps and
 keep private evidence outside the repository. See the [known-title acceptance
 guide](https://github.com/RegionallyFamous/swansong-core/blob/main/KNOWN_TITLE_COMPATIBILITY.md).

@@ -12,7 +12,7 @@ import generate_non_power_two_probe as probe
 
 ROM_SHA256 = "b4a2c985906ac04c6622080bb1f1f3ac4b3895784c5594f4ba97cd45e6935979"
 FRAME_SHA256 = (
-    "42cbd40de83feff488f8c63cfbb0bf0a160f7c96416bcb74328b9982e1d04bdb",
+    "420f98ac49b0253a2c18167381d6b494110758cc799574d18e3a0435c5a3f7c6",
     "7f672cb770893d021bb6c684efccb9b118894f657e65dd4e8b966a2d90fefa5d",
 )
 FRAME_BYTES = 224 * 144 * 3

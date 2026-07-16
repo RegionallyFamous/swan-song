@@ -61,9 +61,6 @@ pauses the emulated console, then menu exit resumes it even if controls are stil
 waiting for neutral rearm. Cartridge RTC wall time continues while paused. This
 is a Swan Song product choice—Analogue permits a core to ignore `00B0` for
 compatibility—not a requirement imposed on every openFPGA core. The internally
-generated **Console Setup** Start gesture remains separate from physical input.
-When that action is selected in the menu, its reset/Start gesture remains armed
-under menu focus and begins its bounded countdown only after the menu closes.
 Exact notification/PAD ordering, audio, display, and resume behavior on current
 firmware remain physical Pocket/Dock tests.
 
@@ -77,9 +74,6 @@ firmware remain physical Pocket/Dock tests.
 - **CPU Turbo:** allows extra emulated CPU work per frame and can reduce some
   software slowdowns. It is an optional behavior change, not an accuracy
   requirement.
-- **Console Setup:** momentarily recreates the original Start-held power-on
-  gesture so the user-supplied BIOS can open its owner screen.
-
 PocketChallenge v2 is intentionally not listed because its distinct machine
 behavior and `.pc2` launch path are not implemented.
 

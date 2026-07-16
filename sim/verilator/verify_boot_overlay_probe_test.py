@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused negative tests for the generated boot-overlay verifier."""
+"""Focused tests for the built-in Open IPL boot-overlay verifier."""
 
 from __future__ import annotations
 
@@ -8,11 +8,13 @@ import json
 import tempfile
 from pathlib import Path
 
-from generate_boot_overlay_probe import generate
+from generate_boot_overlay_probe import ROM_NAMES, generate
 from verify_boot_overlay_probe import (
-    BOOT_PROGRAM_OFFSETS,
     MODELS,
+    OPEN_IPL_IDENTITY,
+    expected_open_ipl,
     fnv1a64,
+    startup_end,
     verify,
     word,
 )
@@ -50,46 +52,37 @@ def mem_row(
     return row
 
 
-def expected_rows(model_name: str, rom: bytes, bios: bytes) -> list[dict[str, object]]:
+def expected_rows(model_name: str, rom: bytes) -> list[dict[str, object]]:
     model = MODELS[model_name]
+    open_ipl = expected_open_ipl(model)
     rows = [
         mem_row(
             10 + index,
             address,
-            word(bios, model.reset_offset + index * 2),
+            word(open_ipl, model.reset_offset + index * 2),
             "boot_rom",
             model.reset_offset + index * 2,
         )
         for index, address in enumerate(range(0xFFFF0, 0x100000, 2))
     ]
-    for index, offset in enumerate(BOOT_PROGRAM_OFFSETS):
-        if offset == 0x100:
-            rows.append(
-                mem_row(
-                    20 + index,
-                    model.base + offset,
-                    model.marker,
-                    "boot_rom",
-                    offset,
-                    instruction_id=5,
-                    origin_pc=model.base + 6,
-                    origin_status="exact",
-                )
+    first_startup = len(open_ipl) - 256
+    for index, offset in enumerate(
+        range(first_startup, (startup_end(open_ipl) + 1) & ~1, 2)
+    ):
+        rows.append(
+            mem_row(
+                20 + index,
+                model.base + offset,
+                word(open_ipl, offset),
+                "boot_rom",
+                offset,
             )
-        else:
-            rows.append(
-                mem_row(
-                    20 + index,
-                    model.base + offset,
-                    word(bios, offset),
-                    "boot_rom",
-                    offset,
-                )
-            )
+        )
     reset_offset = len(rom) - 16
+    cart_cycle = 20 + len(rows)
     rows.extend(
         mem_row(
-            40 + index,
+            cart_cycle + index,
             address,
             word(rom, reset_offset + index * 2),
             "cart_rom_linear",
@@ -104,7 +97,7 @@ def write_case(
     trace: Path,
     rows: list[dict[str, object]],
     rom: bytes,
-    bios: bytes,
+    open_ipl: bytes,
     *,
     manifest_updates: dict[str, object] | None = None,
 ) -> None:
@@ -124,8 +117,8 @@ def write_case(
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": len(bios),
-        "bios_fnv1a64": fnv1a64(bios),
+        "open_ipl_size": len(open_ipl),
+        "open_ipl_fnv1a64": fnv1a64(open_ipl),
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {
@@ -152,11 +145,10 @@ def must_fail(
     model: str,
     trace: Path,
     rom_path: Path,
-    bios_path: Path,
     expected: str,
 ) -> None:
     try:
-        verify(model, trace, rom_path, bios_path)
+        verify(model, trace, rom_path)
     except ValueError as error:
         if expected not in str(error):
             raise AssertionError(f"expected {expected!r} in {error!r}") from error
@@ -164,70 +156,79 @@ def must_fail(
         raise AssertionError(f"invalid {model} case passed: {trace.name}")
 
 
-def exercise_model(
-    root: Path, model_name: str, rom_path: Path, bios_path: Path
-) -> None:
-    rom, bios = rom_path.read_bytes(), bios_path.read_bytes()
-    rows = expected_rows(model_name, rom, bios)
+def exercise_model(root: Path, model_name: str, rom_path: Path) -> None:
+    rom = rom_path.read_bytes()
+    open_ipl = expected_open_ipl(MODELS[model_name])
+    rows = expected_rows(model_name, rom)
+    cart_index = len(rows) - 8
 
     valid = root / f"{model_name}-valid.csv"
-    write_case(valid, rows, rom, bios)
-    verify(model_name, valid, rom_path, bios_path)
+    write_case(valid, rows, rom, open_ipl)
+    verify(model_name, valid, rom_path)
 
-    bad_zero = [dict(row) for row in rows]
-    bad_zero[8]["value"] = 0
-    path = root / f"{model_name}-bad-zero.csv"
-    write_case(path, bad_zero, rom, bios)
-    must_fail(model_name, path, rom_path, bios_path, "boot byte-zero fetch")
+    bad_startup = [dict(row) for row in rows]
+    bad_startup[8]["value"] = int(bad_startup[8]["value"]) ^ 1
+    path = root / f"{model_name}-bad-startup.csv"
+    write_case(path, bad_startup, rom, open_ipl)
+    must_fail(model_name, path, rom_path, "Open IPL fetch provenance")
 
-    bad_marker = [dict(row) for row in rows]
-    bad_marker[18]["instruction_id"] = 6
-    path = root / f"{model_name}-bad-marker.csv"
-    write_case(path, bad_marker, rom, bios)
-    must_fail(model_name, path, rom_path, bios_path, "boot marker provenance")
+    bad_provenance = [dict(row) for row in rows]
+    bad_provenance[9]["instruction_id"] = 6
+    path = root / f"{model_name}-bad-provenance.csv"
+    write_case(path, bad_provenance, rom, open_ipl)
+    must_fail(model_name, path, rom_path, "Open IPL fetch provenance")
 
     bad_cart = [dict(row) for row in rows]
-    bad_cart[22]["mapped_offset"] = len(rom) - 14
+    bad_cart[cart_index + 2]["mapped_offset"] = len(rom) - 14
     path = root / f"{model_name}-bad-cart.csv"
-    write_case(path, bad_cart, rom, bios)
-    must_fail(model_name, path, rom_path, bios_path, "post-lockout cartridge")
+    write_case(path, bad_cart, rom, open_ipl)
+    must_fail(model_name, path, rom_path, "post-lockout cartridge")
 
     bad_intermediate = [dict(row) for row in rows]
     bad_intermediate[9]["space"] = "cart_rom_linear"
     path = root / f"{model_name}-bad-intermediate.csv"
-    write_case(path, bad_intermediate, rom, bios)
-    must_fail(model_name, path, rom_path, bios_path, "complete")
+    write_case(path, bad_intermediate, rom, open_ipl)
+    must_fail(model_name, path, rom_path, "startup fetch sequence")
 
     path = root / f"{model_name}-bad-manifest.csv"
-    write_case(path, rows, rom, bios, manifest_updates={"bios_fnv1a64": "0" * 16})
-    must_fail(model_name, path, rom_path, bios_path, "bios_fnv1a64 mismatch")
+    write_case(
+        path,
+        rows,
+        rom,
+        open_ipl,
+        manifest_updates={"open_ipl_fnv1a64": "0" * 16},
+    )
+    must_fail(model_name, path, rom_path, "open_ipl_fnv1a64 mismatch")
 
     path = root / f"{model_name}-bad-trace-binding.csv"
-    write_case(path, rows, rom, bios)
+    write_case(path, rows, rom, open_ipl)
     with path.open("a", encoding="utf-8") as output:
         output.write("\n")
-    must_fail(model_name, path, rom_path, bios_path, "trace_size_bytes mismatch")
-
-    corrupt_bios = root / f"{model_name}-corrupt.bin"
-    changed = bytearray(bios)
-    changed[0x100] ^= 1
-    corrupt_bios.write_bytes(changed)
-    must_fail(model_name, valid, rom_path, corrupt_bios, "size/hash mismatch")
+    must_fail(model_name, path, rom_path, "trace_size_bytes mismatch")
 
     corrupt_rom = root / f"{model_name}-corrupt.ws"
     changed = bytearray(rom)
     changed[0x100] ^= 1
     corrupt_rom.write_bytes(changed)
-    must_fail(model_name, valid, corrupt_rom, bios_path, "size/hash mismatch")
+    must_fail(model_name, valid, corrupt_rom, "size/hash mismatch")
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="swansong-boot-overlay-test-") as directory:
         root = Path(directory)
-        rom, mono, color = generate(root)
-        exercise_model(root, "mono", rom, mono)
-        exercise_model(root, "color", rom, color)
-    print("PASS generated boot-overlay verifier")
+        paths = generate(root)
+        if set(paths) != set(MODELS) or {
+            variant: path.name for variant, path in paths.items()
+        } != ROM_NAMES:
+            raise AssertionError("boot-overlay generator/verifier variant matrix drifted")
+        for variant, path in paths.items():
+            exercise_model(root, variant, path)
+        generated = {path.name for path in root.iterdir() if path.is_file()}
+        if any(name.endswith(".bin") for name in generated):
+            raise AssertionError(f"boot-overlay probe generated a BIOS input: {generated}")
+        if OPEN_IPL_IDENTITY != "open-bootstrap-v3":
+            raise AssertionError(f"unexpected Open IPL identity: {OPEN_IPL_IDENTITY}")
+    print("PASS built-in Open IPL boot-overlay verifier")
 
 
 if __name__ == "__main__":

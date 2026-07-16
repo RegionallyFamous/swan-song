@@ -53,8 +53,8 @@ def make_manifest(trace: Path, frame_paths: list[Path]) -> dict[str, Any]:
         ],
         "rom_size": 65536,
         "rom_fnv1a64": "0123456789abcdef",
-        "bios_size": 4096,
-        "bios_fnv1a64": "fedcba9876543210",
+        "open_ipl_size": 4096,
+        "open_ipl_fnv1a64": "fedcba9876543210",
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": {

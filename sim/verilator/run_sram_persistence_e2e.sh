@@ -47,11 +47,6 @@ python3 "$ROOT/sim/verilator/generate_sram_persistence_probes.py" \
   "$BUNDLE" --verify >/dev/null
 
 for model in ws wsc; do
-  if [[ "$model" == "ws" ]]; then
-    bios="$BUNDLE/sram_persistence_boot_mono.bin"
-  else
-    bios="$BUNDLE/sram_persistence_boot_color.bin"
-  fi
   for save_type in 03 04 05; do
     rom="$BUNDLE/sram_type${save_type}_persistence.${model}"
     statuses=(0x11 0x22 0x21)
@@ -64,7 +59,6 @@ for model in ws wsc; do
       require_clean_output "$save"
       args=(
         --rom "$rom"
-        --bios "$bios"
         --max-cycles 20000
         --expect-iram-byte "0x0400=${statuses[$boot]}"
         --sram-out "$save"
@@ -94,7 +88,6 @@ done
 NEGATIVE="$BUILD/negative-imports"
 mkdir -p "$NEGATIVE"
 negative_rom="$BUNDLE/sram_type03_persistence.ws"
-negative_bios="$BUNDLE/sram_persistence_boot_mono.bin"
 valid_import="$BUILD/ws-type03-boot1.sav"
 corrupt_import="$NEGATIVE/corrupt-pattern.sav"
 cp "$valid_import" "$corrupt_import"
@@ -107,7 +100,6 @@ failure_output="$NEGATIVE/corrupt-reported-failure.sav"
 require_clean_output "$failure_output"
 "$SIM" \
   --rom "$negative_rom" \
-  --bios "$negative_bios" \
   --max-cycles 20000 \
   --expect-iram-byte 0x0400=0xee \
   --sram-in "$corrupt_import" \
@@ -127,7 +119,6 @@ invalid_generation_output="$NEGATIVE/invalid-generation-failure.sav"
 require_clean_output "$invalid_generation_output"
 "$SIM" \
   --rom "$negative_rom" \
-  --bios "$negative_bios" \
   --max-cycles 20000 \
   --expect-iram-byte 0x0400=0xee \
   --sram-in "$invalid_generation_import" \
@@ -148,7 +139,6 @@ run_rejected_import() {
   require_clean_output "$output"
   if "$SIM" \
     --rom "$negative_rom" \
-    --bios "$negative_bios" \
     --max-cycles 20000 \
     --expect-iram-byte 0x0400=0x22 \
     --sram-in "$input" \

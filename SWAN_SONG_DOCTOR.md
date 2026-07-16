@@ -1,6 +1,6 @@
 # Check your Pocket SD card with Swan Song Doctor
 
-Swan Song Doctor checks whether Swan Song, its BIOS files, games, per-game
+Swan Song Doctor checks whether Swan Song, games, per-game
 settings, and older WonderSwan user-data folders are where Pocket expects them.
 The normal command performs no content or namespace writes:
 
@@ -24,7 +24,6 @@ definition JSON may update access-time metadata on filesystems that track it.
 - all required APF definitions, the referenced FPGA/Chip32 files, and the
   WonderSwan platform definition;
 - the core menu icon, information text, and WonderSwan platform artwork;
-- `bw.rom` at exactly 4,096 bytes and `color.rom` at exactly 8,192 bytes;
 - `.ws` and `.wsc` games below `/Assets/wonderswan/common/`, from 64 KiB
   through 16 MiB in whole 64 KiB cartridge banks;
 - per-game Interact and Input paths mirrored below `/Presets`;
@@ -32,26 +31,11 @@ definition JSON may update access-time metadata on filesystems that track it.
 - legacy shared `.sav` files that Swan Song's core-specific slot will not load;
 - unsafe symlinks, special files, path escapes, and FAT/exFAT case collisions.
 
-By default, BIOS contents are not opened or hashed. Game contents are never
-opened or hashed in any mode. The Doctor locally enumerates filenames and
+Swan Song uses its built-in open IPL and does not require external BIOS files.
+Game contents are never opened or hashed in any mode. The Doctor locally enumerates filenames and
 inspects ordinary-file status and byte size. Exact names may appear in
 findings, and per-game preset paths necessarily mirror a game's folder and
-stem. Nothing is uploaded. The official APF format has no BIOS checksum field.
-
-If you want to identify the two BIOS files, opt in explicitly:
-
-```bash
-python3 scripts/swan_song_doctor.py \
-  --sd-root "/Volumes/POCKET" \
-  --identify-bios
-```
-
-This reads only the exact-size `bw.rom` and `color.rom` files and calculates
-their MD5 identifiers locally. It reports whether they match the identifiers
-documented in Swan Song's installation guide. MD5 is used only as a familiar
-file identifier, not as a security check. The Doctor does not reject an
-unfamiliar same-size dump; it reports it as information so alternate valid
-dumps are not blocked. No BIOS content leaves the computer.
+stem. Nothing is uploaded.
 
 ## Optional repairs
 
@@ -104,7 +88,7 @@ path finding blocks all repairs.
 Analogue documents core identity as `/Cores/AuthorName.CoreName`, platform
 assets under `/Assets/<platform>/common`, and user saves as a mirrored `/Saves`
 tree in its [SD directory guide](https://www.analogue.co/developer/docs/directories-and-sd-folder-structure).
-The exact required filenames and sizes come from Swan Song's `data.json`,
+The cartridge and persistent-save slots come from Swan Song's `data.json`,
 following Analogue's [data-slot contract](https://www.analogue.co/developer/docs/core-definition-files/data-json).
 
 For a game such as:

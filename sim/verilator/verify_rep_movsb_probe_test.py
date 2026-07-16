@@ -30,8 +30,8 @@ from generate_rep_movsb_probe import (
     program,
 )
 from verify_rep_movsb_probe import (
-    BIOS_FNV1A64,
-    BIOS_SIZE,
+    OPEN_IPL_FNV1A64,
+    OPEN_IPL_SIZE,
     EXPECTED_EVENTS,
     fnv1a64,
     verify,
@@ -187,8 +187,8 @@ def write_case(
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": BIOS_SIZE,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": OPEN_IPL_SIZE,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,

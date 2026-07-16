@@ -46,7 +46,7 @@ TERMINAL_CS = 0xFF27
 TERMINAL_IP = 0x0416
 MIN_TERMINAL_TAIL = 128
 CAPTURE_CYCLES = 933_761
-DEFAULT_MONO_BIOS_FNV1A64 = "5e1a15a782d2bc94"
+DEFAULT_MONO_OPEN_IPL_FNV1A64 = "bcae6dfa69fd72ab"
 EXPECTED_EVENTS = {
     "cpu": True,
     "bank": False,
@@ -173,8 +173,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames",
         "rom_size",
         "rom_fnv1a64",
-        "bios_size",
-        "bios_fnv1a64",
+        "open_ipl_size",
+        "open_ipl_fnv1a64",
         "iram_initial_state",
         "savestate_inputs_asserted",
         "events",
@@ -203,8 +203,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames": 2,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": 4096,
-        "bios_fnv1a64": DEFAULT_MONO_BIOS_FNV1A64,
+        "open_ipl_size": 4096,
+        "open_ipl_fnv1a64": DEFAULT_MONO_OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,

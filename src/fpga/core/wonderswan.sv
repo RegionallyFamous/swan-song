@@ -52,14 +52,6 @@ module wonderswan (
 
     output wire rom_write_complete,
 
-    // BIOS in
-    // 1 for B&W bios, 2 for color bios
-    input wire [1:0] bios_download,
-
-    input wire bios_wr,
-    input wire [12:0] bios_addr,
-    input wire [15:0] bios_dout,
-
     input wire [31:0] rtc_epoch_seconds,
     input wire rtc_epoch_valid,
 
@@ -199,14 +191,9 @@ module wonderswan (
   wire cart_download_sys_external = |ext_cart_download_sys;
   wire cart_download = cart_download_external || rom_prepare_busy_mem;
   wire cart_download_sys = cart_download_sys_external || rom_prepare_busy_sys;
-  wire ioctl_download = cart_download_sys || |bios_download;
-
   // ext_cart_download is the clk_mem copy; ext_cart_download_sys is the
-  // independently synchronized clk_sys copy.
-  wire colorcart_download_sys = ext_cart_download_sys[1];
-  // wire cart_download = ioctl_download && (filetype[5:0] == 6'h01 || filetype == 8'h80);
-  // wire colorcart_download = ioctl_download && (filetype == 8'h01);
-  // wire bios_download = ioctl_download && (filetype == 8'h00 || filetype == 8'h40);
+  // independently synchronized clk_sys copy. The two bits identify the host's
+  // filename extension only; model selection comes from the cartridge footer.
 
   wire                                                          EXTRAM_doRefresh;
   wire                                                          EXTRAM_read;
@@ -426,28 +413,40 @@ module wonderswan (
 
   reg [15:0] lastdata             [0:4];
 
-  // The ROM footer is shifted in by clk_mem, but most of its consumers run on
-  // clk_sys.  Capture the three lifecycle-static fields while the synchronized
-  // system-domain download window is open, before doing any decode.  The final
-  // clk_sys capture occurs only after the last legal clk_mem footer update has
-  // settled.  Keep this snapshot across host Reset Enter/Exit so a running
-  // title cannot lose its mapper or persistence identity.
-  reg        footer_color_sys = 1'b0;
-  reg [ 7:0] footer_romtype_sys = 8'h00;
-  reg [ 7:0] footer_ramtype_sys = 8'h00;
+  // The ROM footer is shifted in by clk_mem, but its lifecycle-static fields
+  // are consumed in clk_sys. Capture them as one bundled register while the
+  // synchronized download window is open. The final system-domain capture
+  // occurs only after the last legal footer update has settled, and the console
+  // remains in reset throughout. Keeping one snapshot prevents the Open IPL
+  // variant from ever mixing a new word-width bit with an old protection bit.
+  //
+  // Footer byte mapping in the final five shifted words:
+  //   lastdata[4].high = minimum system (-9), bit 0 selects Color
+  //   lastdata[3].high = version (-7), bit 7 retains owner-area writes
+  //   lastdata[2].high = save type (-5)
+  //   lastdata[1].low  = flags (-4), bit 2 selects 16-bit cartridge bus
+  //   lastdata[1].high = RTC/mapper type (-3)
+  reg [18:0] footer_contract_sys = {1'b0, 8'h00, 8'h00, 1'b0, 1'b1};
+  wire       footer_color_sys = footer_contract_sys[18];
+  wire [7:0] footer_romtype_sys = footer_contract_sys[17:10];
+  wire [7:0] footer_ramtype_sys = footer_contract_sys[9:2];
+  wire       open_ipl_word_width_sys = footer_contract_sys[1];
+  wire       open_ipl_protect_owner_area_sys = footer_contract_sys[0];
 
   always @(posedge clk_sys_36_864) begin
     if (cart_download_sys) begin
-      footer_color_sys   <= lastdata[4][8];
-      footer_romtype_sys <= lastdata[1][15:8];
-      footer_ramtype_sys <= lastdata[2][15:8];
+      footer_contract_sys <= {
+        lastdata[4][8],
+        lastdata[1][15:8],
+        lastdata[2][15:8],
+        lastdata[1][2],
+        ~lastdata[3][15]
+      };
     end
   end
 
   reg        ioctl_wr_1 = 0;
   reg        cart_download_mem_previous = 1'b0;
-
-  reg        colorcart_downloaded;
 
   always @(posedge clk_mem_110_592) begin
     ioctl_wr_1 <= ioctl_wr;
@@ -502,18 +501,12 @@ module wonderswan (
   always @(posedge clk_sys_36_864) begin
     if (!reset_n_sys) begin
       old_download <= 1'b0;
-      colorcart_downloaded <= 1'b0;
       mask_addr <= 25'd0;
       planned_rom_size_sys <= 25'd0;
     end else begin
       old_download <= cart_download_sys;
       if (rom_plan_valid_sys)
         planned_rom_size_sys <= rom_size_sys;
-      // Do not let the compact-ROM prefix/validation tail overwrite the model
-      // detected during the real LOADF window after its external bit drops.
-      if (cart_download_sys_external) begin
-        colorcart_downloaded <= colorcart_download_sys;
-      end
       if (old_download & ~cart_download_sys) begin
         if (rom_size_sys_non_power)
           mask_addr <= next_power_of_two(planned_rom_size_sys) - 25'd1;
@@ -549,19 +542,8 @@ module wonderswan (
   // deliberately remains asserted after menu exit until a neutral PAD sample.
   wire paused = menu_focus_paused;
 
-  reg bios_wrbw;
-  reg bios_wrcolor;
-  always @(posedge clk_sys_36_864) begin
-    bios_wrbw    <= 0;
-    bios_wrcolor <= 0;
-    if (|bios_download && bios_wr) begin
-      if (bios_download[1] == 1'b1) bios_wrcolor <= 1'b1;
-      else bios_wrbw <= 1'b1;
-    end
-  end
-
   wire isColor = (configured_system_active == 0) ?
-                 (footer_color_sys | colorcart_downloaded) :
+                 footer_color_sys :
                  (configured_system_active == 2'b10);
 
   reg [79:0] time_dout = 80'd0;
@@ -678,11 +660,10 @@ module wonderswan (
       .internal_eeprom_req(internal_eeprom_req),
       .internal_eeprom_rnw(internal_eeprom_rnw),
 
-      // bios
-      .bios_wraddr (bios_addr),
-      .bios_wrdata (bios_dout),
-      .bios_wr     (bios_wrbw),
-      .bios_wrcolor(bios_wrcolor),
+      // Built-in Open IPL variant. These values are captured atomically from
+      // the cartridge footer before reset is released.
+      .open_ipl_word_width(open_ipl_word_width_sys),
+      .open_ipl_protect_owner_area(open_ipl_protect_owner_area_sys),
 
       // Video 
       .vertical      (vertical),

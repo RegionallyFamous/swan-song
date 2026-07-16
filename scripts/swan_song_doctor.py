@@ -3,16 +3,13 @@
 
 The default operation performs no content or namespace writes. Filesystem reads
 may update access-time metadata. Selected repairs require both a specific fix
-flag and ``--apply``. By default BIOS and game files are inspected by name,
-type, and size only. ``--identify-bios`` explicitly opts into local BIOS reads
-and MD5 identification; game contents are never opened, read, or hashed.
+flag and ``--apply``. Game contents are never opened, read, or hashed.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -57,11 +54,6 @@ DEFINITION_ENVELOPES = {
     "variants.json": "variants",
     "video.json": "video",
 }
-BIOS_CONTRACT = {"bw.rom": 4096, "color.rom": 8192}
-KNOWN_BIOS_MD5 = {
-    "bw.rom": "54B915694731CC22E07D3FB8A00EE2DB",
-    "color.rom": "880893BD5A7D53FFF826BD76A83D566E",
-}
 CONSOLE_SAVE_CONTRACT = {"mono.eeprom": 128, "color.eeprom": 2048}
 USER_VISIBLE_PAYLOADS = {
     CORE_RELATIVE / "icon.bin": "core menu icon",
@@ -105,7 +97,6 @@ class DoctorReport:
     root_identity: tuple[int, int]
     findings: tuple[Finding, ...]
     inventory: Inventory
-    bios_contents_read: bool = False
 
     @property
     def errors(self) -> int:
@@ -641,10 +632,7 @@ def _validate_definitions(
 
 def _inspect_assets(
     root: Path,
-    root_descriptor: int,
     findings: list[Finding],
-    *,
-    identify_bios: bool,
 ) -> dict[PurePosixPath, tuple[PurePosixPath, ...]]:
     common = _checked_path(root, ASSET_RELATIVE, findings)
     games: dict[PurePosixPath, list[PurePosixPath]] = {}
@@ -655,102 +643,11 @@ def _inspect_assets(
             findings,
             "ERROR",
             "assets-missing",
-            f"Game and BIOS directory /{ASSET_RELATIVE} is missing.",
-            action="Create it and place your legally obtained BIOS and .ws/.wsc files there.",
+            f"Game directory /{ASSET_RELATIVE} is missing.",
+            action="Create it and place your legally obtained .ws/.wsc files there.",
             path=ASSET_RELATIVE,
         )
         return {}
-
-    for name, expected_size in BIOS_CONTRACT.items():
-        relative = ASSET_RELATIVE / name
-        path = _checked_path(root, relative, findings)
-        if path is None:
-            continue
-        if not path.exists():
-            _finding(
-                findings,
-                "ERROR",
-                "bios-missing",
-                f"Required {name} is missing; Pocket will prompt for it.",
-                action=f"Place your legally obtained {name} at /{relative} ({expected_size:,} bytes).",
-                path=relative,
-            )
-            continue
-        metadata = path.lstat()
-        if not stat.S_ISREG(metadata.st_mode):
-            _finding(
-                findings,
-                "ERROR",
-                "bios-unsafe",
-                f"{name} is not an ordinary file.",
-                path=relative,
-                unsafe=True,
-            )
-        elif metadata.st_size != expected_size:
-            _finding(
-                findings,
-                "ERROR",
-                "bios-size",
-                f"{name} is {metadata.st_size:,} bytes; Swan Song requires exactly {expected_size:,} bytes.",
-                action="Replace it with a correctly dumped, legally obtained BIOS.",
-                path=relative,
-            )
-        else:
-            _finding(
-                findings,
-                "OK",
-                f"bios-{name}",
-                f"{name} has the required name and {expected_size:,}-byte size (contents were not read or hashed).",
-                path=relative,
-            )
-            if identify_bios:
-                parent_descriptor: int | None = None
-                try:
-                    parent_descriptor = _open_parent_at(
-                        root_descriptor, relative, create=False
-                    )
-                    if parent_descriptor is None:
-                        raise DoctorError("BIOS parent disappeared during identification")
-                    snapshot = _read_regular_snapshot_at(
-                        parent_descriptor, name, maximum=expected_size
-                    )
-                    if snapshot is None or len(snapshot[0]) != expected_size:
-                        raise DoctorError("BIOS changed during identification")
-                    identifier = hashlib.md5(
-                        snapshot[0], usedforsecurity=False
-                    ).hexdigest().upper()
-                except (MigrationError, PresetError, OSError) as error:
-                    raise DoctorError(
-                        f"cannot safely identify /{relative}: {error}"
-                    ) from error
-                finally:
-                    if parent_descriptor is not None:
-                        os.close(parent_descriptor)
-                expected_identifier = KNOWN_BIOS_MD5[name]
-                if identifier == expected_identifier:
-                    _finding(
-                        findings,
-                        "OK",
-                        f"bios-identified-{name}",
-                        f"{name} matches the documented MD5 identifier {identifier}.",
-                        path=relative,
-                    )
-                else:
-                    _finding(
-                        findings,
-                        "INFO",
-                        f"bios-unrecognized-{name}",
-                        (
-                            f"{name} is size-compatible but its MD5 identifier is "
-                            f"{identifier}, not the documented {expected_identifier}. "
-                            "Swan Song does not reject unfamiliar same-size dumps."
-                        ),
-                        action=(
-                            "If games fail to boot, verify that this is a clean, legally "
-                            "obtained dump for the selected WonderSwan model."
-                        ),
-                        path=relative,
-                    )
 
     platform_relative = PurePosixPath("Assets/wonderswan")
     platform = _checked_path(root, platform_relative, findings)
@@ -781,14 +678,6 @@ def _inspect_assets(
     pc2_count = 0
     for relative, metadata in files:
         suffix = relative.suffix.lower()
-        if relative.name.casefold() in BIOS_CONTRACT and len(relative.parts) != 1:
-            _finding(
-                findings,
-                "WARN",
-                "bios-misplaced",
-                f"A nested {relative.name} will not satisfy Swan Song's fixed BIOS path.",
-                path=ASSET_RELATIVE / relative,
-            )
         if suffix in {".ws", ".wsc"}:
             if not (
                 MIN_ROM_BYTES <= metadata.st_size <= MAX_ROM_BYTES
@@ -1066,16 +955,14 @@ def _inspect_cartridge_save_namespaces(root: Path, findings: list[Finding]) -> N
     )
 
 
-def audit_sd(sd_root: Path, *, identify_bios: bool = False) -> DoctorReport:
+def audit_sd(sd_root: Path) -> DoctorReport:
     root, root_descriptor, root_identity = _root(sd_root)
     findings: list[Finding] = []
     try:
         core_directory, _documents = _validate_definitions(
             root, root_descriptor, findings
         )
-        games = _inspect_assets(
-            root, root_descriptor, findings, identify_bios=identify_bios
-        )
+        games = _inspect_assets(root, findings)
         interact = _inspect_preset_kind(
             root, root_descriptor, "Interact", games, findings
         )
@@ -1132,10 +1019,6 @@ def audit_sd(sd_root: Path, *, identify_bios: bool = False) -> DoctorReport:
         root_identity=root_identity,
         findings=ordered,
         inventory=Inventory(games, interact, input_presets, core_directory),
-        bios_contents_read=any(
-            item.code.startswith(("bios-identified-", "bios-unrecognized-"))
-            for item in findings
-        ),
     )
 
 
@@ -1259,16 +1142,9 @@ def _render(
         if item.action:
             lines.append(f"  Next: {item.action}")
     lines.extend(fix_lines)
-    if report.bios_contents_read:
-        lines.append(
-            "BIOS contents were read locally only to calculate requested MD5 identifiers; "
-            "game contents were not read or hashed."
-        )
-        lines.append("No BIOS or game contents were copied or uploaded.")
-    else:
-        lines.append("No BIOS or game contents were read, hashed, copied, or uploaded.")
+    lines.append("No game contents were read, hashed, copied, or uploaded.")
     lines.append(
-        "ROM/BIOS filenames, file types, and sizes were inspected locally; reads may update access-time metadata."
+        "ROM filenames, file types, and sizes were inspected locally; reads may update access-time metadata."
     )
     return "\n".join(lines)
 
@@ -1287,7 +1163,6 @@ def _json_report(report: DoctorReport, *, fixes: dict[str, object]) -> str:
             "errors": report.errors,
             "warnings": report.warnings,
             "unsafe": report.unsafe,
-            "bios_contents_read": report.bios_contents_read,
             "findings": [
                 {
                     "severity": item.severity,
@@ -1308,20 +1183,12 @@ def _json_report(report: DoctorReport, *, fixes: dict[str, object]) -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Check a Pocket SD card for Swan Song install, BIOS-size, asset, "
+            "Check a Pocket SD card for Swan Song install, asset, "
             "preset, and legacy-namespace problems. By default it performs no "
             "content or namespace writes; reads may update access times."
         )
     )
     parser.add_argument("--sd-root", required=True, type=Path)
-    parser.add_argument(
-        "--identify-bios",
-        action="store_true",
-        help=(
-            "opt into local BIOS reads and report documented MD5 identifiers; "
-            "unknown same-size dumps remain informational"
-        ),
-    )
     parser.add_argument(
         "--fix-presets",
         action="store_true",
@@ -1347,9 +1214,7 @@ def main(argv: list[str] | None = None) -> int:
         print("swan_song_doctor.py: --apply requires an explicit fix flag", file=sys.stderr)
         return 2
     try:
-        report = audit_sd(
-            arguments.sd_root, identify_bios=arguments.identify_bios
-        )
+        report = audit_sd(arguments.sd_root)
         if (arguments.fix_presets or arguments.migrate_legacy) and report.unsafe:
             raise DoctorError("unsafe path findings block every repair")
 
@@ -1405,9 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"APPLIED: {fixes['preset_files']} preset file(s), "
                 f"{fixes['legacy_files']} no-clobber legacy copy/copies."
             )
-            report = audit_sd(
-                arguments.sd_root, identify_bios=arguments.identify_bios
-            )
+            report = audit_sd(arguments.sd_root)
         elif preset_plan is not None or migration_plan is not None:
             fix_lines.append(
                 f"FIX PLAN ONLY: {fixes['preset_files']} new preset file(s), "

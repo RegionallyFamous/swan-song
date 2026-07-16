@@ -291,11 +291,11 @@ def check_core_top(source: str) -> list[str]:
         for expression in re.findall(r"\bdatatable_addr\s*<=\s*([^;]+);", active)
     ]
     if not any(
-        address == "2*3+1" or
-        (re.fullmatch(SV_LITERAL, address) and sv_int(address) == 7)
+        address == "2*1+1" or
+        (re.fullmatch(SV_LITERAL, address) and sv_int(address) == 3)
         for address in table_addresses
     ):
-        errors.append("core_top dynamic size must target Save data-slot index 3")
+        errors.append("core_top dynamic size must target Save data-slot index 1")
 
     return errors
 

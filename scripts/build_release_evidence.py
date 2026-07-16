@@ -266,17 +266,27 @@ def _relocate_hardware_dependencies(
                 f"hardware QA installed payload {name}",
             )
 
-    for collection, singular in (("bios", "BIOS"), ("roms", "ROM")):
-        for index, entry in enumerate(
-            _array(inventory.get(collection), f"hardware QA inventory {collection}")
-        ):
-            item = _object(entry, f"hardware QA inventory {collection}[{index}]")
-            _copy_relative_reference(
-                base=inventory_path.parent,
-                value=item.get("path"),
-                destination_root=destination_root,
-                label=f"hardware QA {singular} {item.get('id', index)!r}",
-            )
+    inventory_open_ipl = _object(
+        inventory.get("open_ipl"), "hardware QA inventory Open IPL"
+    )
+    verified_open_ipl = _object(
+        hardware_summary.get("open_ipl"), "verified hardware Open IPL"
+    )
+    if inventory_open_ipl != verified_open_ipl:
+        raise ReleaseEvidenceError(
+            "hardware QA Open IPL identity or variants changed after verification"
+        )
+
+    for index, entry in enumerate(
+        _array(inventory.get("roms"), "hardware QA inventory roms")
+    ):
+        item = _object(entry, f"hardware QA inventory roms[{index}]")
+        _copy_relative_reference(
+            base=inventory_path.parent,
+            value=item.get("path"),
+            destination_root=destination_root,
+            label=f"hardware QA ROM {item.get('id', index)!r}",
+        )
 
 
 def _relocate_known_title_dependencies(

@@ -14,15 +14,9 @@ import generate_sram_persistence_probes as probes
 
 
 EXPECTED_GENERATOR_SHA256 = (
-    "ee9df6c10b4a79d4a5ca9f958781bd958a27d0b5914d34e3218862c5b344f4ec"
+    "f5686a474a39806def97a5b9396c8ef9e4e05f18697fe335b9d438757de29ac4"
 )
 EXPECTED_OUTPUT_SHA256 = {
-    "sram_persistence_boot_mono.bin": (
-        "01048b2f2f4e512eea6859842b943405f2f897361437018316ac53de98c97324"
-    ),
-    "sram_persistence_boot_color.bin": (
-        "a0721e517f41a503351bbbfda064b79885d14cf7f6a235265d245a023755ed43"
-    ),
     "sram_type03_persistence.ws": (
         "1c04f468ac445616e9613b08dd874aadc83bc214f9b192f777e845019b4c4ccb"
     ),
@@ -44,10 +38,10 @@ EXPECTED_OUTPUT_SHA256 = {
 }
 EXPECTED_CONTROL_SHA256 = {
     "sram_persistence_probes.manifest.json": (
-        "1f6b851c4939d31fb95f59010f31b069d72d09c33d1047620e097747e6a808a6"
+        "cdd51d0499d22bb4646a883b0f56f1b4407d9757f0bde66b4bbdd141f8aac172"
     ),
     "sram_persistence_probes.sha256": (
-        "f7633451c766bdd27e15ff153c19523d3eda62ebee6b10fa8051817cc8bb2802"
+        "a57d61006e2226db52d88c6144c80ed14d87c3a71b0872f19b1086af9e28d048"
     ),
 }
 
@@ -322,27 +316,19 @@ class PersistenceProbeTests(unittest.TestCase):
         self.assertEqual(document["models"], ["ws"])
         self.assertEqual(
             set(document["outputs"]),
-            {probes.BOOTSTRAP_LAYOUTS["ws"][0]}
-            | {probes.rom_name(save_type, "ws") for save_type in probes.SAVE_TYPES},
+            {probes.rom_name(save_type, "ws") for save_type in probes.SAVE_TYPES},
         )
 
-    def test_open_bootstraps_have_exact_model_geometry_and_reset_vectors(self) -> None:
-        for model, (name, size, segment) in probes.BOOTSTRAP_LAYOUTS.items():
-            with self.subTest(model=model):
-                image = (self.bundle / name).read_bytes()
-                self.assertEqual(len(image), size)
-                self.assertEqual(
-                    image[-16:-11],
-                    bytes((0xEA, 0x00, 0x00, segment & 0xFF, segment >> 8)),
-                )
-                self.assertEqual(image[9:12], bytes((0xB0, 0x05, 0xE6)))
-                self.assertEqual(
-                    image[
-                        probes.BOOTSTRAP_MARKER_OFFSET :
-                        probes.BOOTSTRAP_MARKER_OFFSET + len(probes.BOOTSTRAP_MARKER)
-                    ],
-                    probes.BOOTSTRAP_MARKER,
-                )
+    def test_manifest_binds_production_open_ipl_variants(self) -> None:
+        document = probes.verify_bundle(self.bundle)
+        self.assertEqual(len(document["probes"]), 6)
+        for item in document["probes"]:
+            model = item["model"]
+            self.assertEqual(item["open_ipl_identity"], probes.OPEN_IPL_IDENTITY)
+            self.assertEqual(
+                item["open_ipl_variant"], probes.OPEN_IPL_VARIANTS[model]
+            )
+            self.assertNotIn("simulation_bootstrap", item)
 
     def test_roms_are_legal_checksummed_authored_images(self) -> None:
         for model, color in probes.MODELS.items():

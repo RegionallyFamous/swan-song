@@ -33,11 +33,11 @@ STABLE_FRAME_SHA256 = "eb515b9c58a3fc7f386520937818d95b846a94cd43a86edef1daf54f3
 
 # Filled from the first reviewed fixed-RTL capture.  They deliberately live in
 # this independent verifier instead of the generator or the manifest.
-TRACE_SIZE = 9_697_018
-TRACE_FNV1A64 = "edd172d8cb8c5c46"
-TRACE_SHA256 = "0bbbca0ce10d33b8da44955a62cfa7e33edd5bc73fab29fbb40ce990aca7115f"
+TRACE_SIZE = 9_684_967
+TRACE_FNV1A64 = "9779bcc3c897592e"
+TRACE_SHA256 = "988bda61dfa71ae6bbe3f035bfbfa548a2547377e006a65a13503941c174ddad"
 CAPTURE_CYCLES = 933761
-BIOS_FNV1A64 = "ef7d73ef979bfc94"
+OPEN_IPL_FNV1A64 = "de968891eff736c1"
 EXPECTED_EVENTS = {
     "cpu": False,
     "bank": False,
@@ -165,8 +165,8 @@ def verify_manifest(trace: Path, rom: bytes) -> None:
         "completed_frames": 2,
         "rom_size": ROM_SIZE,
         "rom_fnv1a64": ROM_FNV1A64,
-        "bios_size": 8192,
-        "bios_fnv1a64": BIOS_FNV1A64,
+        "open_ipl_size": 8192,
+        "open_ipl_fnv1a64": OPEN_IPL_FNV1A64,
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": EXPECTED_EVENTS,

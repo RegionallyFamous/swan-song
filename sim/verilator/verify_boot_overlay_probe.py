@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify exact mono/color boot-overlay provenance and stimulus bindings."""
+"""Verify mono/color built-in Open IPL overlay provenance and bindings."""
 
 from __future__ import annotations
 
@@ -7,48 +7,99 @@ import argparse
 import csv
 import hashlib
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from verify_trace import FIELDS_V5
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from generate_open_ipl import make_open_ipl  # noqa: E402
 
-ROM_SHA256 = "a1cdf59af325da51e7111b86f89fb5242e10d99141cc7a1c0aedd44fa960c783"
+
+OPEN_IPL_IDENTITY = "open-bootstrap-v3"
+RAM_HANDOFF_JUMP = bytes((0xEA, 0x00, 0x04, 0x00, 0x00))
 
 
 @dataclass(frozen=True)
 class Model:
-    bios_size: int
-    bios_sha256: str
+    color: bool
+    word_width: bool
+    protect_owner_area: bool
+    open_ipl_size: int
+    open_ipl_sha256: str
+    rom_sha256: str
     base: int
     reset_offset: int
-    marker: int
 
 
 MODELS = {
-    "mono": Model(
+    "mono-word8-owner-writable": Model(
+        False, False, False,
         4096,
-        "34b8ce35aafaab0df826b833b6a1e1e9d9b1b6a99eae6f22b867900d51108cd6",
+        "e1b7ee7ebec3f8a33c820ab10cf1b5bf0dca69398ea60af1e927f63bacd2e37b",
+        "6e84d7ac0c4e452b8ae979367b12a5c801ac7cfe0003b6be6c7e697230fcafbb",
         0xFF000,
         0xFF0,
-        0xB007,
     ),
-    "color": Model(
+    "mono-word8-owner-protected": Model(
+        False, False, True,
+        4096,
+        "d9cf49878ab45566e34b26bf4cadebdb512c0ed89f75be64c1e54020272bd018",
+        "799b0a175dec34c3b8a522df2ec097d4e860ba0e3a478e65e68937bc4c517438",
+        0xFF000,
+        0xFF0,
+    ),
+    "mono-word16-owner-writable": Model(
+        False, True, False,
+        4096,
+        "f09f71dd46c17c9ebd82a938e0bbec4dace64874e49e6d53ed6efe3a25277305",
+        "0dcd59e6e61600e8b166ade744308a81c23ff72b1d85c89dde35894a488f1911",
+        0xFF000,
+        0xFF0,
+    ),
+    "mono-word16-owner-protected": Model(
+        False, True, True,
+        4096,
+        "ccfaa2ec7e667bc4db679d42a63e1e7a5717573381cd63c84854777f2d08c7e1",
+        "a1cdf59af325da51e7111b86f89fb5242e10d99141cc7a1c0aedd44fa960c783",
+        0xFF000,
+        0xFF0,
+    ),
+    "color-word8-owner-writable": Model(
+        True, False, False,
         8192,
-        "2533e2320302e29e8d47b9ef997e3bbd140882c7625a83deb1a501eef6a3acf2",
+        "a7f4453af0d2b624d732111d572679b72cb72fc27498eef98f198e3dbe75d5b2",
+        "107380ecccd1c3ecfa8abd222da5733df0dcd1bda35f39a345be7227945bbc0d",
         0xFE000,
         0x1FF0,
-        0xC007,
+    ),
+    "color-word8-owner-protected": Model(
+        True, False, True,
+        8192,
+        "d2f5aef0e48bb51dca4f46114a207157f64ee6ac92058555b79117a8ebc474a3",
+        "fa512a039edd32d6b41f96cff25d0a5a2857741e144074b6761f84482deea9ef",
+        0xFE000,
+        0x1FF0,
+    ),
+    "color-word16-owner-writable": Model(
+        True, True, False,
+        8192,
+        "ef648b0dee18f75549718246f59b2b893388e2012f770ad9f9403f78e224712b",
+        "8f00754bf5cdf4b07514610d9a915bedc4a8b13f905b4b5510361cf22681fc8e",
+        0xFE000,
+        0x1FF0,
+    ),
+    "color-word16-owner-protected": Model(
+        True, True, True,
+        8192,
+        "164a1d11d3c78aca30f6237c8285fd0aaadae0168db8fcd6ba47f2a4cc452c5b",
+        "55c2da573cd4ac6e1a13b04adeea462dbc96fdf317ee3654efc27930cda2fcc3",
+        0xFE000,
+        0x1FF0,
     ),
 }
-
-# Synchronous word fetches made while executing the generated boot program.
-# The data-marker read at 0x100 completes before prefetch resumes at 0x14.
-BOOT_PROGRAM_OFFSETS = (
-    *range(0x00, 0x14, 2),
-    0x100,
-    *range(0x14, 0x1A, 2),
-)
 
 
 def sha256(data: bytes) -> str:
@@ -85,7 +136,28 @@ def word(data: bytes, offset: int) -> int:
     return data[offset] | (data[offset + 1] << 8)
 
 
-def read_manifest(trace: Path, rom: bytes, bios: bytes) -> None:
+def expected_open_ipl(model: Model) -> bytes:
+    image = make_open_ipl(
+        color=model.color,
+        word_width=model.word_width,
+        protect_owner_area=model.protect_owner_area,
+    )
+    if len(image) != model.open_ipl_size or sha256(image) != model.open_ipl_sha256:
+        raise ValueError(
+            f"{OPEN_IPL_IDENTITY} generated Open IPL size/hash mismatch"
+        )
+    return image
+
+
+def startup_end(open_ipl: bytes) -> int:
+    start = len(open_ipl) - 256
+    end = open_ipl.rfind(RAM_HANDOFF_JUMP, start, len(open_ipl) - 16)
+    if end < start:
+        raise ValueError(f"{OPEN_IPL_IDENTITY} RAM handoff jump is missing")
+    return end + len(RAM_HANDOFF_JUMP)
+
+
+def read_manifest(trace: Path, rom: bytes, open_ipl: bytes) -> None:
     path = Path(f"{trace}.manifest.json")
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -109,8 +181,8 @@ def read_manifest(trace: Path, rom: bytes, bios: bytes) -> None:
         "completed_frames": 1,
         "rom_size": len(rom),
         "rom_fnv1a64": fnv1a64(rom),
-        "bios_size": len(bios),
-        "bios_fnv1a64": fnv1a64(bios),
+        "open_ipl_size": len(open_ipl),
+        "open_ipl_fnv1a64": fnv1a64(open_ipl),
         "iram_initial_state": "zero",
         "savestate_inputs_asserted": False,
         "events": expected_events,
@@ -151,25 +223,19 @@ def expected_prefetch(address: int, value: int, space: str, offset: int) -> tupl
     return ("cpu", "read", address, value, 0, space, offset, None, None, "unattributed")
 
 
-def verify(model_name: str, trace: Path, rom_path: Path, bios_path: Path) -> None:
+def verify(model_name: str, trace: Path, rom_path: Path) -> None:
     model = MODELS[model_name]
     rom = rom_path.read_bytes()
-    bios = bios_path.read_bytes()
-    if len(rom) != 128 * 1024 or sha256(rom) != ROM_SHA256:
+    open_ipl = expected_open_ipl(model)
+    if len(rom) != 128 * 1024 or sha256(rom) != model.rom_sha256:
         raise ValueError("carrier ROM size/hash mismatch")
-    if len(bios) != model.bios_size or sha256(bios) != model.bios_sha256:
-        raise ValueError(f"{model_name} test boot image size/hash mismatch")
-    if word(bios, 0x100) != model.marker:
-        raise ValueError(f"{model_name} test boot marker mismatch")
 
-    read_manifest(trace, rom, bios)
+    read_manifest(trace, rom, open_ipl)
 
     top_addresses = tuple(range(0xFFFF0, 0x100000, 2))
     top_set = set(top_addresses)
     boot_top: list[tuple[int, tuple[object, ...]]] = []
     cart_top: list[tuple[int, tuple[object, ...]]] = []
-    boot_base: list[tuple[int, tuple[object, ...]]] = []
-    marker: list[tuple[int, tuple[object, ...]]] = []
     boot_events: list[tuple[int, tuple[object, ...]]] = []
     previous_cycle = -1
 
@@ -191,20 +257,30 @@ def verify(model_name: str, trace: Path, rom_path: Path, bios_path: Path) -> Non
             address = sig[2]
             space = sig[5]
             if space == "boot_rom":
+                offset = sig[6]
+                if not isinstance(offset, int) or not 0 <= offset < len(open_ipl) - 1:
+                    raise ValueError(
+                        f"line {line}: invalid {model_name} Open IPL offset {offset!r}"
+                    )
+                expected = expected_prefetch(
+                    model.base + offset,
+                    word(open_ipl, offset),
+                    "boot_rom",
+                    offset,
+                )
+                if sig != expected:
+                    raise ValueError(
+                        f"line {line}: unexpected {model_name} Open IPL fetch provenance"
+                    )
                 boot_events.append((cycle, sig))
             if address in top_set and space == "boot_rom":
                 boot_top.append((cycle, sig))
             if address in top_set and space == "cart_rom_linear":
                 cart_top.append((cycle, sig))
-            if address == model.base and space == "boot_rom":
-                boot_base.append((cycle, sig))
-            if address == model.base + 0x100 and space == "boot_rom":
-                marker.append((cycle, sig))
-
     expected_boot_top = [
         expected_prefetch(
             address,
-            word(bios, model.reset_offset + index * 2),
+            word(open_ipl, model.reset_offset + index * 2),
             "boot_rom",
             model.reset_offset + index * 2,
         )
@@ -213,43 +289,22 @@ def verify(model_name: str, trace: Path, rom_path: Path, bios_path: Path) -> Non
     if [sig for _, sig in boot_top] != expected_boot_top:
         raise ValueError(f"unexpected {model_name} boot reset-vector sequence")
 
-    expected_base = expected_prefetch(
-        model.base, word(bios, 0), "boot_rom", 0
-    )
-    if [sig for _, sig in boot_base] != [expected_base]:
-        raise ValueError(f"unexpected {model_name} boot byte-zero fetch")
-
-    expected_marker = (
-        "cpu",
-        "read",
-        model.base + 0x100,
-        model.marker,
-        0,
-        "boot_rom",
-        0x100,
-        5,
-        model.base + 6,
-        "exact",
-    )
-    if [sig for _, sig in marker] != [expected_marker]:
-        raise ValueError(f"unexpected {model_name} boot marker provenance")
-
-    expected_program = []
-    for offset in BOOT_PROGRAM_OFFSETS:
-        if offset == 0x100:
-            expected_program.append(expected_marker)
-        else:
-            expected_program.append(
-                expected_prefetch(
-                    model.base + offset,
-                    word(bios, offset),
-                    "boot_rom",
-                    offset,
-                )
-            )
-    expected_boot = [*expected_boot_top, *expected_program]
-    if [sig for _, sig in boot_events] != expected_boot:
-        raise ValueError(f"unexpected complete {model_name} boot-ROM sequence")
+    if [sig for _, sig in boot_events[: len(expected_boot_top)]] != expected_boot_top:
+        raise ValueError(f"unexpected complete {model_name} reset-vector sequence")
+    startup = boot_events[len(expected_boot_top) :]
+    startup_offset = len(open_ipl) - 256
+    startup_offsets = [sig[6] for _, sig in startup]
+    if (
+        not startup_offsets
+        or startup_offsets[0] != startup_offset
+        or any(
+            current - previous not in (0, 2)
+            for previous, current in zip(startup_offsets, startup_offsets[1:])
+        )
+    ):
+        raise ValueError(f"unexpected {model_name} Open IPL startup fetch sequence")
+    if startup_offsets[-1] + 2 < startup_end(open_ipl):
+        raise ValueError(f"incomplete {model_name} Open IPL startup fetch sequence")
 
     rom_reset_offset = len(rom) - 16
     expected_cart_top = [
@@ -264,11 +319,9 @@ def verify(model_name: str, trace: Path, rom_path: Path, bios_path: Path) -> Non
     if [sig for _, sig in cart_top] != expected_cart_top:
         raise ValueError(f"unexpected {model_name} post-lockout cartridge sequence")
 
-    if not boot_top or not boot_base or not marker or not cart_top:
+    if not boot_top or not startup or not cart_top:
         raise ValueError(f"incomplete {model_name} boot-overlay sequence")
-    if not (
-        boot_top[-1][0] < boot_base[0][0] < marker[0][0] < cart_top[0][0]
-    ):
+    if not (boot_top[-1][0] < startup[0][0] < cart_top[0][0]):
         raise ValueError(f"invalid {model_name} boot-overlay event order")
     if not boot_events or boot_events[-1][0] >= cart_top[0][0]:
         raise ValueError(f"{model_name} boot ROM remained visible after lockout")
@@ -279,10 +332,9 @@ def main() -> None:
     parser.add_argument("model", choices=MODELS)
     parser.add_argument("trace", type=Path)
     parser.add_argument("rom", type=Path)
-    parser.add_argument("bios", type=Path)
     args = parser.parse_args()
     try:
-        verify(args.model, args.trace, args.rom, args.bios)
+        verify(args.model, args.trace, args.rom)
     except (OSError, ValueError, KeyError) as error:
         raise SystemExit(f"{args.trace}: {error}") from error
     print(f"PASS {args.trace} exact {args.model} boot-overlay provenance")

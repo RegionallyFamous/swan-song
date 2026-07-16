@@ -17,8 +17,9 @@ offset 0x0004 (so a captured save is self-describing) and in IRAM at 0000:0400:
     0xEE  corrupt, aliased, or otherwise unexpected save state
 
 The ROM bundle includes an exact JSON manifest and SHA-256 checksum file that
-bind the generator source and every generated output.  Generated binaries are
-build/test artifacts and are intentionally not checked into the repository.
+bind the generator source, the production Open IPL identity, and every
+generated output. Generated binaries are build/test artifacts and are
+intentionally not checked into the repository.
 """
 
 from __future__ import annotations
@@ -37,11 +38,11 @@ ROM_SIZE = 2 * 1024 * 1024
 PROGRAM_OFFSET = 0x1F0000
 MARKER_OFFSET = PROGRAM_OFFSET + 0x0800
 FOOTER_OFFSET = ROM_SIZE - 16
-BOOTSTRAP_MARKER_OFFSET = 0x0100
 MANIFEST_NAME = "sram_persistence_probes.manifest.json"
 CHECKSUM_NAME = "sram_persistence_probes.sha256"
 GENERATOR_RELATIVE = "sim/verilator/generate_sram_persistence_probes.py"
-MANIFEST_SCHEMA = "swan-song-sram-persistence-probes-v1"
+MANIFEST_SCHEMA = "swan-song-sram-persistence-probes-v2"
+OPEN_IPL_IDENTITY = "open-bootstrap-v3"
 
 SIGNATURE = 0x5353
 GENERATION_1 = 0x1357
@@ -57,9 +58,9 @@ MODELS = {
     "ws": 0,
     "wsc": 1,
 }
-BOOTSTRAP_LAYOUTS = {
-    "ws": ("sram_persistence_boot_mono.bin", 4096, 0xFF00),
-    "wsc": ("sram_persistence_boot_color.bin", 8192, 0xFE00),
+OPEN_IPL_VARIANTS = {
+    "ws": "mono-16bit-protected-owner",
+    "wsc": "color-16bit-protected-owner",
 }
 
 
@@ -83,12 +84,6 @@ PROVENANCE_MARKER = (
     b"SWAN SONG SRAM PERSISTENCE PROBE V1\0"
     b"REPOSITORY-AUTHORED; NO COMMERCIAL ROM BYTES\0"
 )
-
-# Open bootstraps map at physical 0xFF000 (mono) or 0xFE000 (Color).  Their
-# reset vectors enter offset zero, record one harmless read from the authored
-# image, lock the boot overlay, and jump through the cartridge footer.
-BOOTSTRAP_MARKER = b"SWANSONG-OPEN-SRAM-BOOT-V1\0"
-
 
 class Assembler:
     """Tiny deterministic assembler for the exact 80186 subset used here."""
@@ -332,32 +327,6 @@ def image(save_type: int, model: str) -> bytes:
     return bytes(result)
 
 
-def bootstrap_image(model: str) -> bytes:
-    if model not in BOOTSTRAP_LAYOUTS:
-        raise ValueError(f"unsupported WonderSwan bootstrap model: {model}")
-    _name, size, segment = BOOTSTRAP_LAYOUTS[model]
-    bootstrap_program = bytes(
-        (
-            0xFA,                          # cli
-            0xB8, segment & 0xFF, segment >> 8,  # mov ax, segment
-            0x8E, 0xD8,                    # mov ds, ax
-            0xA1, 0x00, 0x01,              # mov ax, [0x0100]
-            0xB0, 0x05,                    # mov al, 5 (lock + 16-bit ROM word mode)
-            0xE6, 0xA0,                    # out 0xa0, al (lock boot ROM)
-            0xEA, 0x00, 0x00, 0xFF, 0xFF,  # jmp far ffff:0000
-        )
-    )
-    result = bytearray(b"\x90" * size)
-    result[: len(bootstrap_program)] = bootstrap_program
-    result[
-        BOOTSTRAP_MARKER_OFFSET : BOOTSTRAP_MARKER_OFFSET + len(BOOTSTRAP_MARKER)
-    ] = BOOTSTRAP_MARKER
-    result[-16:-11] = bytes(
-        (0xEA, 0x00, 0x00, segment & 0xFF, segment >> 8)
-    )
-    return bytes(result)
-
-
 def rom_name(save_type: int, model: str) -> str:
     if save_type not in SAVE_TYPES or model not in MODELS:
         raise ValueError("unsupported persistence probe identity")
@@ -440,7 +409,8 @@ def manifest_document(
                     "footer_save_type": f"0x{save_type:02x}",
                     "model": model,
                     "output": name,
-                    "simulation_bootstrap": BOOTSTRAP_LAYOUTS[model][0],
+                    "open_ipl_identity": OPEN_IPL_IDENTITY,
+                    "open_ipl_variant": OPEN_IPL_VARIANTS[model],
                     "program_bytes": len(payload),
                     "program_sha256": hashlib.sha256(payload).hexdigest(),
                     "sram_bytes": save.bytes,
@@ -506,10 +476,7 @@ def bundle_files(
     selected = normalize_models(models)
     source_path = Path(__file__).resolve() if source_path is None else source_path
     _read_regular(source_path, role="generator source")
-    outputs = {
-        BOOTSTRAP_LAYOUTS[model][0]: bootstrap_image(model)
-        for model in selected
-    }
+    outputs: dict[str, bytes] = {}
     for model in selected:
         for save_type in SAVE_TYPES:
             outputs[rom_name(save_type, model)] = image(save_type, model)
@@ -609,7 +576,7 @@ def verify_bundle(
         ):
             raise ValueError("persistence manifest models are invalid")
         selected = normalize_models(raw_models)
-        names = {BOOTSTRAP_LAYOUTS[model][0] for model in selected}
+        names: set[str] = set()
         for model in selected:
             names.update(rom_name(save_type, model) for save_type in SAVE_TYPES)
         actual_outputs = {name: _read_plain_at(directory, name) for name in names}
@@ -621,12 +588,6 @@ def verify_bundle(
                 name = rom_name(save_type, model)
                 if actual_outputs[name] != image(save_type, model):
                     raise ValueError(f"persistence ROM is not exact generated content: {name}")
-        for model in selected:
-            bootstrap_name = BOOTSTRAP_LAYOUTS[model][0]
-            if actual_outputs[bootstrap_name] != bootstrap_image(model):
-                raise ValueError(
-                    f"persistence bootstrap is not exact generated content: {model}"
-                )
         manifest_bytes = _manifest_bytes(document)
         if manifest_payload != manifest_bytes:
             raise ValueError("persistence manifest is not exact canonical bytes")

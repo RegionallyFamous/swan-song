@@ -27,7 +27,7 @@ The project is designed to improve the Pocket experience through:
 - safer, exact-size cartridge saves and persistent console owner data;
 - support for conventional and compact `.ws` and `.wsc` images up to the
   core's implemented 16 MiB limit;
-- a convenient action for entering the original BIOS owner setup;
+- a built-in open IPL with no external BIOS-file requirement;
 - display choices that distinguish neutral output from optional emulator-based
   color and persistence effects;
 - reproducible builds, broad automated regression tests, and explicit release
@@ -52,10 +52,10 @@ Hub](https://github.com/RegionallyFamous/swansong-core/wiki/Developer-Hub).
 
 ## What Swan Song does not include
 
-Swan Song does not include or download commercial games, WonderSwan BIOS
-files, WonderWitch firmware, or private test captures. You must provide your
-own legally obtained game and BIOS images. Never upload those files to an
-issue, this repository, a test server, or a public cloud service.
+Swan Song does not include or download commercial games, WonderWitch firmware,
+or private test captures. You must provide your own legally obtained game
+images. Never upload those files to an issue, this repository, a test server,
+or a public cloud service.
 
 The independent Pocket core identity is `RegionallyFamous.SwanSong`. The
 project preserves [documented provenance and known

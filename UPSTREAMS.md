@@ -128,18 +128,19 @@ final release therefore still requires clarification of modified APF source,
 review of the Quartus Prime Lite 21.1.1 terms, and confirmation that the final
 assembler report contains no evaluation/time-limited IP.
 
-The Pocket `core.json` declares `chip32.bin`, but the source checkout does not
-carry that generated file. The official
-[Chip32 documentation](https://www.analogue.co/developer/docs/chip32-vm)
+The Pocket `core.json` declares `chip32.bin`, but the source checkout stores its
+current machine code as reviewable hexadecimal rather than a generated binary.
+The official [Chip32 documentation](https://www.analogue.co/developer/docs/chip32-vm)
 identifies the custom Bass assembler, and the pinned
 [open-fpga/bass-chip32 v1.0.0](https://github.com/open-fpga/bass-chip32/releases/tag/v1.0.0)
-produces a 259-byte image from `src/support/chip32.asm`. Its SHA-256 is
-`ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c`,
-exactly matching the loader inside
-[agg23's WonderSwan 1.0.1 release](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1).
-The checked-in hexadecimal image preserves that exact output so packaging is
-offline and host-independent; the build verifies both the assembly and decoded
-image identities before including it.
+produces Swan Song's current 293-byte loader from `src/support/chip32.asm`; its
+SHA-256 is `7d39f22fed8ae8fe89573304ef78c5e61c593537b4d66bf7137871778bf6d7df`.
+For comparison, the historical 259-byte loader inside
+[agg23's WonderSwan 1.0.1 release](https://github.com/agg23/openfpga-wonderswan/releases/tag/1.0.1)
+has SHA-256 `ca7a2b11c11250b4842c1853d6d500c0289e7065db479c11fde37c130440a81c`.
+The checked-in hexadecimal image preserves the current Swan Song output so
+packaging is offline and host-independent; the build verifies both current
+assembly and decoded-image identities before including it.
 
 The 19 formerly checked-in files under `testroms/spritepriority`,
 `testroms/timingtest`, and `testroms/windowtest` had no file-level grant.

@@ -27,8 +27,15 @@ except ModuleNotFoundError:  # Imported as scripts.pocket_hardware_qa.
     from scripts.reverse_rbf import REVERSE
 
 
-INVENTORY_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V2"
-MANIFEST_MAGIC = "SWAN_SONG_HARDWARE_QA_EVIDENCE_V2"
+INVENTORY_MAGIC = "SWAN_SONG_HARDWARE_QA_INVENTORY_V3"
+MANIFEST_MAGIC = "SWAN_SONG_HARDWARE_QA_EVIDENCE_V3"
+OPEN_IPL_IDENTITY = "open-bootstrap-v3"
+REQUIRED_OPEN_IPL_VARIANTS = tuple(sorted(
+    f"{model}-word{width}-owner-{owner}"
+    for model in ("mono", "color")
+    for width in (8, 16)
+    for owner in ("protected", "writable")
+))
 OFFICIAL_FIRMWARE_VERSION = "2.6.0"
 OFFICIAL_FIRMWARE_MD5 = "d5be2c99e436081266810594117db496"
 COMPACT_896K_PROBE_SHA256 = (
@@ -194,7 +201,6 @@ AUTO_OFF_LOG_LABEL = "PocketOS 2.6 Auto Off dirty-save audit"
 
 CONSOLE_EEPROM_SNAPSHOT_STAGES = (
     "factory-created",
-    "setup-edited",
     "quit-relaunch",
     "model-switch",
     "title-switch",
@@ -218,7 +224,8 @@ CASE_SPECS = (
         "shared_platform_and_agg23_core_remained_operational",
         "reviewed_swan_song_package_reinstalled_after_uninstall",
         "platform_entry_visible", "platform_art_and_info_correct",
-        "core_icon_positive_negative_correct", "bios_prompts_correct", "game_booted",
+        "core_icon_positive_negative_correct",
+        "open_ipl_booted_without_external_firmware", "game_booted",
         "startup_log_captured",
     ), (
         ArtifactNeed(("pocket_screenshot", "photo", "video"), 7),
@@ -230,15 +237,7 @@ CASE_SPECS = (
     ), (ArtifactNeed(("pocket_screenshot", "photo", "video"), 2), LOG)),
     CaseSpec("reset_all_defaults", "pocket", (
         "remembered_title_present_before_reset", "reset_all_defaults_invoked",
-        "title_history_cleared", "bios_history_cleared", "valid_reselection_recovers",
-    ), (ArtifactNeed(("pocket_screenshot", "photo", "video"), 2), LOG)),
-    CaseSpec("missing_bios_negative", "pocket", (
-        "bw_missing_rejected", "color_missing_rejected", "no_game_execution",
-        "recovery_after_restoring_bios",
-    ), (VISUAL, LOG)),
-    CaseSpec("wrong_size_bios_negative", "pocket", (
-        "bw_4095_rejected", "bw_4097_rejected", "color_8191_rejected",
-        "color_8193_rejected", "no_game_execution", "exact_sizes_recover",
+        "title_history_cleared", "valid_reselection_recovers",
     ), (ArtifactNeed(("pocket_screenshot", "photo", "video"), 2), LOG)),
     CaseSpec("invalid_rom_negative", "pocket", (
         "too_small_rejected", "misaligned_non_power_of_two_rejected",
@@ -368,15 +367,14 @@ CASE_SPECS = (
     ), (ArtifactNeed(("save",), 24), LOG), "all_save_types", "pocket_and_dock"),
     CaseSpec("console_eeprom_lifecycle", "both", (
         "fixed_paths_mono_128_color_2048", "absent_before_first_launch_both",
-        "factory_files_created_both", "original_mono_bios_setup_edit",
-        "original_color_bios_setup_edit", "console_setup_action_both_models",
+        "factory_files_created_both", "open_ipl_factory_defaults_both",
+        "owner_area_protected_both",
         "quit_relaunch_loaded_both",
         "model_switch_isolated", "title_switch_isolated",
         "ordinary_reset_retained_both", "power_cycle_loaded_both",
         "exact_stage_snapshots_and_hashes_recorded", "shutdown_flush_complete",
     ), (
-        ArtifactNeed(("save",), 14),
-        ArtifactNeed(("pocket_screenshot", "photo", "video"), 2),
+        ArtifactNeed(("save",), 12),
         LOG,
     ), "mono_color", "pocket_and_dock"),
     CaseSpec("rtc_lifecycle", "both", (
@@ -442,7 +440,9 @@ ARTIFACT_TEMPLATE_SUFFIXES = {
 }
 
 
-def _validate_rom_contract(rom: bytes, where: str) -> tuple[int, bool]:
+def _validate_rom_contract(
+    rom: bytes, where: str, system: str
+) -> tuple[int, bool, str]:
     size = len(rom)
     if size < 64 * 1024 or size > 16 * 1024 * 1024:
         raise ValueError(f"{where} ROM size is outside 64 KiB..16 MiB")
@@ -456,10 +456,10 @@ def _validate_rom_contract(rom: bytes, where: str) -> tuple[int, bool]:
         raise ValueError(f"{where} ROM footer maintenance low bits must be zero")
     if footer[7] & 0xFE:
         raise ValueError(f"{where} ROM footer color field is invalid")
+    if bool(footer[7]) != (system == "wsc"):
+        raise ValueError(f"{where} ROM footer color field does not match system")
     if footer[11] not in SAVE_TYPE_PAYLOAD_BYTES:
         raise ValueError(f"{where} ROM footer save type is unsupported")
-    if footer[12] & 0x04 == 0:
-        raise ValueError(f"{where} ROM footer must select the 16-bit ROM bus")
     if footer[13] > 1:
         raise ValueError(f"{where} ROM footer RTC field is invalid")
     stored = int.from_bytes(footer[14:16], "little")
@@ -467,8 +467,16 @@ def _validate_rom_contract(rom: bytes, where: str) -> tuple[int, bool]:
     if stored != computed:
         raise ValueError(f"{where} ROM footer checksum mismatch")
 
+    model = "color" if system == "wsc" else "mono"
+    word_width = 16 if footer[12] & 0x04 else 8
+    protect_owner_area = not bool(footer[9] & 0x80)
+    variant = (
+        f"{model}-word{word_width}-owner-"
+        f"{'protected' if protect_owner_area else 'writable'}"
+    )
+
     if power_of_two:
-        return footer[11], footer[13] == 1
+        return footer[11], footer[13] == 1, variant
 
     aperture = 1 << (size - 1).bit_length()
     declared_sizes = {
@@ -480,7 +488,7 @@ def _validate_rom_contract(rom: bytes, where: str) -> tuple[int, bool]:
     }
     if declared_sizes.get(footer[10]) not in {size, aperture}:
         raise ValueError(f"{where} compact ROM footer size does not match file or aperture")
-    return footer[11], footer[13] == 1
+    return footer[11], footer[13] == 1, variant
 
 
 def _object(value: Any, where: str) -> dict[str, Any]:
@@ -651,7 +659,7 @@ def build_environment(
     body = _object(document["hardware_qa_inventory"], "inventory.hardware_qa_inventory")
     _keys(body, "inventory.hardware_qa_inventory", {
         "magic", "run_id", "created_at", "operator", "firmware", "pocket",
-        "dock", "core", "bios", "roms", "controllers",
+        "dock", "core", "open_ipl", "roms", "controllers",
     })
     if body["magic"] != INVENTORY_MAGIC:
         raise ValueError(f"inventory magic must be {INVENTORY_MAGIC}")
@@ -814,26 +822,19 @@ def build_environment(
         },
     }
 
-    bios_items = _array(body["bios"], "inventory bios")
-    bios_public = []
-    bios_sizes = {"bw": ("bw.rom", 4096), "color": ("color.rom", 8192)}
-    for index, value in enumerate(bios_items):
-        where = f"inventory bios[{index}]"
-        item = _object(value, where)
-        _keys(item, where, {"id", "path"})
-        bios_id = _id(item["id"], f"{where} id")
-        if bios_id not in bios_sizes:
-            raise ValueError(f"{where} id must be bw or color")
-        path = _inventory_file(base, item["path"], f"{where} path")
-        expected_name, expected_size = bios_sizes[bios_id]
-        bios_bytes = path.read_bytes()
-        if path.name != expected_name or len(bios_bytes) != expected_size:
-            raise ValueError(f"{where} must be {expected_name} with {expected_size} bytes")
-        bios_public.append({"id": bios_id, "image": _identity(path, bios_bytes)})
-    _unique([item["id"] for item in bios_public], "inventory BIOS IDs")
-    if {item["id"] for item in bios_public} != set(bios_sizes):
-        raise ValueError("inventory must contain exactly bw and color BIOS files")
-    bios_public.sort(key=lambda item: item["id"])
+    open_ipl = _object(body["open_ipl"], "inventory open_ipl")
+    _keys(open_ipl, "inventory open_ipl", {"identity", "variants"})
+    if open_ipl["identity"] != OPEN_IPL_IDENTITY:
+        raise ValueError(
+            f"inventory open_ipl identity must be {OPEN_IPL_IDENTITY}"
+        )
+    declared_variants = [
+        _text(value, f"inventory open_ipl variants[{index}]", 48)
+        for index, value in enumerate(
+            _array(open_ipl["variants"], "inventory open_ipl variants")
+        )
+    ]
+    _unique(declared_variants, "inventory Open IPL variants")
 
     rom_public = []
     for index, value in enumerate(_array(body["roms"], "inventory roms")):
@@ -856,7 +857,9 @@ def build_environment(
         if path.suffix.casefold() != f".{system}":
             raise ValueError(f"{where} filename extension does not match system")
         rom_bytes = path.read_bytes()
-        save_type, footer_rtc = _validate_rom_contract(rom_bytes, where)
+        save_type, footer_rtc, open_ipl_variant = _validate_rom_contract(
+            rom_bytes, where, system
+        )
         expected_save_media = SAVE_TYPE_MEDIA[save_type]
         if save_media != expected_save_media:
             raise ValueError(
@@ -877,6 +880,7 @@ def build_environment(
             "save_type": save_type,
             "save_payload_bytes": SAVE_TYPE_PAYLOAD_BYTES[save_type],
             "rtc": footer_rtc,
+            "open_ipl_variant": open_ipl_variant,
             "image": _identity(path, rom_bytes),
         })
     _unique([item["id"] for item in rom_public], "inventory ROM IDs")
@@ -901,6 +905,21 @@ def build_environment(
     if not any(item["rtc"] for item in rom_public) or not any(not item["rtc"] for item in rom_public):
         raise ValueError("inventory ROMs must cover RTC and non-RTC titles")
     rom_public.sort(key=lambda item: item["id"])
+    observed_variants = sorted({item["open_ipl_variant"] for item in rom_public})
+    if observed_variants != list(REQUIRED_OPEN_IPL_VARIANTS):
+        missing = sorted(set(REQUIRED_OPEN_IPL_VARIANTS) - set(observed_variants))
+        raise ValueError(
+            "inventory ROMs must cover every Open IPL model/bus/owner variant; missing "
+            + ", ".join(missing)
+        )
+    if declared_variants != observed_variants:
+        raise ValueError(
+            "inventory Open IPL variants must exactly match ROM footer-derived variants"
+        )
+    open_ipl_public = {
+        "identity": OPEN_IPL_IDENTITY,
+        "variants": observed_variants,
+    }
 
     controller_public = []
     for index, value in enumerate(_array(body["controllers"], "inventory controllers")):
@@ -949,7 +968,7 @@ def build_environment(
         "pocket": pocket,
         "dock": dock,
         "core": core_public,
-        "bios": bios_public,
+        "open_ipl": open_ipl_public,
         "roms": rom_public,
         "controllers": controller_public,
     }
@@ -1183,15 +1202,10 @@ def _validate_console_eeprom_snapshots(
             snapshots[(model, stage)] = snapshot
 
         factory_hash = snapshots[(model, "factory-created")]["sha256"]
-        edited_hash = snapshots[(model, "setup-edited")]["sha256"]
-        if edited_hash == factory_hash:
-            raise ValueError(
-                f"{where} {model} original-BIOS setup edit did not change the factory image"
-            )
-        for stage in CONSOLE_EEPROM_SNAPSHOT_STAGES[2:]:
-            if snapshots[(model, stage)]["sha256"] != edited_hash:
+        for stage in CONSOLE_EEPROM_SNAPSHOT_STAGES[1:]:
+            if snapshots[(model, stage)]["sha256"] != factory_hash:
                 raise ValueError(
-                    f"{where} {model} {stage} snapshot does not match the setup-edited image"
+                    f"{where} {model} {stage} snapshot does not match the Open IPL factory image"
                 )
 
 
@@ -1520,6 +1534,7 @@ def verify_manifest(manifest_path: pathlib.Path, inventory_path: pathlib.Path, *
         "magic": body["magic"],
         "firmware_version": expected_environment["firmware"]["version"],
         "core": expected_environment["core"],
+        "open_ipl": expected_environment["open_ipl"],
         "pocket": expected_environment["pocket"],
         "dock": expected_environment["dock"],
     }

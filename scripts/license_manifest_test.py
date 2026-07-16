@@ -192,6 +192,8 @@ class LicenseManifestTest(unittest.TestCase):
             "src/fpga/core/rtl/savestates.vhd",
             "src/fpga/core/rtl/sprites.vhd",
             "src/fpga/core/rtl/swanTop.vhd",
+            "src/fpga/core/rtl/swanbios.vhd",
+            "src/fpga/core/rtl/swanbioscolor.vhd",
             "src/fpga/core/rtl/sdram.sv",
         }
         self.assertEqual(

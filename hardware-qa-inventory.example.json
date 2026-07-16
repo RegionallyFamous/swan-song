@@ -1,6 +1,6 @@
 {
   "hardware_qa_inventory": {
-    "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V2",
+    "magic": "SWAN_SONG_HARDWARE_QA_INVENTORY_V3",
     "run_id": "replace-with-private-run-id",
     "created_at": "2026-07-13T12:00:00Z",
     "operator": {
@@ -30,20 +30,35 @@
       "raw_rbf_path": "build/output_files/ap_core.rbf",
       "installed_bitstream_path": "sd/Cores/RegionallyFamous.SwanSong/wonderswan.rev"
     },
-    "bios": [
-      {"id": "bw", "path": "private/bw.rom"},
-      {"id": "color", "path": "private/color.rom"}
-    ],
+    "open_ipl": {
+      "identity": "open-bootstrap-v3",
+      "variants": [
+        "color-word16-owner-protected",
+        "color-word16-owner-writable",
+        "color-word8-owner-protected",
+        "color-word8-owner-writable",
+        "mono-word16-owner-protected",
+        "mono-word16-owner-writable",
+        "mono-word8-owner-protected",
+        "mono-word8-owner-writable"
+      ]
+    },
     "roms": [
-      {"id": "horizontal-sram", "title": "Replace: footer save type 0x01", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
-      {"id": "vertical-eeprom-rtc", "title": "Replace: footer save type 0x20 with RTC", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true},
+      {"id": "horizontal-sram", "title": "Replace: footer save type 0x01, mono 16-bit bus, owner protected", "path": "private/horizontal.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
+      {"id": "vertical-eeprom-rtc", "title": "Replace: footer save type 0x20 with RTC, Color 16-bit bus, owner protected", "path": "private/vertical.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": true},
       {"id": "compact-896k", "title": "Repository-generated 896 KiB compact probe (footer save type 0x00)", "path": "private/compact-896k.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
       {"id": "sram-type02", "title": "Replace: footer save type 0x02", "path": "private/sram-type02.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
       {"id": "sram-type03", "title": "Repository-generated 128 KiB SRAM persistence probe (footer save type 0x03)", "path": "private/sram-persistence-probes/sram_type03_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
       {"id": "sram-type04", "title": "Repository-generated 256 KiB SRAM persistence probe (footer save type 0x04)", "path": "private/sram-persistence-probes/sram_type04_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
       {"id": "sram-type05", "title": "Repository-generated 512 KiB SRAM persistence probe (footer save type 0x05)", "path": "private/sram-persistence-probes/sram_type05_persistence.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "sram", "rtc": false},
       {"id": "eeprom-type10", "title": "Replace: footer save type 0x10", "path": "private/eeprom-type10.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": false},
-      {"id": "eeprom-type50", "title": "Replace: footer save type 0x50", "path": "private/eeprom-type50.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": false}
+      {"id": "eeprom-type50", "title": "Replace: footer save type 0x50", "path": "private/eeprom-type50.wsc", "system": "wsc", "native_orientation": "vertical", "save_media": "eeprom", "rtc": false},
+      {"id": "ipl-mono-word8-protected", "title": "Replace: mono 8-bit bus, owner protected", "path": "private/ipl-mono-word8-protected.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "ipl-mono-word8-writable", "title": "Replace: mono 8-bit bus, owner writable", "path": "private/ipl-mono-word8-writable.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "ipl-mono-word16-writable", "title": "Replace: mono 16-bit bus, owner writable", "path": "private/ipl-mono-word16-writable.ws", "system": "ws", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "ipl-color-word8-protected", "title": "Replace: Color 8-bit bus, owner protected", "path": "private/ipl-color-word8-protected.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "ipl-color-word8-writable", "title": "Replace: Color 8-bit bus, owner writable", "path": "private/ipl-color-word8-writable.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false},
+      {"id": "ipl-color-word16-writable", "title": "Replace: Color 16-bit bus, owner writable", "path": "private/ipl-color-word16-writable.wsc", "system": "wsc", "native_orientation": "horizontal", "save_media": "none", "rtc": false}
     ],
     "controllers": [
       {"id": "pocket-built-in", "scope": "pocket", "device_type": "gamepad", "transport": "built_in", "model": "Pocket built-in controls", "firmware_version": "2.6.0", "mapping_mode": "APF type 1"},

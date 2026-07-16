@@ -4,9 +4,9 @@
 The default CLI operation is a read-only plan. Writing requires ``--apply``;
 writing below macOS ``/Volumes`` additionally requires ``--allow-volume``.
 Release verification additionally requires caller-supplied expected release
-identity and an authorized checked-in release policy. No ROM or BIOS is
-downloaded, game ROM contents are never read, and unrelated destination files
-are never removed.
+identity and an authorized checked-in release policy. No ROM is downloaded,
+game ROM contents are never read, and unrelated destination files are never
+removed.
 """
 
 from __future__ import annotations
@@ -68,8 +68,6 @@ EXPECTED_REPOSITORY = "https://github.com/RegionallyFamous/swansong-core"
 CORE_DIRECTORY = pathlib.PurePosixPath("Cores") / EXPECTED_CORE_ID
 CORE_JSON = CORE_DIRECTORY / "core.json"
 INTERACT_JSON = CORE_DIRECTORY / "interact.json"
-DATA_JSON = CORE_DIRECTORY / "data.json"
-ASSET_DIRECTORY = pathlib.PurePosixPath("Assets/wonderswan/common")
 MAX_ARCHIVE_ENTRIES = 128
 MAX_PACKAGE_SIZE = 32 * 1024 * 1024
 MAX_ARCHIVE_FILE_SIZE = 8 * 1024 * 1024
@@ -108,6 +106,7 @@ class ManagedFile:
 class StagingPlan:
     root: pathlib.Path
     root_identity: tuple[int, int]
+    directories: tuple[pathlib.PurePosixPath, ...]
     files: tuple[ManagedFile, ...]
     package: pathlib.Path
     provenance: pathlib.Path
@@ -1257,36 +1256,6 @@ def _validate_current_checkout(
         )
 
 
-def _validate_bios(path: pathlib.Path, name: str, expected_size: int) -> bytes:
-    payload = _safe_input(path, f"user-supplied {name}")
-    if len(payload) != expected_size:
-        raise StagingError(
-            f"user-supplied {name} must be exactly {expected_size} bytes, got {len(payload)}"
-        )
-    return payload
-
-
-def _validate_bios_contract(payloads: dict[pathlib.PurePosixPath, bytes]) -> None:
-    if DATA_JSON not in payloads:
-        raise StagingError(f"development package is missing {DATA_JSON}")
-    document = _json(payloads[DATA_JSON], DATA_JSON.as_posix())
-    try:
-        slots = {int(slot["id"]): slot for slot in document["data"]["data_slots"]}
-    except (KeyError, TypeError, ValueError) as error:
-        raise StagingError(f"invalid BIOS data-slot contract: {error}") from error
-    expected = {9: ("bw.rom", 4096), 10: ("color.rom", 8192)}
-    for slot_id, (filename, size) in expected.items():
-        slot = slots.get(slot_id)
-        if not isinstance(slot, dict):
-            raise StagingError(f"development package is missing BIOS slot {slot_id}")
-        if (
-            slot.get("required") is not True
-            or slot.get("filename") != filename
-            or slot.get("size_exact") != size
-        ):
-            raise StagingError(f"development package BIOS slot {slot_id} is stale")
-
-
 def _root(path: pathlib.Path) -> tuple[pathlib.Path, tuple[int, int]]:
     descriptor: int | None = None
     try:
@@ -1356,8 +1325,6 @@ def plan_staging(
     staging_dir: pathlib.Path,
     package: pathlib.Path,
     provenance: pathlib.Path,
-    bw_bios: pathlib.Path | None,
-    color_bios: pathlib.Path | None,
     verify_release: bool = False,
     expected_package_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
@@ -1412,10 +1379,6 @@ def plan_staging(
             )
         ):
             raise StagingError("release expectations require --verify-release")
-        if bw_bios is None or color_bios is None:
-            raise StagingError(
-                "development staging requires both --bw-bios and --color-bios"
-            )
         _validate_provenance(
             provenance,
             package,
@@ -1424,35 +1387,22 @@ def plan_staging(
             license_manifest,
         )
         _validate_current_checkout(payloads, definition, bitstream_name, chip32_name)
-    _validate_bios_contract(payloads)
 
-    managed = [
+    files = tuple(
         ManagedFile(
             relative,
             payload,
             "release package" if verify_release else "development package",
         )
         for relative, payload in sorted(payloads.items(), key=lambda item: item[0].as_posix())
-    ]
-    for bios_path, name, size in (
-        (bw_bios, "bw.rom", 4096),
-        (color_bios, "color.rom", 8192),
-    ):
-        if bios_path is not None:
-            managed.append(
-                ManagedFile(
-                    ASSET_DIRECTORY / name,
-                    _validate_bios(bios_path.absolute(), name, size),
-                    "user-supplied BIOS",
-                )
-            )
-    files = tuple(managed)
+    )
     new, replaced, unchanged = _classify(root, files, root_identity)
     resolved_volumes = volumes_root.resolve()
     is_volume = _is_within(root, resolved_volumes) and root != resolved_volumes
     return StagingPlan(
         root=root,
         root_identity=root_identity,
+        directories=tuple(sorted(directories, key=lambda path: path.as_posix())),
         files=files,
         package=package,
         provenance=provenance,
@@ -2075,6 +2025,19 @@ def apply_staging(plan: StagingPlan, *, allow_volume: bool = False) -> None:
     created: list[_CreatedDirectory] = []
     changed: list[_PreparedManagedFile] = []
     try:
+        # Validate and prepare every explicit package directory before the
+        # first file publication. This makes a pre-existing file, symlink, or
+        # case collision fail before the managed-file transaction can commit.
+        for relative in plan.directories:
+            directory_descriptor = _open_parent_at(
+                root_descriptor,
+                relative / ".swan-song-directory",
+                create=True,
+                created_directories=created,
+            )
+            assert directory_descriptor is not None
+            os.close(directory_descriptor)
+
         # Hold every destination parent descriptor and snapshot every original
         # before replacing the first file. This pins the transaction to the
         # planned tree and makes a complete rollback possible after any write.
@@ -2153,11 +2116,6 @@ def apply_staging(plan: StagingPlan, *, allow_volume: bool = False) -> None:
 
 
 def _summary(plan: StagingPlan, *, applied: bool) -> str:
-    bios = {
-        file.relative.name: (len(file.payload), sha256_bytes(file.payload))
-        for file in plan.files
-        if file.source == "user-supplied BIOS"
-    }
     mode = "APPLIED" if applied else "VALIDATED ONLY — no files written"
     location = "macOS volume/possible SD" if plan.is_volume else "local staging directory"
     lines = [
@@ -2172,6 +2130,7 @@ def _summary(plan: StagingPlan, *, applied: bool) -> str:
             f"Managed files: {len(plan.new_files)} new, "
             f"{len(plan.replaced_files)} replace, {len(plan.unchanged_files)} unchanged"
         ),
+        f"Managed package directories: {len(plan.directories)}",
         (
             "Cartridge saves: Swan Song uses its core-specific namespace; this "
             "stager does not copy legacy Saves/wonderswan/common files. Run Swan "
@@ -2180,11 +2139,6 @@ def _summary(plan: StagingPlan, *, applied: bool) -> str:
     ]
     if plan.source_commit is not None:
         lines.append(f"Release source commit: {plan.source_commit}")
-    for name in ("bw.rom", "color.rom"):
-        if name in bios:
-            lines.append(f"{name}: {bios[name][0]} bytes, SHA-256 {bios[name][1]}")
-        elif plan.release:
-            lines.append(f"{name}: not selected; existing destination file was not read or changed")
     if not applied:
         lines.append("Next: review this plan, then rerun with --apply to write the selected target.")
         if plan.is_volume:
@@ -2211,7 +2165,7 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Validate and stage a Swan Song package. Development provenance remains "
             "the default; --verify-release requires exact trusted release identity. "
-            "Dry-run is the default; no ROM or BIOS is downloaded."
+            "Dry-run is the default; no ROM is downloaded."
         )
     )
     parser.add_argument("--staging-dir", required=True, type=pathlib.Path)
@@ -2239,16 +2193,6 @@ def _parser() -> argparse.ArgumentParser:
         "--expected-source-commit",
         help="trusted published full lowercase 40-hex source commit",
     )
-    parser.add_argument(
-        "--bw-bios",
-        type=pathlib.Path,
-        help="optional in release mode; development staging still requires it",
-    )
-    parser.add_argument(
-        "--color-bios",
-        type=pathlib.Path,
-        help="optional in release mode; development staging still requires it",
-    )
     parser.add_argument("--apply", action="store_true", help="perform the validated writes")
     parser.add_argument(
         "--allow-volume",
@@ -2268,8 +2212,6 @@ def main(argv: list[str] | None = None) -> int:
             staging_dir=arguments.staging_dir,
             package=arguments.package,
             provenance=provenance,
-            bw_bios=arguments.bw_bios,
-            color_bios=arguments.color_bios,
             verify_release=arguments.verify_release,
             expected_package_sha256=arguments.expected_package_sha256,
             expected_provenance_sha256=arguments.expected_provenance_sha256,

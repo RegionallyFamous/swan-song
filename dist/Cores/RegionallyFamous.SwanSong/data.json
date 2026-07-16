@@ -12,26 +12,6 @@
         "address": "0x10000000"
       },
       {
-        "name": "B&W BIOS",
-        "id": 9,
-        "required": true,
-        "filename": "bw.rom",
-        "parameters": "0x208",
-        "extensions": ["rom"],
-        "size_exact": 4096,
-        "address": "0x30000000"
-      },
-      {
-        "name": "Color BIOS",
-        "id": 10,
-        "required": true,
-        "filename": "color.rom",
-        "parameters": "0x208",
-        "extensions": ["rom"],
-        "size_exact": 8192,
-        "address": "0x30000000"
-      },
-      {
         "name": "Save",
         "id": 11,
         "required": false,

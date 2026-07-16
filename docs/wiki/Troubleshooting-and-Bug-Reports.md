@@ -18,17 +18,12 @@ the mounted card from Finder into Terminal to paste its path.
 
 By default the Doctor performs no content or namespace writes; filesystem reads
 may still update access-time metadata. It checks the Swan Song installation,
-required definitions, BIOS filenames and sizes, game and per-game settings
+required definitions, game and per-game settings
 locations, player-visible icon/artwork files, older WonderSwan data, and unsafe
-SD-card paths. It never uploads ROMs, BIOS files, or saves. By default it does
-not open or hash game or BIOS contents; it locally enumerates filenames and
+SD-card paths. It never uploads ROMs or saves. It does
+not open or hash game contents; it locally enumerates filenames and
 inspects file type and size. Game ROMs must be 64 KiB through 16 MiB in whole
 64 KiB banks.
-
-Add `--identify-bios` only if you want the Doctor to read the two exact-size
-BIOS files and compare their local MD5 identifiers with those in the install
-guide. This does not read game contents, upload anything, or reject an
-unfamiliar same-size BIOS dump.
 
 The result begins with `READY`, `READY WITH NOTES`, or `NEEDS ATTENTION`, and
 each finding includes a suggested next step. The Doctor changes nothing unless
@@ -45,15 +40,6 @@ There is no verified public release yet. An updater may install or restore the
 upstream WonderSwan core instead. Use only a Swan Song release explicitly
 published by Regionally Famous on the official [Releases
 page](https://github.com/RegionallyFamous/swansong-core/releases).
-
-### Pocket asks for a BIOS
-
-Confirm both files exist with the exact names and sizes:
-
-- `/Assets/wonderswan/common/bw.rom` — 4,096 bytes
-- `/Assets/wonderswan/common/color.rom` — 8,192 bytes
-
-The project does not provide or locate these files.
 
 ### A game is not listed
 
@@ -106,7 +92,7 @@ evidence.
 
 ## Protect private and copyrighted data
 
-Never attach or upload a commercial ROM, BIOS, save, cartridge dump, private
+Never attach or upload a commercial ROM, save, cartridge dump, private
 corpus manifest, or cloud credential. Do not paste private filesystem paths or
 DigitalOcean/GitHub state. Keep owner-computed commercial ROM identities in
 private test evidence rather than posting them publicly, and always keep the

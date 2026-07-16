@@ -25,7 +25,6 @@ from package_core import (
 )
 from package_validator import validate_distribution
 from stage_pocket_sd import (
-    ASSET_DIRECTORY,
     CORE_DIRECTORY,
     StagingError,
     apply_staging,
@@ -37,7 +36,7 @@ from stage_pocket_sd import (
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSEMBLY = ROOT / "src/support/chip32.asm"
 ENCODED_IMAGE = ROOT / "src/support/chip32.bin.hex"
-EXPECTED_PLAN_FILE_COUNT = 23
+EXPECTED_PLAN_FILE_COUNT = 21
 
 
 class StagePocketSDTest(unittest.TestCase):
@@ -58,10 +57,6 @@ class StagePocketSDTest(unittest.TestCase):
         self.provenance = self.package.with_name(
             self.package.name + ".provenance.json"
         )
-        self.bw = self.root / "owned-bw.bin"
-        self.color = self.root / "owned-color.bin"
-        self.bw.write_bytes(bytes(range(256)) * 16)
-        self.color.write_bytes(bytes(reversed(range(256))) * 32)
         self.stage = self.root / "stage"
         self.stage.mkdir()
 
@@ -73,8 +68,6 @@ class StagePocketSDTest(unittest.TestCase):
             "staging_dir": self.stage,
             "package": self.package,
             "provenance": self.provenance,
-            "bw_bios": self.bw,
-            "color_bios": self.color,
         }
         arguments.update(overrides)
         return plan_staging(**arguments)
@@ -110,6 +103,13 @@ class StagePocketSDTest(unittest.TestCase):
             if path.is_file() and not path.is_symlink()
         }
         return directories, files
+
+    @staticmethod
+    def prepare_plan_directories(
+        root: pathlib.Path, plan: staging.StagingPlan
+    ) -> None:
+        for relative in plan.directories:
+            (root / pathlib.Path(*relative.parts)).mkdir(parents=True, exist_ok=True)
 
     def release_fixture(
         self,
@@ -429,16 +429,9 @@ class StagePocketSDTest(unittest.TestCase):
 
         apply_staging(plan)
         self.assertEqual(unrelated.read_text(encoding="utf-8"), "unrelated\n")
-        self.assertEqual(
-            (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "bw.rom").read_bytes(),
-            self.bw.read_bytes(),
-        )
-        self.assertEqual(
-            (
-                self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "color.rom"
-            ).read_bytes(),
-            self.color.read_bytes(),
-        )
+        self.assertTrue((self.stage / "Assets/wonderswan/common").is_dir())
+        self.assertFalse((self.stage / "Assets/wonderswan/common/bw.rom").exists())
+        self.assertFalse((self.stage / "Assets/wonderswan/common/color.rom").exists())
         self.assertTrue(
             (self.stage / pathlib.Path(*CORE_DIRECTORY.parts) / "core.json").is_file()
         )
@@ -446,6 +439,19 @@ class StagePocketSDTest(unittest.TestCase):
         self.assertEqual(second.new_files, ())
         self.assertEqual(second.replaced_files, ())
         self.assertEqual(len(second.unchanged_files), len(second.files))
+
+    def test_explicit_directory_conflict_fails_before_file_publication(self) -> None:
+        blocker = self.stage / "Assets/wonderswan/common"
+        blocker.parent.mkdir(parents=True)
+        blocker.write_bytes(b"unrelated blocker")
+        before = self.tree_snapshot(self.stage)
+        plan = self.plan()
+
+        with self.assertRaisesRegex(StagingError, "not a directory"):
+            apply_staging(plan)
+
+        self.assertEqual(self.tree_snapshot(self.stage), before)
+        self.assertFalse((self.stage / "Cores/RegionallyFamous.SwanSong").exists())
 
     def test_apply_replaces_only_managed_files_atomically(self) -> None:
         plan = self.plan()
@@ -481,6 +487,7 @@ class StagePocketSDTest(unittest.TestCase):
                     (stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
                         parents=True, exist_ok=True
                     )
+                self.prepare_plan_directories(stage, initial_plan)
                 before = self.tree_snapshot(stage)
                 plan = self.plan(staging_dir=stage)
                 self.assertEqual(len(plan.files), EXPECTED_PLAN_FILE_COUNT)
@@ -787,6 +794,7 @@ class StagePocketSDTest(unittest.TestCase):
             (self.stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
                 parents=True, exist_ok=True
             )
+        self.prepare_plan_directories(self.stage, plan)
         original_atomic_write = staging._atomic_write_at
         failed = False
 
@@ -832,7 +840,7 @@ class StagePocketSDTest(unittest.TestCase):
 
         with mock.patch.object(staging, "_fsync_directory", record_sync):
             apply_staging(plan)
-        self.assertGreaterEqual(len(synced), len(plan.files) + 5)
+        self.assertGreaterEqual(len(synced), len(plan.files) + 4)
 
         class NoNativeRename:
             pass
@@ -852,6 +860,7 @@ class StagePocketSDTest(unittest.TestCase):
             (self.stage / pathlib.Path(*managed_file.relative.parts)).parent.mkdir(
                 parents=True, exist_ok=True
             )
+        self.prepare_plan_directories(self.stage, plan)
         original_sync = staging._fsync_directory
         injected = False
 
@@ -903,19 +912,11 @@ class StagePocketSDTest(unittest.TestCase):
             if detached.exists():
                 detached.rename(self.stage)
 
-    def test_bios_sizes_are_exact_and_input_symlinks_are_rejected(self) -> None:
-        short = self.root / "short.bin"
-        short.write_bytes(b"x" * 4095)
-        with self.assertRaisesRegex(StagingError, "exactly 4096 bytes"):
-            self.plan(bw_bios=short)
-        long = self.root / "long.bin"
-        long.write_bytes(b"x" * 8193)
-        with self.assertRaisesRegex(StagingError, "exactly 8192 bytes"):
-            self.plan(color_bios=long)
-        linked = self.root / "linked-bw.bin"
-        linked.symlink_to(self.bw)
-        with self.assertRaisesRegex(StagingError, "must not be a symlink"):
-            self.plan(bw_bios=linked)
+    def test_plan_never_manages_external_bios_files(self) -> None:
+        plan = self.plan()
+        names = {item.relative.as_posix() for item in plan.files}
+        self.assertNotIn("Assets/wonderswan/common/bw.rom", names)
+        self.assertNotIn("Assets/wonderswan/common/color.rom", names)
 
     def test_package_and_provenance_symlinks_are_rejected(self) -> None:
         linked_package = self.root / "linked.zip"
@@ -928,7 +929,7 @@ class StagePocketSDTest(unittest.TestCase):
             self.plan(provenance=linked_provenance)
 
     def test_inputs_are_read_from_single_no_follow_snapshots(self) -> None:
-        protected = {self.package, self.provenance, self.bw, self.color}
+        protected = {self.package, self.provenance}
         original_read_bytes = pathlib.Path.read_bytes
 
         def reject_path_reopen(path: pathlib.Path) -> bytes:
@@ -1067,11 +1068,11 @@ class StagePocketSDTest(unittest.TestCase):
         with self.assertRaisesRegex(StagingError, "must not be a symlink"):
             self.plan(staging_dir=linked_stage)
 
-        (self.stage / "Assets").symlink_to(outside, target_is_directory=True)
+        (self.stage / "Platforms").symlink_to(outside, target_is_directory=True)
         with self.assertRaisesRegex(StagingError, "must not be a symlink"):
             self.plan()
         self.assertEqual(list(outside.iterdir()), [])
-        (self.stage / "Assets").unlink()
+        (self.stage / "Platforms").unlink()
 
         (self.stage / "cores").mkdir()
         with self.assertRaisesRegex(StagingError, "case-colliding"):
@@ -1115,7 +1116,7 @@ class StagePocketSDTest(unittest.TestCase):
             (volume_stage / "Cores/RegionallyFamous.SwanSong/core.json").is_file()
         )
 
-    def test_authorized_release_verifies_exact_identity_and_optionally_stages_bios(self) -> None:
+    def test_authorized_release_verifies_exact_identity_without_external_bios(self) -> None:
         (
             package,
             provenance,
@@ -1143,8 +1144,6 @@ class StagePocketSDTest(unittest.TestCase):
                     staging_dir=self.stage,
                     package=package,
                     provenance=provenance,
-                    bw_bios=self.bw,
-                    color_bios=None,
                     verify_release=True,
                     expected_package_sha256=digest,
                     expected_provenance_sha256=provenance_digest,
@@ -1159,13 +1158,8 @@ class StagePocketSDTest(unittest.TestCase):
                 apply_staging(plan)
 
         self.assertEqual(game.read_bytes(), game_payload)
-        self.assertEqual(
-            (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "bw.rom").read_bytes(),
-            self.bw.read_bytes(),
-        )
-        self.assertFalse(
-            (self.stage / pathlib.Path(*ASSET_DIRECTORY.parts) / "color.rom").exists()
-        )
+        self.assertFalse((self.stage / "Assets/wonderswan/common/bw.rom").exists())
+        self.assertFalse((self.stage / "Assets/wonderswan/common/color.rom").exists())
 
     def test_release_verification_rejects_untrusted_signed_build_pairs(self) -> None:
         (
@@ -1180,8 +1174,6 @@ class StagePocketSDTest(unittest.TestCase):
         arguments = {
             "staging_dir": self.stage,
             "package": package,
-            "bw_bios": None,
-            "color_bios": None,
             "verify_release": True,
             "expected_package_sha256": digest,
             "expected_version": version,
@@ -1303,8 +1295,6 @@ class StagePocketSDTest(unittest.TestCase):
             "staging_dir": self.stage,
             "package": package,
             "provenance": provenance,
-            "bw_bios": None,
-            "color_bios": None,
             "verify_release": True,
             "expected_package_sha256": digest,
             "expected_provenance_sha256": provenance_digest,
@@ -1596,10 +1586,6 @@ class StagePocketSDTest(unittest.TestCase):
                     str(self.stage),
                     "--package",
                     str(self.package),
-                    "--bw-bios",
-                    str(self.bw),
-                    "--color-bios",
-                    str(self.color),
                 ]
             )
         self.assertEqual(result, 0, stderr.getvalue())

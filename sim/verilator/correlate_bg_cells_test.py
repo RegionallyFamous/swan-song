@@ -276,6 +276,7 @@ def main() -> None:
             "raw_superseded": 0,
             "raw_unpromoted": 0,
             "raw_inflight": 0,
+            "raw_prefix_truncated": 0,
             "cpu_rom_movsb_cells": 0,
             "cpu_rom_movsb_bytes": 0,
             "cpu_rom_movsb_origins": 0,
@@ -291,6 +292,45 @@ def main() -> None:
         assert records[1]["row_b2_origin_pc"] == str(0x203)
         assert records[1]["map_lo_origin_pc"] == str(0x201)
         assert records[0]["coverage_status"] == "complete_from_reset"
+
+        # A reset-release capture can begin with the second word of the GPU
+        # fetch group that reset interrupted. Exactly one such leading tile
+        # fragment per layer is ignored; normal grouping remains strict.
+        reset_prefix_trace = root / "reset-prefix.csv"
+        reset_prefix_rows = sorted(
+            [
+                raw(0, "screen1_tile", 0x2002, 0),
+                raw(0, "screen2_tile", 0x2002, 0),
+                *rows(),
+            ],
+            key=lambda item: int(item["cycle"]),
+        )
+        write_trace(reset_prefix_trace, reset_prefix_rows)
+        reset_prefix_counts = correlate(
+            reset_prefix_trace, io.StringIO(), require_complete_coverage=True
+        )
+        assert reset_prefix_counts == {**counts, "raw_prefix_truncated": 2}
+
+        malformed_prefix_trace = root / "malformed-reset-prefix.csv"
+        malformed_prefix_rows = sorted(
+            [
+                raw(0, "screen1_tile", 0x2000, 0),
+                raw(0, "screen1_tile", 0x2006, 0),
+                *rows(),
+            ],
+            key=lambda item: int(item["cycle"]),
+        )
+        write_trace(malformed_prefix_trace, malformed_prefix_rows)
+        expect_error(malformed_prefix_trace, "malformed screen1 reset-boundary")
+
+        unbound_prefix_trace = root / "unbound-reset-prefix.csv"
+        write_trace(unbound_prefix_trace, reset_prefix_rows, manifest=False)
+        expect_error(unbound_prefix_trace, "requires a complete reset-release manifest")
+
+        late_orphan_trace = root / "late-orphan.csv"
+        late_orphan_rows = [*rows(), raw(8, "screen1_tile", 0x2002, 0)]
+        write_trace(late_orphan_trace, late_orphan_rows)
+        expect_error(late_orphan_trace, "tile fetch has no preceding map")
 
         cpu_copy_trace = root / "cpu-copy.csv"
         write_trace(cpu_copy_trace, cpu_copy_cell_rows())

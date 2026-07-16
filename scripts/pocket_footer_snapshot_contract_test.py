@@ -45,9 +45,13 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
     snapshot = re.search(
         r"always@\(posedgeclk_sys_36_864\)begin"
         r"if\(cart_download_sys\)begin"
-        r"footer_color_sys<=lastdata\[4\]\[8\];"
-        r"footer_romtype_sys<=lastdata\[1\]\[15:8\];"
-        r"footer_ramtype_sys<=lastdata\[2\]\[15:8\];"
+        r"footer_contract_sys<=\{"
+        r"lastdata\[4\]\[8\],"
+        r"lastdata\[1\]\[15:8\],"
+        r"lastdata\[2\]\[15:8\],"
+        r"lastdata\[1\]\[2\],"
+        r"~lastdata\[3\]\[15\]"
+        r"\};"
         r"endend",
         swan,
     )
@@ -55,9 +59,27 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
         raise ValueError("system footer snapshot is missing or is not title-load qualified")
 
     for declaration, message in (
-        ("regfooter_color_sys=1'b0;", "model snapshot is absent or uninitialized"),
-        ("reg[7:0]footer_romtype_sys=8'h00;", "RTC/model metadata snapshot is absent"),
-        ("reg[7:0]footer_ramtype_sys=8'h00;", "RAM-type snapshot is absent"),
+        (
+            "reg[18:0]footer_contract_sys={1'b0,8'h00,8'h00,1'b0,1'b1};",
+            "bundled footer snapshot is absent or not fail-closed",
+        ),
+        ("wirefooter_color_sys=footer_contract_sys[18];", "model snapshot is absent"),
+        (
+            "wire[7:0]footer_romtype_sys=footer_contract_sys[17:10];",
+            "RTC/model metadata snapshot is absent",
+        ),
+        (
+            "wire[7:0]footer_ramtype_sys=footer_contract_sys[9:2];",
+            "RAM-type snapshot is absent",
+        ),
+        (
+            "wireopen_ipl_word_width_sys=footer_contract_sys[1];",
+            "Open IPL word-width snapshot is absent",
+        ),
+        (
+            "wireopen_ipl_protect_owner_area_sys=footer_contract_sys[0];",
+            "Open IPL owner-protection snapshot is absent",
+        ),
         ("wire[7:0]ramtype_mem=lastdata[2][15:8];", "memory RAM type is not footer-derived"),
         ("wire[7:0]ramtype_sys=footer_ramtype_sys;", "system RAM type bypasses its snapshot"),
         ("wirehas_rtc_mem=lastdata[1][15:8]==8'h01;", "memory RTC metadata is not canonical"),
@@ -130,9 +152,10 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
         "lastdata[2]<=lastdata[1];",
         "lastdata[3]<=lastdata[2];",
         "lastdata[4]<=lastdata[3];",
-        "footer_color_sys<=lastdata[4][8];",
-        "footer_romtype_sys<=lastdata[1][15:8];",
-        "footer_ramtype_sys<=lastdata[2][15:8];",
+        (
+            "footer_contract_sys<={lastdata[4][8],lastdata[1][15:8],"
+            "lastdata[2][15:8],lastdata[1][2],~lastdata[3][15]};"
+        ),
         "wire[7:0]ramtype_mem=lastdata[2][15:8];",
         "wirehas_rtc_mem=lastdata[1][15:8]==8'h01;",
     )
@@ -153,6 +176,8 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
     for port, signal in (
         ("ramtype", "ramtype_sys"),
         ("hasRTC", "has_rtc_sys"),
+        ("open_ipl_word_width", "open_ipl_word_width_sys"),
+        ("open_ipl_protect_owner_area", "open_ipl_protect_owner_area_sys"),
     ):
         if f".{port}({signal})" not in swan_top:
             raise ValueError(f"SwanTop {port} bypasses the system footer snapshot")
@@ -197,7 +222,7 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
         ),
         (
             "wireisColor=(configured_system_active==0)?"
-            "(footer_color_sys|colorcart_downloaded):"
+            "footer_color_sys:"
             "(configured_system_active==2'b10);",
             "automatic console model bypasses the reset-latched System Type or footer snapshot",
         ),
@@ -209,7 +234,7 @@ def verify_contract(wonderswan: str, core_top: str, sdc: str) -> None:
         raise ValueError("save unloader no longer declares the system-domain consumer boundary")
 
     waiver_tokens = re.compile(
-        r"(?:lastdata|footer_(?:color|romtype|ramtype)|ramtype_(?:mem|sys)|"
+        r"(?:lastdata|footer_(?:contract|color|romtype|ramtype)|open_ipl_|ramtype_(?:mem|sys)|"
         r"has_rtc_(?:mem|sys)|save_size_bytes_(?:mem|sys)|"
         r"save_is_(?:sram|eeprom)_(?:mem|sys)|sd_buff_din)",
         flags=re.IGNORECASE,
@@ -250,8 +275,9 @@ def main() -> None:
             "snapshot wrong RAM footer index",
             mutate_once(
                 wonderswan,
-                r"footer_ramtype_sys\s*<=\s*lastdata\[2\]\[15:8\]",
-                "footer_ramtype_sys <= lastdata[3][15:8]",
+                r"(footer_contract_sys\s*<=\s*\{[\s\S]*?lastdata\[1\]\[15:8\],\s*)"
+                r"lastdata\[2\]\[15:8\]",
+                r"\1lastdata[3][15:8]",
             ),
             core_top,
             sdc,
@@ -261,18 +287,40 @@ def main() -> None:
             mutate_once(
                 wonderswan,
                 r"if\s*\(\s*cart_download_sys\s*\)\s*begin\s*"
-                r"footer_color_sys",
-                "if (1'b1) begin footer_color_sys",
+                r"footer_contract_sys",
+                "if (1'b1) begin footer_contract_sys",
             ),
             core_top,
             sdc,
         ),
         (
-            "automatic model raw footer bit",
+            "Open IPL word-width wrong footer bit",
             mutate_once(
                 wonderswan,
-                r"footer_color_sys\s*\|\s*colorcart_downloaded",
-                "lastdata[4][8] | colorcart_downloaded",
+                r"lastdata\[1\]\[2\],\s*~lastdata\[3\]\[15\]",
+                "lastdata[1][3], ~lastdata[3][15]",
+            ),
+            core_top,
+            sdc,
+        ),
+        (
+            "Open IPL owner protection polarity",
+            mutate_once(
+                wonderswan,
+                r"~lastdata\[3\]\[15\]",
+                "lastdata[3][15]",
+            ),
+            core_top,
+            sdc,
+        ),
+        (
+            "automatic model filename-extension fallback",
+            mutate_once(
+                wonderswan,
+                r"wire\s+isColor\s*=\s*\(configured_system_active\s*==\s*0\)\s*\?\s*"
+                r"footer_color_sys",
+                "wire isColor = (configured_system_active == 0) ? "
+                "(footer_color_sys | ext_cart_download_sys[1])",
             ),
             core_top,
             sdc,
@@ -352,8 +400,8 @@ def main() -> None:
 
     print(
         "PASS footer snapshot contract "
-        "ram_types=00/01/02/03/04/05/10/20/50 mutations=11 "
-        "system_type=reset_latched waivers=forbidden"
+        "ram_types=00/01/02/03/04/05/10/20/50 mutations=13 "
+        "open_ipl_variants=8 system_type=reset_latched waivers=forbidden"
     )
 
 

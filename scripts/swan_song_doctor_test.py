@@ -40,8 +40,6 @@ class SwanSongDoctorTests(unittest.TestCase):
         (self.sd / "Cores/RegionallyFamous.SwanSong/chip32.bin").write_bytes(
             b"test-chip32"
         )
-        (self.sd / "Assets/wonderswan/common/bw.rom").write_bytes(b"B" * 4096)
-        (self.sd / "Assets/wonderswan/common/color.rom").write_bytes(b"C" * 8192)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -96,12 +94,12 @@ class SwanSongDoctorTests(unittest.TestCase):
             preset.parent.mkdir(parents=True)
             preset.write_text('{"interact": {"magic": "APF_VER_1"}}\n')
 
-    def test_healthy_audit_reads_no_bios_or_game_contents(self) -> None:
+    def test_healthy_audit_reads_no_game_contents(self) -> None:
         game = self.add_game()
         original_reader = doctor._read_regular_snapshot_at
 
         def guarded(directory: int, name: str, **kwargs: object):
-            self.assertNotIn(name, {"bw.rom", "color.rom", game.name})
+            self.assertNotEqual(name, game.name)
             return original_reader(directory, name, **kwargs)
 
         with mock.patch.object(
@@ -111,8 +109,6 @@ class SwanSongDoctorTests(unittest.TestCase):
         self.assertEqual(report.errors, 0)
         self.assertIn("core-identity", self.codes(report))
         self.assertIn("display-payloads", self.codes(report, "OK"))
-        self.assertIn("bios-bw.rom", self.codes(report))
-        self.assertIn("bios-color.rom", self.codes(report))
 
     def test_default_cli_is_byte_inode_and_mtime_read_only(self) -> None:
         self.add_game("Folder/Game.ws")
@@ -120,7 +116,7 @@ class SwanSongDoctorTests(unittest.TestCase):
         status, output, error = self.invoke()
         self.assertEqual(status, 0, error)
         self.assertIn("Swan Song Doctor — READ ONLY", output)
-        self.assertIn("No BIOS or game contents were read", output)
+        self.assertIn("No game contents were read", output)
         self.assertEqual(error, "")
         self.assertEqual(self.snapshot(), before)
 
@@ -160,24 +156,13 @@ class SwanSongDoctorTests(unittest.TestCase):
         )
         self.assertEqual(finding.severity, "INFO")
 
-    def test_bios_missing_and_every_near_size_are_errors(self) -> None:
-        bw = self.sd / "Assets/wonderswan/common/bw.rom"
-        bw.unlink()
-        report = doctor.audit_sd(self.sd)
-        self.assertIn("bios-missing", self.codes(report, "ERROR"))
-        for size in (0, 4095, 4097):
-            with self.subTest(size=size):
-                bw.write_bytes(b"X" * size)
-                report = doctor.audit_sd(self.sd)
-                self.assertIn("bios-size", self.codes(report, "ERROR"))
-
-    def test_same_size_bios_mutation_cannot_change_report(self) -> None:
-        first = doctor.audit_sd(self.sd)
-        (self.sd / "Assets/wonderswan/common/bw.rom").write_bytes(b"Z" * 4096)
-        second = doctor.audit_sd(self.sd)
-        first_bios = [item for item in first.findings if item.code.startswith("bios-")]
-        second_bios = [item for item in second.findings if item.code.startswith("bios-")]
-        self.assertEqual(first_bios, second_bios)
+    def test_external_bios_files_are_not_required_or_inspected(self) -> None:
+        report_without = doctor.audit_sd(self.sd)
+        (self.sd / "Assets/wonderswan/common/bw.rom").write_bytes(b"X")
+        (self.sd / "Assets/wonderswan/common/color.rom").write_bytes(b"Y")
+        report_with = doctor.audit_sd(self.sd)
+        self.assertEqual(report_without, report_with)
+        self.assertFalse(any(item.code.startswith("bios-") for item in report_with.findings))
 
     def test_missing_foreign_and_duplicate_core_definitions_fail(self) -> None:
         core = self.sd / "Cores/RegionallyFamous.SwanSong/core.json"
@@ -541,54 +526,7 @@ class SwanSongDoctorTests(unittest.TestCase):
             ),
         )
 
-    def test_optional_bios_identification_reads_only_bios_and_never_rejects_unknown(self) -> None:
-        game = self.add_game()
-        original_reader = doctor._read_regular_snapshot_at
-        content_reads: list[str] = []
-
-        def observe(directory: int, name: str, **kwargs: object):
-            if name in {"bw.rom", "color.rom", game.name}:
-                content_reads.append(name)
-            return original_reader(directory, name, **kwargs)
-
-        with mock.patch.object(
-            doctor, "_read_regular_snapshot_at", side_effect=observe
-        ):
-            report = doctor.audit_sd(self.sd, identify_bios=True)
-        self.assertEqual(content_reads, ["bw.rom", "color.rom"])
-        self.assertTrue(report.bios_contents_read)
-        self.assertEqual(report.errors, 0)
-        self.assertIn("bios-unrecognized-bw.rom", self.codes(report, "INFO"))
-        self.assertIn("bios-unrecognized-color.rom", self.codes(report, "INFO"))
-
-        status, output, error = self.invoke("--identify-bios")
-        self.assertEqual(status, 0, error)
-        self.assertIn("Swan Song does not reject unfamiliar same-size dumps", output)
-        self.assertIn("BIOS contents were read locally", output)
-        self.assertIn("game contents were not read or hashed", output)
-
-    def test_documented_bios_identifiers_report_matches(self) -> None:
-        class Digest:
-            def __init__(self, value: str) -> None:
-                self.value = value
-
-            def hexdigest(self) -> str:
-                return self.value
-
-        with mock.patch.object(
-            doctor.hashlib,
-            "md5",
-            side_effect=[
-                Digest(doctor.KNOWN_BIOS_MD5["bw.rom"]),
-                Digest(doctor.KNOWN_BIOS_MD5["color.rom"]),
-            ],
-        ):
-            report = doctor.audit_sd(self.sd, identify_bios=True)
-        self.assertEqual(report.errors, 0)
-        self.assertIn("bios-identified-bw.rom", self.codes(report, "OK"))
-        self.assertIn("bios-identified-color.rom", self.codes(report, "OK"))
-
-    def test_guide_cites_official_docs_and_explains_bios_opt_in(self) -> None:
+    def test_guide_cites_official_docs_and_explains_content_safety(self) -> None:
         guide = GUIDE.read_text()
         for url in (
             "https://www.analogue.co/developer/docs/directories-and-sd-folder-structure",
@@ -598,8 +536,7 @@ class SwanSongDoctorTests(unittest.TestCase):
             "https://www.analogue.co/developer/docs/packaging-a-core",
         ):
             self.assertIn(url, guide)
-        self.assertIn("--identify-bios", guide)
-        self.assertIn("unfamiliar same-size dump", guide)
+        self.assertIn("does not require external BIOS files", guide)
         self.assertIn("Game contents are never", guide)
         self.assertIn("opened or hashed in any mode", guide)
         self.assertIn("may update access-time metadata", guide)

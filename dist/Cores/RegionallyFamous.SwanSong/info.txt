@@ -4,7 +4,7 @@ Pocket port by agg23
 Supported launch path:
 * SD-card games through openFPGA
 * WonderSwan .ws and WonderSwan Color .wsc
-* User-supplied 4 KiB bw.rom and 8 KiB color.rom
+* Built-in open IPL; no external BIOS file required
 * Last-game reuse is configured; Pocket verification pending
 * Minimum firmware 2.3; launch qualification targets 2.6.0
 
@@ -14,7 +14,6 @@ Cartridge saves use Swan Song's own core-specific namespace.
 Back up first; legacy common saves need the ROM-aware migration helper.
 Features:
 * Fast Forward and CPU Turbo
-* Console Setup invokes the original BIOS setup gesture
 * Automatic, horizontal, or vertical display orientation
 * Optional landscape 180-degree presentation
 * Complete-frame video, optional 60.9Hz and LCD response modes

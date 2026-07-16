@@ -88,12 +88,10 @@ def verify_contract(sources: dict[str, str]) -> None:
     ):
         if fragment not in core_top:
             raise ValueError(f"top-level focus boundary is missing {fragment}")
-    if ".button_start(cont1_key_s[15]|console_setup_start_sys_s)" not in core_top:
-        raise ValueError("focus filtering removed the internal Console Setup Start gesture")
-    if core_top.count(".menu_focus_source(osnotify_inmenu)") != 2:
-        raise ValueError(
-            "raw 00B0 must feed exactly Console Setup hold and the menu-pause CDC"
-        )
+    if ".button_start(cont1_key_s[15])" not in core_top:
+        raise ValueError("focus filtering changed the logical Start mapping")
+    if core_top.count(".menu_focus_source(osnotify_inmenu)") != 1:
+        raise ValueError("raw 00B0 must feed exactly the menu-pause CDC")
     if "synch_3#(.width(16))cont1_s(" in core_top:
         raise ValueError("physical buttons still cross as a tearable vector synchronizer")
     for forbidden in (
@@ -289,6 +287,15 @@ def verify_contract(sources: dict[str, str]) -> None:
         ".extram_be(extram_be)",
         ".extram_addr(extram_addr)",
         ".extram_datawrite(extram_datawrite)",
+        ".open_ipl_word_width(open_ipl_word_width)",
+        ".open_ipl_protect_owner_area(open_ipl_protect_owner_area)",
+        "regopen_ipl_word_width=1'b1;",
+        "regopen_ipl_protect_owner_area=1'b1;",
+        "functionautomatic[15:0]cartridge_word(input[24:0]byte_address);",
+        "cartridge_reset_address+25'h0:cartridge_word=16'h00ea;",
+        "cartridge_reset_address+25'h2:cartridge_word=16'h0001;",
+        "cartridge_reset_address+25'h4:cartridge_word=16'h9020;",
+        "extram_dataread<=cartridge_word(captured_read_addr);",
         "extram_addr!=expected_address||extram_be!=expected_be",
         "expected_write&&extram_datawrite!=expected_write_data",
         "captured_read_addr<=extram_addr;",
@@ -310,6 +317,11 @@ def verify_contract(sources: dict[str, str]) -> None:
                 f"translated pause test omits edge/cardinality/response proof {fragment}"
             )
     for forbidden in (
+        "bios_wraddr",
+        "bios_wrdata",
+        "bios_wrcolor",
+        "write_bios_word",
+        "load_clean_bios",
         "held_address",
         "held_be",
         "held_write_data",
@@ -349,7 +361,6 @@ def verify_contract(sources: dict[str, str]) -> None:
         "valid neutral",
         "pauses the emulated console",
         "product choice",
-        "Console Setup",
     ):
         if phrase.casefold() not in docs.casefold():
             raise ValueError(f"focus-safety documentation is missing {phrase!r}")
@@ -394,7 +405,7 @@ def main() -> None:
         ("core_top", ".menu_focus_destination(menu_focus_sys_s)", ".menu_focus_destination()"),
         ("core_top", ".menu_focus_paused(menu_focus_sys_s)", ".menu_focus_paused(physical_input_blocked_sys_s)"),
         ("core_top", ".key_word_updated(cont1_key_updated)", ".key_word_updated(1'b1)"),
-        ("core_top", "cont1_key_s[15] | console_setup_start_sys_s", "cont1_key_s[15]"),
+        ("core_top", ".button_start(cont1_key_s[15])", ".button_start(1'b0)"),
         ("core_top", ".buttons_destination(cont1_key_s)", ".buttons_destination()"),
         (
             "core_top",

@@ -22,6 +22,7 @@
 
 #include "VSwanTop.h"
 #include "input_script.hpp"
+#include "open_ipl.hpp"
 #include "rom_image.hpp"
 #include "trace_logger.hpp"
 
@@ -415,7 +416,7 @@ static std::string manifest_relative_path(const fs::path& artifact,
 static void write_trace_manifest(const swansong::trace::Config& config,
                                  uint64_t capture_cycles, unsigned frames,
                                  const std::vector<uint8_t>& rom,
-                                 const std::vector<uint8_t>& bios,
+                                 const std::vector<uint8_t>& open_ipl,
                                  const swansong::input::Script* input_script,
                                  size_t applied_input_events,
                                  const std::vector<FrameArtifact>* frame_artifacts) {
@@ -516,8 +517,8 @@ static void write_trace_manifest(const swansong::trace::Config& config,
   output << ",\n"
          << "  \"rom_size\": " << rom.size() << ",\n"
          << "  \"rom_fnv1a64\": \"" << bytes_fnv1a64(rom) << "\",\n"
-         << "  \"bios_size\": " << bios.size() << ",\n"
-         << "  \"bios_fnv1a64\": \"" << bytes_fnv1a64(bios) << "\",\n"
+         << "  \"open_ipl_size\": " << open_ipl.size() << ",\n"
+         << "  \"open_ipl_fnv1a64\": \"" << bytes_fnv1a64(open_ipl) << "\",\n"
          << "  \"iram_initial_state\": \"zero\",\n"
          << "  \"savestate_inputs_asserted\": false";
   if (input_script) {
@@ -567,7 +568,6 @@ static void usage(const char* argv0) {
   std::cerr
       << "usage: " << argv0 << " --rom FILE [OPTIONS]\n\n"
       << "Simulation:\n"
-      << "  --bios FILE             4 KiB mono or 8 KiB color BIOS\n"
       << "  --frames N              stop after N complete frames (default: 1)\n"
       << "  --out DIR               raw/PNG frame directory\n"
       << "  --max-cycles N          timeout in 36.864 MHz system cycles\n"
@@ -750,7 +750,6 @@ struct DebugTapAdapter<
 static int run_main(int argc, char** argv) {
   Verilated::commandArgs(argc, argv);
   fs::path rom_path;
-  fs::path bios_path;
   fs::path out_dir = "build/sim/frames";
   fs::path trace_path;
   fs::path input_script_path;
@@ -769,7 +768,6 @@ static int run_main(int argc, char** argv) {
       return argv[i];
     };
     if (arg == "--rom") rom_path = value("--rom");
-    else if (arg == "--bios") bios_path = value("--bios");
     else if (arg == "--frames") target_frames = parse_frame_count(value("--frames"));
     else if (arg == "--out") out_dir = value("--out");
     else if (arg == "--input-script") input_script_path = value("--input-script");
@@ -899,10 +897,9 @@ static int run_main(int argc, char** argv) {
   }
   if (!sram_out_path.empty()) {
     if (paths_alias(sram_out_path, rom_path) ||
-        paths_alias(sram_out_path, bios_path) ||
         paths_alias(sram_out_path, input_script_path)) {
       throw std::runtime_error(
-          "SRAM output must not replace a ROM, BIOS, or input script");
+          "SRAM output must not replace a ROM or input script");
     }
     const std::array<fs::path, 4> other_outputs = {
         event_trace_config.output,
@@ -927,23 +924,12 @@ static int run_main(int argc, char** argv) {
     }
   }
 
-  std::vector<uint8_t> bios;
-  if (!bios_path.empty()) {
-    bios = read_file(bios_path);
-    if (bios.size() != 4096 && bios.size() != 8192) {
-      throw std::runtime_error("BIOS must be exactly 4096 or 8192 bytes");
-    }
-  } else {
-    // Open simulation bootstrap: enable cartridge visibility via port A0, then
-    // jump through the cartridge reset vector at FFFF:0000. This is not a
-    // replacement firmware implementation.
-    bios.assign(color_cartridge ? 8192 : 4096, 0x90);
-    // Enable the 16-bit cartridge ROM bus as the physical Color boot ROM does;
-    // generated GDMA probes require this before accessing cartridge sources.
-    const uint8_t bootstrap[] = {0xb0, 0x05, 0xe6, 0xa0, 0xea,
-                                 0x00, 0x00, 0xff, 0xff};
-    std::copy(std::begin(bootstrap), std::end(bootstrap), bios.end() - 16);
-  }
+  const bool open_ipl_word_width =
+      (mapped_rom[mapped_rom.size() - 4] & 0x04u) != 0;
+  const bool open_ipl_protect_owner_area =
+      (mapped_rom[mapped_rom.size() - 7] & 0x80u) == 0;
+  const auto open_ipl = swansong::open_ipl::make(
+      color_cartridge, open_ipl_word_width, open_ipl_protect_owner_area);
 
   auto top = std::make_unique<VSwanTop>();
   using TraceTaps = DebugTapAdapter<VSwanTop>;
@@ -1004,7 +990,9 @@ static int run_main(int argc, char** argv) {
   top->romtype = mapped_rom[mapped_rom.size() - 3];
   top->ramtype = ram_type;
   top->hasRTC = mapped_rom[mapped_rom.size() - 3] == 1;
-  top->isColor = color_cartridge || bios.size() == 8192;
+  top->open_ipl_word_width = open_ipl_word_width;
+  top->open_ipl_protect_owner_area = open_ipl_protect_owner_area;
+  top->isColor = color_cartridge;
   top->fastforward = 0;
   top->turbo = 0;
   top->KeyY1 = top->KeyY2 = top->KeyY3 = top->KeyY4 = 0;
@@ -1089,21 +1077,10 @@ static int run_main(int argc, char** argv) {
     if (trace_capture_active) ++trace_cycle;
   };
 
-  // Establish the initialized low clock levels before the first programming
-  // edge.  Without this evaluation Verilator has no preceding clk=0 sample,
-  // so the first 0->1 transition is not observed and BIOS bytes 0/1 remain
-  // unwritten.
+  // Establish initialized low clock levels before the first boot-ROM read.
   eval();
 
-  // Program the inferred BIOS RAM while reset is asserted.
-  for (size_t byte = 0; byte < bios.size(); byte += 2) {
-    top->bios_wraddr = static_cast<uint16_t>(byte);
-    top->bios_wrdata = static_cast<uint16_t>(bios[byte] | (bios[byte + 1] << 8));
-    top->bios_wr = bios.size() == 4096;
-    top->bios_wrcolor = bios.size() == 8192;
-    cycle();
-  }
-  top->bios_wr = top->bios_wrcolor = 0;
+  // Match the wrapper's reset-settle interval with immutable Open IPL active.
   for (int i = 0; i < 16; ++i) cycle();
   top->reset_in = 0;
   trace_capture_active = true;
@@ -1160,7 +1137,7 @@ static int run_main(int argc, char** argv) {
   }
   if (event_trace) {
     event_trace.reset();
-    write_trace_manifest(event_trace_config, trace_cycle, frames, rom, bios,
+    write_trace_manifest(event_trace_config, trace_cycle, frames, rom, open_ipl,
                          input_script ? &*input_script : nullptr,
                          input_replay ? input_replay->applied_events() : 0,
                          trace_frame_artifacts ? &frame_artifacts : nullptr);
