@@ -70,7 +70,7 @@ requires:
 - a hard failure for Warning 15069, which means PLL loss-of-lock self-reset is
   missing the gated lock counter Quartus requires for correct operation;
 - a complete native Connectivity Checks inventory whenever Warning 12241 is
-  present. Every warning row must match the reviewed 122-row set by exact
+  present. Every warning row must match the reviewed 120-row set by exact
   hierarchy, port, direction, and detail text. The policy also SHA-256-binds
   the relevant source/configuration files; a missing, changed, duplicated, or
   added row, a changed source, or a summary/detail count mismatch fails. This
@@ -84,8 +84,8 @@ the allowance does not apply to metadata, logs, provenance, or sidecars.
 
 The reviewed connectivity manifest and exact rows live in
 `toolchains/quartus-21.1.1/connectivity-warning-12241.json` and its bound TSV.
-The manifest records the originating run/report/inventory hashes and the one
-PLL reset defect deliberately excluded from the accepted set.
+The manifest records the originating run/report/inventory hashes. Its accepted
+set has no excluded defects; any removed defect reappearing fails review.
 
 Run the focused synthetic suite with:
 

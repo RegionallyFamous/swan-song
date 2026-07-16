@@ -67,7 +67,6 @@ renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	rise	Output	Decla
 renamed-predecessor-sync	core_top:ic|synch_3:download_system_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 renamed-predecessor-sync	core_top:ic|synch_3:cart_download_memory_s	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
-agg23-predecessor	core_top:ic|data_loader:bios_data_loader	write_complete	Input	Declared by entity but not connected by instance. If a default value exists, it will be used.  Otherwise, the port will be connected to GND.
 swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|synch_3:rom_validation_to_bridge	fall	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.
 swan-song-sync	core_top:ic|synch_3:execution_ready_to_bridge	rise	Output	Declared by entity but not connected by instance. Logic that only feeds a dangling port will be removed.

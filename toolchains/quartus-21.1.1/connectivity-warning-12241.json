@@ -1,23 +1,23 @@
 {
   "allowlist": {
     "path": "toolchains/quartus-21.1.1/connectivity-warning-12241.tsv",
-    "rows": 121,
-    "sha256": "6cdbae683918c695a61eff2c9bf7ed51ede739507442c1ba51f53f17ac812e6b"
+    "rows": 120,
+    "sha256": "8eb854113ce14e4bba4d0e2d178cc66a475cbecb6c5468f81a6458e1e8625d10"
   },
   "magic": "SWAN_SONG_QUARTUS_CONNECTIVITY_POLICY_V2",
   "quartus_version": "21.1.1 Build 850 Lite Edition",
   "reviewed_inventory": {
-    "allowed_rows": 121,
+    "allowed_rows": 120,
     "excluded_defects": [],
-    "sha256": "7814425ab053d1ddb2b16438c00fcb969c25e218769b9d42470a48012e77db66",
-    "warning_rows": 121
+    "sha256": "a7afecda3f2c42b291e5d17d9e68121ea4cb4486de99ec4f53f677ee30ca629e",
+    "warning_rows": 120
   },
-  "reviewed_map_report_sha256": "fe08a0a8bcd44e6e0011462ef20db26528222daf241b7fa5289c3b4ad203c577",
-  "reviewed_source_commit": "11bd085e9b046671ed72293d9d321baea90cab69",
-  "reviewed_workflow_run_id": 29398408064,
+  "reviewed_map_report_sha256": "ddce1b37a61c3c5833d05620d20d74fcf82b20a5d722939b0b47020d43e3b6d1",
+  "reviewed_source_commit": "e9a2ea52a14da202724ab45e5d776f126e538fb4",
+  "reviewed_workflow_run_id": 29497513941,
   "source_bindings": {
     "src/fpga/ap_core.qpf": "a969a78714a6a5602d60abc899ea378dfb31815f12712a710367f7a583d9dd75",
-    "src/fpga/ap_core.qsf": "7523d2af1f85c4f7c406a598acdf158fa8a3e690df6c46a08eff8250a85d0dcf",
+    "src/fpga/ap_core.qsf": "0bc30a2a5d1d06f36bba186f1ff07afca858c3d6b79ca74c39e1fc86c903a3a0",
     "src/fpga/ap_core_assignment_defaults.qdf": "f5d8e675f3d11c1b0e79571d2bc8173dbf4f9e8dea3cec9d731af0ca6bbd30ff",
     "src/fpga/apf/apf.qip": "252741535c1572cb58c59ddcf245ad7bb707f7d1ed738bfef1d090b2729f4fb2",
     "src/fpga/apf/apf_constraints.sdc": "47fe6a363d5ba5fbd1de3663ba1a496e357272f69136a4aa7d1132a9098ecc44",
@@ -30,7 +30,6 @@
     "src/fpga/apf/mf_datatable.v": "626002917f9928ee50277d51493c376d00102ac1b0b6996aeabc0102a598ec96",
     "src/fpga/apf/mf_ddio_bidir_12.qip": "32e946cba208d535d97e8b8ec4e8d4739a9241085da92374e4e677ce7aadd49e",
     "src/fpga/apf/mf_ddio_bidir_12.v": "73674edb40a6314f9b00829942bedcad9e183515bcdbb327095f96401799c536",
-    "src/fpga/core/apf_console_setup.sv": "c2c64190992846bdf9cc46585b6bdc845326b2b5c2f6a13b3560d1f0ff66b531",
     "src/fpga/core/apf_control_layout.sv": "f43a494d3a2b1d4d54c27d7e2dd9280aff03469ebf6f993d5d27c0e461dc6414",
     "src/fpga/core/apf_dataslot_guard.sv": "179eb4d27f7a378f8f6a5184da8792d02f69983d3b073127bcf3f88dcb1bbc73",
     "src/fpga/core/apf_fast_forward_control.sv": "94417f1779cf2abdbdb00bd65bd889c996442e2b32082790c00eb80fc274de62",
@@ -59,7 +58,7 @@
     "src/fpga/core/apf_video_bus.sv": "99012ac66a21bf76be834a7993f06c92a5960145eba071f89d7966aa76f9cab9",
     "src/fpga/core/core_bridge_cmd.v": "fab72a7c1e7d073fd37bceca8b4ff45f285335c43dd30d6daa6fcc4ae8f8e1e0",
     "src/fpga/core/core_constraints.sdc": "4f8077aa4b3728b62ac477a4f6e113e88fb3f3d34d10d11b9b7a98572101768f",
-    "src/fpga/core/core_top.v": "7b9a7c972a4b68d77a33afd6b09282d3458501acaa42c20a72337496f01d6e98",
+    "src/fpga/core/core_top.v": "7d057e84168130565fbd7b4a7adaa993586488d5ebefdb20409a329be69e07d0",
     "src/fpga/core/data_loader.sv": "72c8266416058eefcca8fd7213bf229d3d1a9dbab1e555148a6eed685f6cf75b",
     "src/fpga/core/data_unloader.sv": "4f9b3e5b3ed0d1675fc28291340a8c56e95aa127b5d350394fce3968c79cdc24",
     "src/fpga/core/mf_pllbase.qip": "5299a32bbc86fbf3448c39f57d4eb23c036ae177c1914b442aa9c06430979c6f",
@@ -83,7 +82,7 @@
     "src/fpga/core/rtl/gpu_bg.vhd": "615c1ddd0fcb315bc83de9e0f8c0eb70b72807292ae431d3ad1e60dda517a1bc",
     "src/fpga/core/rtl/joypad.vhd": "10a8108ec28e53fc6f9095fda2569b9e8c2db26eeaaa850727bd6d8a3b519607",
     "src/fpga/core/rtl/memories_pause.vhd": "26bdc7bd045ff28865eed77cc4f8366025af76641ad4a55dc51e2c1a426b03a1",
-    "src/fpga/core/rtl/memorymux.vhd": "2d037a5ddd1294ef5481b938e629dc130a928a89af2386c0ec38f46ba3621f55",
+    "src/fpga/core/rtl/memorymux.vhd": "91045ab819d0340e658ef401367ad1344a2b544971cb747d6a885c7f66f385ad",
     "src/fpga/core/rtl/reg_savestates.vhd": "4dae5f1a1fab6b59e96616944281c5accb19fdd355ff10cf2a2bf54f98062a3c",
     "src/fpga/core/rtl/reg_swan.vhd": "446dab33bb77da283960b08d2d47898850c98bd33676e4a35ae87a9385a164a9",
     "src/fpga/core/rtl/registerpackage.vhd": "77c054446d34e1cfb9278a621d31ef218e567787dbb004e6ae1bf3794773b2dd",
@@ -100,19 +99,18 @@
     "src/fpga/core/rtl/sound_module5.vhd": "9cc0e6a20e522e2f173d7d01b9d0b41483488f1dc55c3aa3c64c0f4520bd5a60",
     "src/fpga/core/rtl/sprites.vhd": "11331bf537272641e6efdd8cdb1fc3d0c53fcf29230d82f3d8caf9c1d7ab7eaf",
     "src/fpga/core/rtl/statemanager.vhd": "9baa4e621286435b1c22667cace62205c0ee561bb11ec80dc479c62c1d36496d",
-    "src/fpga/core/rtl/swanTop.vhd": "6cb1af3aec12e111494d1f6ee70d45bdd8b38e1941e4765a9867e8f768951f28",
-    "src/fpga/core/rtl/swanbios.vhd": "672c6667b87305e823b9e2e688c0ee6ed465e4ab8370d47683f29a0a38181ea6",
-    "src/fpga/core/rtl/swanbioscolor.vhd": "b8f5da8a050118cc18fe07c869948b219a4a995f3d3c312ac797507444375aba",
+    "src/fpga/core/rtl/swanTop.vhd": "0b9a32eaa51f5c2d15aa34bc75cd6b3b310430a0d4682417f9f4703d4498a7ee",
+    "src/fpga/core/rtl/swanbios.vhd": "c4cc2fd7258df54ee72969e4f9c46a20f9aabe634f215e0c223bdfe60980f2cc",
+    "src/fpga/core/rtl/swanbioscolor.vhd": "22e93963d7233c40ac141733913b1a2dbfa87c3c6375d10fb800e60586a8fa3b",
     "src/fpga/core/save_state_controller.sv": "7864d590773cf1028e0983b0518a029b74797c812af7e39c86f75c72ce74e434",
     "src/fpga/core/sound_i2s.sv": "7772fee5af5291ea787b37a33313160cf1c001781e172e13c61fdd152a920c08",
-    "src/fpga/core/stp1.stp": "8b7a94c9354a1f85cbee21618c7836277b38e745cd48685088bd15d200a64d50",
     "src/fpga/core/sync_fifo.sv": "c5b46682f8c50bac18ca4a8ceb5f91aa3fc08d5d54c0cff2057220b750fd24d0",
-    "src/fpga/core/wonderswan.sv": "ae430149504ca7fb53478ef00058d76eb31f4d12ff33a69b695e740eba9bc47b"
+    "src/fpga/core/wonderswan.sv": "4d040a7e148a5d801c409ab346b36b10714e89a13c7b2a865ce635c982c10594"
   },
   "source_closure": {
     "algorithm": "SWAN_SONG_QUARTUS_SOURCE_CLOSURE_V1",
-    "paths": 92,
-    "sha256": "b636904fdc803ea3483230f5b6adf387b141a63178b785f9fe29c4c4372e4a9c"
+    "paths": 90,
+    "sha256": "67b9a7a511921f113668db0ace0f07ef3dc3954edad285d378b5f935c85c3c2e"
   },
   "warning_id": 12241
 }
