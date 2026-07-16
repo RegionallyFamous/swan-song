@@ -5,13 +5,13 @@
 > for an explicitly verified package on the official [Swan Song Releases
 > page](https://github.com/RegionallyFamous/swansong-core/releases).
 
-Historical protected-main Quartus candidate `f0345ee4` exists for controlled
-Pocket/Dock hardware QA, but it remains a tester-only development package.
-Newer source changes require a fresh regression and two distinct signed Quartus
-workflow executions with byte-identical RBF and build-ID outputs. That proves
-two signed workflow runs, not two different physical build hosts. The earlier
-successful build does not authorize public distribution or replace the hardware
-acceptance run.
+Two distinct signed Quartus workflow runs for protected-main commit `a897ecbf`
+pass the strict candidate audit and produce byte-identical RBF and build-ID
+files. That exact development build is suitable for controlled Pocket/Dock
+hardware QA, but it remains tester-only: two signed runs do not prove two
+different physical build hosts, authorize public distribution, replace the
+hardware acceptance run, or cover later release-facing source or metadata
+changes.
 
 This page describes the intended installation flow once the first verified
 release is published.

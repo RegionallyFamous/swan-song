@@ -51,6 +51,17 @@ footer also determines model, mapper, exact cartridge save size, and optional
 RTC trailer. Console EEPROM is separately banked so mono and Color owner data
 remain resident without aliasing cartridge EEPROM.
 
+The authoritative project-authored byte generator is
+[`scripts/generate_open_ipl.py`](https://github.com/RegionallyFamous/swansong-core/blob/main/scripts/generate_open_ipl.py).
+It emits the production VHDL ROM tables in
+[`swanbios.vhd`](https://github.com/RegionallyFamous/swansong-core/blob/main/src/fpga/core/rtl/swanbios.vhd)
+and
+[`swanbioscolor.vhd`](https://github.com/RegionallyFamous/swansong-core/blob/main/src/fpga/core/rtl/swanbioscolor.vhd),
+plus the translated-simulator table in
+[`open_ipl.hpp`](https://github.com/RegionallyFamous/swansong-core/blob/main/sim/verilator/open_ipl.hpp).
+Those generated source files are checked in and regression-verified. APF has
+no external firmware data slot or BIOS prompt.
+
 The loader keeps the historical direct route for power-of-two ROMs. Compact
 whole-bank ROMs are validated, prefixed with `0xff`, and right-aligned into
 their mapper aperture before execution. Malformed length, direction, footer,

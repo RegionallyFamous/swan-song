@@ -1,8 +1,10 @@
 # Compatibility and Current Limits
 
 > **Current verdict:** Swan Song is a development project, not a verified
-> release. Automated simulation is extensive, but no FPGA build from this fork
-> has completed the full physical Pocket and Dock release matrix.
+> release. Automated simulation is extensive, and protected-main commit
+> `a897ecbf` has a byte-identical pair of signed, audit-passing Quartus
+> candidates. No build from this fork has completed the full physical Pocket
+> and Dock release matrix.
 
 ## Intended supported path
 
@@ -52,10 +54,13 @@ console EEPROM, APF lifecycle, controls, settings transfer, display cadence,
 audio transport, packaging, and many malformed-input cases. These results make
 the development tree reviewable and catch regressions early.
 
-They do not prove Quartus timing closure, electrical behavior, PocketOS user
-experience, Dock controller behavior, HDMI presentation, commercial-title
-compatibility, or original-panel authenticity. Those require the appropriate
-build or physical evidence.
+The regression suite alone does not prove a fitted FPGA result. For exact
+protected-main commit `a897ecbf`, two distinct signed Quartus workflow runs do
+prove successful synthesis, fit, assembly, strict four-corner static timing,
+and byte-identical RBF/build-ID reproduction. Neither that evidence nor the
+regression proves electrical behavior, PocketOS user experience, compatibility
+with a particular Dock controller, HDMI presentation, commercial-title
+compatibility, or original-panel authenticity. Those require physical evidence.
 
 The full gate-by-gate record is in the [roadmap
 status](https://github.com/RegionallyFamous/swansong-core/blob/main/PHASE_STATUS.md)

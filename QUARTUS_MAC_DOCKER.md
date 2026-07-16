@@ -181,27 +181,27 @@ To select a different empty artifact directory or local image tag:
 QUARTUS_IMAGE=my-local-tag:21.1.1 ./scripts/quartus_docker.sh check-image
 ```
 
-### Current exact-source engineering result
+### Current exact-source signed-candidate result
 
-A trusted DigitalOcean run of temporary non-public source commit
-`1e32ff6a01ea37bbe290ec7d32ec981652ad9c03` at epoch `1784047383` completed
-synthesis, fit, assembly, RBF generation, and strict four-corner TimeQuest
-signoff. The retained RBF SHA-256 is
-`fde228ce80fb43e6155cd64dd51022216121cd3f4ae8ac9623da78d20655a580`.
-The fit uses 11,761/18,480 ALMs, 13,827 registers,
-2,622,848/3,153,920 memory bits, 289/308 RAM blocks, 23/66 DSP blocks, and
+Distinct signed DigitalOcean workflow runs `29503168418` and `29505865127`
+built protected-main commit `a897ecbf2838fe6997628406b23de2020c04772e`
+with different fresh job nonces. Both candidate audits pass and both produce
+the same 2,037,952-byte RBF (SHA-256
+`951e114b1ed2e70ed11628bcfac9bc6138922cbfe45250ab56981fcdf971c03d`) and
+build-ID MIF (SHA-256
+`8d1c9fb08f2a1ff95de1b326b7ef6b66952f8dc2986c2aec9c0aec32cc544a17`).
+The fit uses 12,974/18,480 ALMs, 16,174 registers,
+2,524,544/3,153,920 memory bits, 277/308 M10K blocks, 23/66 DSP blocks, and
 1/4 PLLs. All global setup/hold, recovery/removal, minimum-pulse-width, and
-SDRAM DQ checks are positive at all four corners; Warning 15069 and the
-unnumbered PLL RST-port warning are absent. Exact timing and DQ margins are
-recorded in [`QUARTUS_FIT_AUDIT.md`](QUARTUS_FIT_AUDIT.md).
+SDRAM-DQ checks are positive at all four corners; critical and pinned PLL
+warnings are absent, unconstrained paths are zero, and the exact connectivity
+policy is accepted. Exact timing and DQ margins are recorded in
+[`QUARTUS_FIT_AUDIT.md`](QUARTUS_FIT_AUDIT.md).
 
-The surrounding command returned 1 solely because the source-bound
-connectivity policy still binds older source. The retained RBF is engineering
-evidence, not an accepted candidate, final public-commit artifact,
-reproducibility proof, or physical Pocket/Dock result. Refresh and review the
-connectivity policy against the frozen source before running the ordinary
-candidate lane; do not relabel this policy rejection as a Quartus compile or
-timing failure.
+This pair is accepted FPGA engineering evidence for that exact development
+commit, not physical Pocket/Dock proof or distribution authorization. Both
+audits correctly record `release_eligible: false`; rebuild and reproduce after
+any release-facing change that alters the final commit or epoch.
 
 ## Licensing and platform boundary
 

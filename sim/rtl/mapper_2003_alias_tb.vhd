@@ -170,7 +170,7 @@ begin
     wait for 1 ns;
     expect_mapping(16#FE000#, 6, 0);
 
-    -- Physical Color identity still chooses the Color BIOS, while $60 bit 7
+    -- Physical Color identity still chooses the built-in Color Open IPL, while $60 bit 7
     -- independently exposes or hides the upper 48 KiB of internal RAM.
     expect_mapping(16#04000#, 1, 16#004000#);
     color_enabled <= '0';

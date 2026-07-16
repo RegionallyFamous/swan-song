@@ -12,11 +12,13 @@ experience.
 > **Swan Song is still in development. There is not yet a verified public
 > release.** The project has extensive automated testing, but the current build
 > still needs final licensing review and repeatable testing on real Pocket and
-> Dock hardware. The historical protected-main `f0345ee4` FPGA candidate and
-> an independent rebuild match byte-for-byte, but newer source changes require
-> a fresh full regression, Quartus build, and independent reproduction. None of
-> that substitutes for physical product testing or distribution authorization.
-> Please do not treat a development build as a finished release.
+> Dock hardware. Two distinct signed Quartus workflow runs for protected-main
+> commit `a897ecbf` passed the strict candidate audit and produced byte-identical
+> RBF and build-ID files. That closes FPGA fit, four-corner timing, and
+> reproducibility evidence for that exact development commit; it does not
+> substitute for physical product testing, final-release rebuilds after any
+> release-facing change, or distribution authorization. Please do not treat a
+> development build as a finished release.
 
 ## Why Swan Song exists
 

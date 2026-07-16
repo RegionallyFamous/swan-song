@@ -78,6 +78,25 @@ worker, not a ROM testing server or remote ChatGPT host. Read [Swan Song
 Lab](https://github.com/RegionallyFamous/swansong-core/blob/main/SWAN_SONG_LAB.md)
 before creating anything.
 
+### Current protected-main FPGA evidence
+
+Protected-main commit `a897ecbf2838fe6997628406b23de2020c04772e` was built
+in two distinct signed workflow executions: runs `29503168418` and
+`29505865127`, with different fresh job nonces. Both candidate audits pass and
+both executions produce the same 2,037,952-byte RBF (SHA-256
+`951e114b1ed2e70ed11628bcfac9bc6138922cbfe45250ab56981fcdf971c03d`) and
+the same generated build-ID MIF (SHA-256
+`8d1c9fb08f2a1ff95de1b326b7ef6b66952f8dc2986c2aec9c0aec32cc544a17`).
+Each candidate has zero critical warnings, zero unconstrained paths, and
+positive setup, hold, recovery, removal, and minimum-pulse slack at all four
+signoff corners.
+
+Both audits correctly record `release_eligible: false`. This pair establishes
+fit, static timing, and signed-workflow reproducibility for that exact
+development commit. It does not establish physical Pocket/Dock behavior,
+licensing authorization, or a final release; any later change that affects the
+release commit must pass the applicable final evidence gates again.
+
 ## Private ROM-corpus smoke tests
 
 Owners may run local smoke tests against their own legally obtained images.

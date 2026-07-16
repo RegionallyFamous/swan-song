@@ -97,11 +97,13 @@ applied slot. Portrait always takes precedence over landscape 180 degrees.
 - Existing framebank and per-bank orientation benches continue to prove bank
   ownership, queued supersession, and metadata association.
 
-These are digital proofs, not physical Pocket measurements. Release still
-requires Quartus timing/resource closure and Pocket/Dock testing for native
-orientation changes, all menu orientation modes, landscape 180 degrees,
-direct/buffered modes, reset, fast-forward, grayscale/display modes, and
-producer completions near both transition boundaries.
+These are digital proofs, not physical Pocket measurements. Protected-main
+commit `a897ecbf` passes the signed Quartus fit/resource/timing audit in two
+byte-identical workflow candidates. Release still requires Pocket/Dock testing
+for native orientation changes, all menu orientation modes, landscape 180
+degrees, direct/buffered modes, reset, fast-forward, grayscale/display modes,
+and producer completions near both transition boundaries, plus a rebuild if the
+exact final public commit differs.
 
 ## Public implementation survey
 

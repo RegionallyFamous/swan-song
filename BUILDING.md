@@ -197,8 +197,10 @@
   A separate 10 ms I2S waveform gate proves 12.288 MHz MCLK, 3.072 MHz SCLK,
   48 kHz signed stereo, coincident clock edges, left/right order, one-bit I2S
   delay, and zero spacer bits under two randomized initialization seeds. The
-  I2S bench uses a behavioral CDC FIFO; physical FIFO and timing remain
-  Quartus/Pocket gates.
+  I2S bench uses a behavioral CDC FIFO. Protected-main commit `a897ecbf` passes
+  the signed Quartus fit and static-timing audit for the production FIFO path;
+  physical Pocket behavior and a rebuild if the exact final public commit
+  differs remain gates.
 - Pocket nonvolatile sizing is expressed in exact bytes: SRAM types `01/02`,
   `03`, `04`, and `05` use 32/128/256/512 KiB, while EEPROM types `10`, `20`,
   and `50` use 128/2,048/1,024 bytes. The 12-byte RTC trailer is now conditional
@@ -218,9 +220,10 @@
   A focused Tcl/Python contract proves that it preserves the 256×32 MIF shape,
   derives the three established words from a clean source commit and an
   explicit or commit-derived epoch, is timezone-independent, and fails closed
-  on ambiguous source identity. Clean Linux/amd64 Quartus builds now produce
-  valid RBFs, but two builds of the final release commit have not yet produced
-  and compared byte-identical RBFs.
+  on ambiguous source identity. Signed Linux/amd64 Quartus workflow runs
+  `29503168418` and `29505865127` now produce byte-identical RBF and build-ID
+  files for exact development commit `a897ecbf`; the pair must be repeated if
+  the final release commit or epoch differs.
 - The reverse-bit and deterministic APF package scripts are host-independent.
   Packaging materializes the core's required 293-byte `chip32.bin` offline,
   verifies both its assembly-source and image identities, and rejects missing,
@@ -228,18 +231,18 @@
   assembler output for this fork's extended loader source.
 - Quartus compilation, fitting, assembly, and four-corner TimeQuest passed in
   the pinned Quartus Lite 21.1.1 Linux/amd64 flow for protected-main commit
-  `f0345ee4bae92cf137c600dfca876494cb17a5fe`. Workflow `29378537385` and a
-  separate clean DigitalOcean build produced the identical RBF and build ID.
-  The accepted historical candidate fits at 13,207/18,480 logic elements and
-  289/308 RAM blocks, has minimum setup/hold/recovery/removal/pulse slack of
-  `+0.426/+0.030/+3.679/+0.264/+0.753 ns`, zero critical warnings, and no
+  `a897ecbf2838fe6997628406b23de2020c04772e`. Distinct signed workflow runs
+  `29503168418` and `29505865127`, with different fresh job nonces, produced
+  the identical RBF and build ID and passed both candidate audits. The fit uses
+  12,974/18,480 ALMs and 277/308 M10K blocks, has minimum
+  setup/hold/recovery/removal/pulse slack of
+  `+0.255/+0.083/+5.037/+0.272/+0.753 ns`, zero critical warnings, and no
   unconstrained/check-timing findings. Its native IP summary has five `N/A`
   license rows, its Assembler inventory contains ordinary `ap_core.sof` and
   `ap_core.rbf`, and its bounded reports contain none of the pinned
-  evaluation/time-limit warning or info IDs. It is historical hardware-QA
-  candidate build evidence, not a public release or a legal conclusion; the
-  newer source changes require a fresh accepted build and independent
-  reproduction from the final public commit.
+  evaluation/time-limit warning or info IDs. It is reproducible development
+  hardware-QA evidence, not a public release or a legal conclusion; rebuild and
+  reproduce if the final public commit or epoch differs.
 - No build has been confirmed on an Analogue Pocket in this fork.
 
 ## Simulation
@@ -351,7 +354,9 @@ continuously held raw stream. This avoids stalling the first word long enough
 to overflow `data_loader`'s small non-backpressured CDC FIFO. The focused RTL
 bench proves the continuous-stream invariant; the documented bridge cadence
 (about one 32-bit transfer per 75 `clk_74a` cycles) leaves substantial memory-
-clock service margin, but Quartus and physical Pocket remain required gates.
+clock service margin. Protected-main commit `a897ecbf` passes the signed Quartus
+fit and static-timing audit for this path; physical Pocket behavior and a
+rebuild if the exact final public commit differs remain required gates.
 Chip32 polls the synchronized PMP status at `0x14`: ready continues startup,
 failure prints **ROM footer/checksum rejected** and exits with an error, and a
 stuck-pending implementation is bounded to 1,048,576 polls before printing
@@ -567,10 +572,10 @@ as a native macOS executable. The complete container-backed regression is
 therefore a Linux CI contract. GitHub's `ubuntu-24.04` host still supplies Bash,
 Make, Docker, Python 3, Tcl, and Git; their patch releases are platform-managed rather
 than independently image-pinned, while the regression's exact output hashes
-remain the behavioral drift gate. No successful remote run is claimed for the
-current working tree until it is pushed; the last protected-main regression
-(`29377588945`) and Quartus run (`29378537385`) are explicitly bound to
-historical commit `f0345ee4`, not the newer local changes.
+remain the behavioral drift gate. The signed Quartus pair is explicitly bound
+to protected-main commit `a897ecbf2838fe6997628406b23de2020c04772e`; it does
+not claim a remote regression for later local documentation changes or replace
+the exact-final-commit regression gate.
 
 Generate a clean-room window-boundary ROM, run two frames, and emit PNGs:
 
