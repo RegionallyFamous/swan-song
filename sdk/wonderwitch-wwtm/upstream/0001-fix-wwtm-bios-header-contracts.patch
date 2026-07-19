@@ -1,0 +1,53 @@
+diff --git a/headers/sys/bank.xml b/headers/sys/bank.xml
+--- a/headers/sys/bank.xml
++++ b/headers/sys/bank.xml
+@@ -13,11 +13,11 @@
+ 
+ 	<comment>bank_*_map utility wrappers</comment>
+ 	<define name="sram_get_map()" value="bank_get_map(BANK_SRAM)"/>
+-	<define name="sram_set_map(bank_id)" value="bank_get_map(BANK_SRAM, bank_id)"/>
++	<define name="sram_set_map(bank_id)" value="bank_set_map(BANK_SRAM, bank_id)"/>
+ 	<define name="rom0_get_map()" value="bank_get_map(BANK_ROM0)"/>
+-	<define name="rom0_set_map(bank_id)" value="bank_get_map(BANK_ROM0, bank_id)"/>
++	<define name="rom0_set_map(bank_id)" value="bank_set_map(BANK_ROM0, bank_id)"/>
+ 	<define name="rom1_get_map()" value="bank_get_map(BANK_ROM1)"/>
+-	<define name="rom1_set_map(bank_id)" value="bank_get_map(BANK_ROM1, bank_id)"/>
++	<define name="rom1_set_map(bank_id)" value="bank_set_map(BANK_ROM1, bank_id)"/>
+ 
+ 	<function name="bank_set_map" type="interrupt" int="0x18">
+ 		<constant register="ah" value="0x00"/>
+@@ -45,7 +45,7 @@
+ 		<constant register="ah" value="0x04"/>
+ 		<argument name="bank_id" type="u16" register="bx">Bank ID</argument>
+ 		<argument name="offset" type="u16" register="dx">Offset within bank</argument>
+-		<return type="u8" register="ax">Word read</return>
++		<return type="u16" register="ax">Word read</return>
+ 	</function>
+ 	<function name="bank_write_word" type="interrupt" int="0x18">
+ 		<constant register="ah" value="0x05"/>
+diff --git a/headers/sys/disp.xml b/headers/sys/disp.xml
+--- a/headers/sys/disp.xml
++++ b/headers/sys/disp.xml
+@@ -32,8 +32,8 @@
+ 	<define name="LCDSEG_AUX3" value="0x20">Aux 3</define>
+ 
+ 	<comment>LCD sleep modes</comment>
+-	<define name="LCD_SLEEP_ON" value="0">Sleep on (display disabled)</define>
+-	<define name="LCD_SLEEP_OFF" value="1">Sleep off (display enabled)</define>
++	<define name="LCD_SLEEP_ON" value="1">Sleep on (display disabled)</define>
++	<define name="LCD_SLEEP_OFF" value="0">Sleep off (display enabled)</define>
+ 
+ 	<define name="lcd_on()" value="lcd_set_sleep(LCD_SLEEP_OFF)"/>
+ 	<define name="lcd_off()" value="lcd_set_sleep(LCD_SLEEP_ON)"/>
+diff --git a/headers/sys/system.xml b/headers/sys/system.xml
+--- a/headers/sys/system.xml
++++ b/headers/sys/system.xml
+@@ -29,7 +29,7 @@
+ 	</function>
+ 	<function name="sys_get_tick_count" type="interrupt" int="0x17">
+ 		<constant register="ah" value="0x03"/>
+-		<return type="u16" register="ax">Number of frames elapsed since system start.</return>
++		<return type="u32" register="dx:ax">Number of frames elapsed since system start.</return>
+ 	</function>
+ 	<function name="sys_sleep" type="interrupt" int="0x17">
+ 		<constant register="ah" value="0x04"/>
