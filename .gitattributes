@@ -1,2 +1,3 @@
 *.ws binary
 *.wsc binary
+*.patch whitespace=-blank-at-eol,-space-before-tab
