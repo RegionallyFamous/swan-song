@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Regionally Famous contributors
+
+[cartridge]
+publisher_id = 0x00
+game_id = 73
+game_version = 1
+
+save_type = "NONE"
+color = true
+rtc = false
+vertical = false
+
+rom_speed = 1
+rom_bus_width = 16

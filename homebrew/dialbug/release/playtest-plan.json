@@ -1,0 +1,33 @@
+{
+  "schema": "swan-song-frame-input-plan-v1",
+  "totalFrames": 2700,
+  "events": [
+    { "frameIndex": 0, "inputs": [] },
+    { "frameIndex": 300, "inputs": ["a"] },
+    { "frameIndex": 303, "inputs": [] },
+    { "frameIndex": 360, "inputs": ["a"] },
+    { "frameIndex": 363, "inputs": [] },
+    { "frameIndex": 480, "inputs": ["x4"] },
+    { "frameIndex": 483, "inputs": [] },
+    { "frameIndex": 540, "inputs": ["x2"] },
+    { "frameIndex": 543, "inputs": [] },
+    { "frameIndex": 600, "inputs": ["x2"] },
+    { "frameIndex": 603, "inputs": [] },
+    { "frameIndex": 1200, "inputs": ["x2"] },
+    { "frameIndex": 1203, "inputs": [] },
+    { "frameIndex": 1500, "inputs": ["y3"] },
+    { "frameIndex": 1503, "inputs": [] },
+    { "frameIndex": 1560, "inputs": ["y3"] },
+    { "frameIndex": 1563, "inputs": [] },
+    { "frameIndex": 1800, "inputs": ["x2"] },
+    { "frameIndex": 1803, "inputs": [] },
+    { "frameIndex": 2100, "inputs": ["y4"] },
+    { "frameIndex": 2103, "inputs": [] },
+    { "frameIndex": 2160, "inputs": ["y4"] },
+    { "frameIndex": 2163, "inputs": [] },
+    { "frameIndex": 2400, "inputs": ["start"] },
+    { "frameIndex": 2403, "inputs": [] },
+    { "frameIndex": 2520, "inputs": ["b"] },
+    { "frameIndex": 2523, "inputs": [] }
+  ]
+}

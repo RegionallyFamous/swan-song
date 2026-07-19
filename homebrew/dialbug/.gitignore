@@ -1,0 +1,9 @@
+build/
+__pycache__/
+dialbug.wsc
+dist/
+release/battery-glow-mednafen-proof.wav
+release/swansong-final-frame.png
+release/swansong-playtest-report.json
+release/verification-report.json
+release/tracks/
