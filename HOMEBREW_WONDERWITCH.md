@@ -114,6 +114,27 @@ in the final 64 KiB of a WonderWitch cartridge and FreyaOS in the preceding
 - [FreyaOS filesystem](https://ws.nesdev.org/wiki/WonderWitch/Filesystem)
 - [WonderWitch memory map](https://ws.nesdev.org/wiki/WonderWitch/Memory_map)
 
+### WWTM-derived SDK corrections
+
+The 2001 *Wonder Witch Technical Manual* and its Shift-JIS assembly includes
+document several low-level BIOS contracts that are absent or incorrectly typed
+in the current experimental `libww` headers. Swan Song carries a narrow,
+source-compatible overlay in [`sdk/wonderwitch-wwtm`](sdk/wonderwitch-wwtm/README.md).
+Put its `include` directory before Wonderful's target includes to correct:
+
+- the three bank-map setter macros, which otherwise call the getter with an
+  impossible second argument;
+- `bank_read_word()`, whose BIOS result is a 16-bit word in AX;
+- `sys_get_tick_count()`, whose BIOS result is a 32-bit VBlank count in DX:AX;
+  and
+- the symbolic LCD sleep values, whose reversed polarity otherwise makes the
+  `lcd_on()` and `lcd_off()` helpers do the opposite of their names.
+
+The focused contract is `python3 scripts/wonderwitch_sdk_contract_test.py`. It
+also compiles a real `wwitch` probe when `/opt/wonderful` is present. Manual
+claims that disagree with AthenaBIOS behavior are retained as research notes,
+not applied as speculative SDK changes.
+
 The current
 [Wonderful WonderWitch guide](https://wonderful.asie.pl/wiki/doku.php?id=wswan%3Aguide%3Awwitch)
 documents `mkrom` as the emulator/flash-cartridge path. Its required clean-room
