@@ -51,6 +51,26 @@ copyright holder or qualified reviewer.
   now binds those facts. This is strong build evidence, not an interpretation
   of Intel's agreements.
 
+## Yokoi hardware-support source
+
+The `firmware/yokoi-bootfriend` and `firmware/yokoi-cart-service` directories
+are separately executable WonderSwan programs published under
+GPL-3.0-or-later. Their directory-local `COPYING` files, source notices,
+build instructions, tests, protocol, and provenance define that scope. The
+BootFriend-derived loader records its exact upstream commit and dated Yokoi
+modification notice in `firmware/yokoi-bootfriend/UPSTREAM.md`.
+
+`firmware/yokoi-bootfriend/hardware.inc` retains its zlib-style upstream
+notice. The installer and cartridge-service Makefiles retain their stated CC0
+Wonderful template notices. The Yokoi logo PNG is corresponding-source input
+for the loader and is licensed under GPL-3.0-or-later for that purpose; no
+trademark rights are granted.
+
+These firmware programs run on the WonderSwan and communicate with host tools
+over documented serial protocols. Their publication does not change the
+licenses of the FPGA core or its other components, and it does not resolve or
+override the separate Swan Song core binary-distribution blockers below.
+
 ## Blocking decisions
 
 1. **Project contribution declaration.** Regionally Famous must declare a

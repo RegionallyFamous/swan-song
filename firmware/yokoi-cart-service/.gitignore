@@ -1,0 +1,5 @@
+/build/
+/compile_commands.json
+/yokoi-cart-service.bfb
+__pycache__/
+*.pyc

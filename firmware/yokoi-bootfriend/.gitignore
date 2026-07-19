@@ -1,0 +1,8 @@
+/build/
+/yokoi_boot.bin
+/yokoi_boot_template.bin
+/installer/build/
+/installer/compile_commands.json
+/installer/yokoi_boot_installer.wsc
+__pycache__/
+*.pyc
