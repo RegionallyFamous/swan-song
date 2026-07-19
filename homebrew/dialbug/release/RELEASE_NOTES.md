@@ -1,4 +1,4 @@
-# Dialbug 0.1.0 development preview
+# Dialbug 0.1.0
 
 Dialbug is a playable, self-contained WonderSwan Color music-player ROM with
 five original chiptunes:
@@ -38,4 +38,10 @@ mascot artwork.
 
 - No physical WonderSwan, WonderSwan Color, SwanCrystal, flash cartridge,
   Analogue Pocket, or Dock test has been performed.
-- Public distribution remains pending a maintainer license declaration.
+
+## Distribution
+
+- Public distribution is authorized under GPL-3.0-or-later.
+- The release archive includes the ROM, complete corresponding Dialbug source,
+  license text, third-party notices, deterministic verification report, and
+  SwanSong/Mednafen evidence.

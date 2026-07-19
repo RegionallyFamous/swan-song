@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Regionally Famous contributors
+
 WONDERFUL_TOOLCHAIN ?= /opt/wonderful
 TARGET := wswan/medium
 include $(WONDERFUL_TOOLCHAIN)/target/$(TARGET)/makedefs.mk

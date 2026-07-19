@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Regionally Famous contributors
+
 #ifndef HUMMING_CAT_REFRAIN_MUSIC_H
 #define HUMMING_CAT_REFRAIN_MUSIC_H
 

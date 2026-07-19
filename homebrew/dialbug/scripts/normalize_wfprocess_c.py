@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Regionally Famous contributors
 """Normalize wf-process symbol order so clean ROM builds are reproducible."""
 
 from __future__ import annotations

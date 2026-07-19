@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Regionally Famous contributors
 """Validate the Dialbug ROM, emulator evidence, and audio proof."""
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ ROM = ROOT / "dialbug.wsc"
 RELEASE = ROOT / "release"
 WAV = RELEASE / "battery-glow-mednafen-proof.wav"
 ALL_REPORT = RELEASE / "swansong-playtest-report.json"
+ALL_PLAN = RELEASE / "playtest-plan.json"
 OUTPUT = RELEASE / "verification-report.json"
 INTERFACE_MASTER = ROOT / "assets/source-art/dialbug-sd-mobile-suit-imagegen-v5.png"
 INTERFACE_RUNTIME = ROOT / "assets/runtime/dialbug-sd-mascot-v5.png"
@@ -239,9 +242,15 @@ def inspect_swansong(rom_sha256: str) -> dict[str, object]:
         raise ValueError("per-song final audio windows are not distinct")
 
     all_report = json.loads(ALL_REPORT.read_text(encoding="utf-8"))
+    all_plan = json.loads(ALL_PLAN.read_text(encoding="utf-8"))
     if all_report.get("romSHA256") != rom_sha256:
         raise ValueError("all-controls Swan Song report is bound to a different ROM")
-    if all_report.get("scheduledInputTransitions") != 21:
+    if all_plan.get("schema") != "swan-song-frame-input-plan-v1":
+        raise ValueError("all-controls input plan has an unexpected schema")
+    expected_transitions = len(all_plan.get("events", []))
+    if all_report.get("plan") != all_plan:
+        raise ValueError("all-controls Swan Song report does not contain the release input plan")
+    if all_report.get("scheduledInputTransitions") != expected_transitions:
         raise ValueError("all-controls input plan did not execute every transition")
     if all_report.get("audio", {}).get("nonzeroSamples", 0) <= 0:
         raise ValueError("all-controls Swan Song report has no audio")
@@ -260,12 +269,17 @@ def inspect_swansong(rom_sha256: str) -> dict[str, object]:
 
 def source_facts() -> list[dict[str, object]]:
     paths = [
+        ROOT / "COPYING",
+        ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "CREDITS.md",
+        ROOT / "README.md",
         ROOT / "Makefile",
         ROOT / "wfconfig.toml",
         ROOT / "scripts" / "build_interface_art.py",
         ROOT / "scripts" / "normalize_wfprocess_c.py",
         *sorted((ROOT / "src").glob("*.[ch]")),
         *sorted(path for path in (ROOT / "assets").rglob("*") if path.is_file()),
+        *sorted(path for path in (ROOT / "music").rglob("*") if path.is_file()),
     ]
     return [
         {
@@ -288,7 +302,7 @@ def main() -> int:
     report = {
         "schema": "dialbug-release-verification-v1",
         "status": "pass",
-        "release": "0.1.0-development-preview",
+        "release": "0.1.0",
         "rom": rom,
         "soundtrack": {
             "songCount": len(SONGS),
@@ -304,11 +318,26 @@ def main() -> int:
         "sourceFiles": source_facts(),
         "physicalHardware": {
             "status": "pending",
-            "claim": "No physical WonderSwan-family or flash-cartridge test has been performed.",
+            "releaseImpact": "Does not block the emulator-qualified 0.1.0 release.",
+            "claim": "No physical WonderSwan-family or flash-cartridge compatibility claim is made.",
         },
         "licensing": {
-            "status": "pending-maintainer-declaration",
-            "publicDistributionAuthorized": False,
+            "status": "authorized",
+            "license": "GPL-3.0-or-later",
+            "publicDistributionAuthorized": True,
+            "correspondingSourceIncluded": True,
+            "linkedLibraries": [
+                {
+                    "component": "Wonderful target-wswan-syslibs",
+                    "license": "Zlib",
+                    "notice": "THIRD_PARTY_NOTICES.md",
+                },
+                {
+                    "component": "Wonderful IA-16 GCC runtime",
+                    "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+                    "notice": "THIRD_PARTY_NOTICES.md",
+                },
+            ],
         },
     }
     output = args.output.resolve()

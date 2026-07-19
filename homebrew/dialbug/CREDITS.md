@@ -9,7 +9,8 @@
   04, May 12, 2002. It is credited as a technical research reference, not as
   Dialbug's name, mascot, artwork, soundtrack, or distributed code.
 - Wonderful Toolchain and WonderSwan system libraries: Adrian “asie” Siekierka
-  and contributors.
+  and contributors; linked system libraries are zlib-licensed and the GCC
+  runtime uses the GCC Runtime Library Exception. See `THIRD_PARTY_NOTICES.md`.
 - Swan Song desktop playtest engine: its bundled pinned ares backend and Swan
   Song contributors, with exact build identity recorded in release evidence.
 - Mednafen: independent WonderSwan boot, checksum, and WAV-recording proof.
@@ -19,3 +20,6 @@ Humming Cat research reference:
 
 No Humming Cat binary, compiler, sample song data, name treatment, or mascot art
 is included in Dialbug.
+
+Dialbug's project-authored material is released under GPL-3.0-or-later. See
+`COPYING` and `release/LICENSE_STATUS.md`.

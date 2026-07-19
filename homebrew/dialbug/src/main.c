@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Regionally Famous contributors
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>

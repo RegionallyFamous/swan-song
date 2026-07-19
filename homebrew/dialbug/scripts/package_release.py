@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Create a deterministic, source-inclusive local preview package."""
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Regionally Famous contributors
+"""Create the deterministic, source-inclusive Dialbug public release."""
 
 from __future__ import annotations
 
@@ -12,7 +14,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-NAME = "dialbug-0.1.0-preview"
+RELEASE_VERSION = "0.1.0"
+LICENSE_ID = "GPL-3.0-or-later"
+NAME = f"dialbug-{RELEASE_VERSION}"
 ROM_SOURCE = ROOT / "dialbug.wsc"
 
 
@@ -29,6 +33,8 @@ def package_files() -> list[Path]:
         ROOT / "dialbug.wsc",
         ROOT / "README.md",
         ROOT / "CREDITS.md",
+        ROOT / "COPYING",
+        ROOT / "THIRD_PARTY_NOTICES.md",
         ROOT / "Makefile",
         ROOT / "wfconfig.toml",
         ROOT / "scripts" / "verify_release.py",
@@ -46,6 +52,7 @@ def package_files() -> list[Path]:
     ]
     files.extend(sorted((ROOT / "src").glob("*.[ch]")))
     files.extend(sorted(path for path in (ROOT / "assets").rglob("*") if path.is_file()))
+    files.extend(sorted(path for path in (ROOT / "music").rglob("*") if path.is_file()))
     files.extend(sorted((ROOT / "release" / "plans").glob("*.json")))
     files.extend(sorted((ROOT / "release" / "tracks").glob("*")))
     missing = [path for path in files if not path.is_file()]
@@ -67,8 +74,10 @@ def main() -> int:
     files = package_files()
     manifest = {
         "schema": "dialbug-package-manifest-v1",
-        "release": "0.1.0-development-preview",
-        "publicDistributionAuthorized": False,
+        "release": RELEASE_VERSION,
+        "license": LICENSE_ID,
+        "publicDistributionAuthorized": True,
+        "correspondingSourceIncluded": True,
         "files": [
             {
                 "path": path.relative_to(ROOT).as_posix(),

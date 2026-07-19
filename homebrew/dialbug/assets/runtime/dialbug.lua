@@ -1,3 +1,6 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
+-- Copyright (C) 2026 Regionally Famous contributors
+
 local process = require("wf.api.v1.process")
 local superfamiconv = require("wf.api.v1.process.tools.superfamiconv")
 

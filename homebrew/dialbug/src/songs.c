@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Regionally Famous contributors
+
 #include "music.h"
 
 #define N { DIALBUG_NOTE_NONE, 0, 0, 0 }

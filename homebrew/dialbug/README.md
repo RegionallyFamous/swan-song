@@ -53,6 +53,9 @@ for this project.
 
 ## Status
 
-This is a development preview. Do not claim physical WonderSwan-family,
-flash-cartridge, Analogue Pocket, or Dock compatibility until the hardware
-checks in `release/` have been completed.
+Version 0.1.0 is an emulator-qualified public release under
+GPL-3.0-or-later. Its deterministic package includes the ROM, complete
+corresponding Dialbug source, license, notices, and hash-bound evidence.
+
+Do not claim physical WonderSwan-family, flash-cartridge, Analogue Pocket, or
+Dock compatibility until the hardware checks in `release/` have been completed.

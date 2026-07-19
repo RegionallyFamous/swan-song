@@ -7,6 +7,10 @@
     { "frameIndex": 303, "inputs": [] },
     { "frameIndex": 360, "inputs": ["a"] },
     { "frameIndex": 363, "inputs": [] },
+    { "frameIndex": 480, "inputs": ["x4"] },
+    { "frameIndex": 483, "inputs": [] },
+    { "frameIndex": 540, "inputs": ["x2"] },
+    { "frameIndex": 543, "inputs": [] },
     { "frameIndex": 600, "inputs": ["x2"] },
     { "frameIndex": 603, "inputs": [] },
     { "frameIndex": 1200, "inputs": ["x2"] },
@@ -22,6 +26,8 @@
     { "frameIndex": 2160, "inputs": ["y4"] },
     { "frameIndex": 2163, "inputs": [] },
     { "frameIndex": 2400, "inputs": ["start"] },
-    { "frameIndex": 2403, "inputs": [] }
+    { "frameIndex": 2403, "inputs": [] },
+    { "frameIndex": 2520, "inputs": ["b"] },
+    { "frameIndex": 2523, "inputs": [] }
   ]
 }
