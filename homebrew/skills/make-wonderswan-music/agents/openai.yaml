@@ -1,0 +1,4 @@
+interface:
+  display_name: "Make WonderSwan Music"
+  short_description: "Compose and validate native WonderSwan chiptunes"
+  default_prompt: "Use $make-wonderswan-music to compose and validate a new four-channel WonderSwan track."

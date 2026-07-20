@@ -1,0 +1,19 @@
+{
+  "schema": "swanframe-ui-concept-provenance-v2",
+  "asset": "swanframe-ui-concept-v2-night-drive.png",
+  "created": "2026-07-20",
+  "generator": "OpenAI ImageGen built-in tool",
+  "mode": "reference-guided-ui-colorway-edit",
+  "purpose": "Night Drive four-color art direction for the native SWANFRAME WonderSwan player",
+  "prompt": "swanframe-ui-concept-v2-night-drive.prompt.md",
+  "references": [
+    "swanframe-ui-concept-v1.png",
+    "swanframe-sd-mobile-suit-imagegen-v5.png"
+  ],
+  "palette": ["#08061c", "#292451", "#f04aa6", "#65f3c3"],
+  "runtimeUse": "Palette and hierarchy reference; graphics and live information are rendered natively by the ROM",
+  "originality": {
+    "kept": ["SWANFRAME silhouette", "asymmetric tuning antenna", "cockpit-player hierarchy"],
+    "avoided": ["named Gundam replica", "franchise marks", "V-fin", "copied Humming Cat interface"]
+  }
+}

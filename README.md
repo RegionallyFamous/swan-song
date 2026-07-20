@@ -160,6 +160,16 @@ Hub](https://github.com/RegionallyFamous/swansong-core/wiki/Developer-Hub).
 Release owners and reviewers should use the checked-in
 [release decision record](RELEASE_DECISIONS.md).
 
+### Original homebrew showcase
+
+The repository also includes [SWANFRAME](homebrew/swanframe/README.md), an
+original five-track WonderSwan Color chiptune-player ROM, plus the reusable
+[Make WonderSwan Music](homebrew/skills/make-wonderswan-music/SKILL.md) skill
+used to research, compose, lint, and validate its soundtrack. SWANFRAME is a
+separate GPLv3 homebrew release, not a Swan Song core release. Its checked-in
+source and release recipe carry emulator evidence only; physical WonderSwan,
+Pocket, and Dock testing remain pending.
+
 ### Something not working?
 
 With the Pocket SD card mounted, open Terminal in a downloaded Swan Song source

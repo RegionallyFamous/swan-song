@@ -50,6 +50,8 @@ porting](https://github.com/RegionallyFamous/swansong-core/blob/main/PORTING.md)
 | Color and temporal response | [SCREEN_AUTHENTICITY.md](https://github.com/RegionallyFamous/swansong-core/blob/main/SCREEN_AUTHENTICITY.md) |
 | Memories/save-state work | [SAVESTATE_FORMAT.md](https://github.com/RegionallyFamous/swansong-core/blob/main/SAVESTATE_FORMAT.md), [SAVESTATE_V2_FORMAT.md](https://github.com/RegionallyFamous/swansong-core/blob/main/SAVESTATE_V2_FORMAT.md), [MEMORIES_STAGING.md](https://github.com/RegionallyFamous/swansong-core/blob/main/MEMORIES_STAGING.md) |
 | Homebrew and WonderWitch | [HOMEBREW_WONDERWITCH.md](https://github.com/RegionallyFamous/swansong-core/blob/main/HOMEBREW_WONDERWITCH.md) |
+| Original homebrew showcase | [SWANFRAME](https://github.com/RegionallyFamous/swansong-core/blob/main/homebrew/swanframe/README.md) |
+| WonderSwan music workflow | [Make WonderSwan Music skill](https://github.com/RegionallyFamous/swansong-core/blob/main/homebrew/skills/make-wonderswan-music/SKILL.md) |
 | Physical QA | [HARDWARE_QA_PROTOCOL.md](https://github.com/RegionallyFamous/swansong-core/blob/main/HARDWARE_QA_PROTOCOL.md), [KNOWN_TITLE_COMPATIBILITY.md](https://github.com/RegionallyFamous/swansong-core/blob/main/KNOWN_TITLE_COMPATIBILITY.md) |
 
 ## Contribution principles

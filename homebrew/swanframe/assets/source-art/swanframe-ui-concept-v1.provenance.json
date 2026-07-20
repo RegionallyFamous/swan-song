@@ -1,0 +1,18 @@
+{
+  "schema": "swanframe-ui-concept-provenance-v1",
+  "asset": "swanframe-ui-concept-v1.png",
+  "created": "2026-07-20",
+  "generator": "OpenAI ImageGen built-in tool",
+  "mode": "reference-guided-ui-generation",
+  "purpose": "Art direction and information hierarchy for the native SWANFRAME WonderSwan player UI",
+  "prompt": "swanframe-ui-concept-v1.prompt.md",
+  "references": [
+    "../../release/tracks/song-1-frame.png",
+    "swanframe-sd-mobile-suit-imagegen-v5.png"
+  ],
+  "runtimeUse": "Layout reference only; the ROM reconstructs the interface with native tiles and dynamic code",
+  "originality": {
+    "kept": ["SWANFRAME mascot identity", "amber/cyan/navy palette", "music-player controls"],
+    "avoided": ["named Gundam replica", "franchise marks", "V-fin", "copied Humming Cat interface"]
+  }
+}

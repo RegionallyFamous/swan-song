@@ -85,3 +85,10 @@ coverage. WonderWitch `.fx` programs need a FreyaBIOS/FreyaOS filesystem and
 flash-cartridge environment that Swan Song does not currently provide. See the
 [homebrew and WonderWitch
 guide](https://github.com/RegionallyFamous/swansong-core/blob/main/HOMEBREW_WONDERWITCH.md).
+
+The repository's original [SWANFRAME music-player
+ROM](https://github.com/RegionallyFamous/swansong-core/blob/main/homebrew/swanframe/README.md)
+is built with Wonderful and has per-track ares captures, audio checks, and
+deterministic-build evidence in its release recipe. Those artifacts validate
+the homebrew itself in emulation; they do not claim physical Pocket, Dock,
+flash-cartridge, or Swan Song FPGA compatibility.
